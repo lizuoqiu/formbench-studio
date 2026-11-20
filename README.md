@@ -9,3 +9,5 @@
 采购页可记录商品、外壳报价与装配安排，再导出加购清单。确认商品后通过淘宝官方加购链接或商品页完成加购，详见 [加购助手](tools/taobao-cart.md)。只询价不排产；未取得真实报价和购物车核对前，不应据此付款。
 
 团队私有云后端的部署说明见 [Cloudflare Worker](server/private-deployment.md)。公开演示无需登录，不使用团队额度。
+
+机械页提供 Pico 参考外壳的独立 ForgeCAD 参数源码、STL 和 STEP。参见 [Forge 模型与尺寸](forge/README.md) 和 [本机重新计算](docs/local-forge.md)。采购候选和可下载 CAD 都不代表实物已装配通过。

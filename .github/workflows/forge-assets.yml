@@ -30,6 +30,8 @@ jobs:
               test -s "$RUNNER_TEMP/geometry/pico-$part.$format"
             done
           done
+      - name: Verify local HTTP export with changed dimensions
+        run: FORGECAD_BIN="$RUNNER_TEMP/forge-tools/node_modules/.bin/forgecad" node tools/verify-forge.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: forge-reference-geometry
