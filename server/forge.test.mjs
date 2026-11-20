@@ -1,3 +1,4 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {forge} from './forge.mjs';
 const req=p=>new Request('http://127.0.0.1/api/forge',{method:'POST',body:JSON.stringify(p)});
 test('local CAD accepts trusted part/size inputs only',async()=>{for(const patch of [{source:'return box()'},{w:101},{d:'32'},{part:'../other'}])assert.equal((await forge(req({part:'base',w:64,d:32,h:17,...patch}),{})).status,400)});
+test('real CLI regenerates a 76 mm lid as binary STL',{skip:!process.env.FORGECAD_BIN},async()=>{const res=await forge(req({part:'lid',w:76,d:32,h:17}),process.env);assert.equal(res.status,200);const b=Buffer.from(await res.arrayBuffer()),n=b.readUInt32LE(80);let lo=Infinity,hi=-Infinity;for(let i=0;i<n;i++)for(let k=0;k<3;k++){const x=b.readFloatLE(96+50*i+k*12);lo=Math.min(lo,x);hi=Math.max(hi,x)}assert.ok(Math.abs(hi-lo-76)<1e-3)});

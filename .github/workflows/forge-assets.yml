@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['forge/*.forge.js', '.github/workflows/forge-assets.yml']
+    paths: ['forge/*.forge.js', 'server/forge*.mjs', '.github/workflows/forge-assets.yml']
 permissions:
   contents: read
 jobs:
@@ -17,6 +17,8 @@ jobs:
           node-version: 22
       - name: Install pinned CLI
         run: npm install --prefix "$RUNNER_TEMP/forge-tools" forgecad@0.13.0 --legacy-peer-deps --no-audit --no-fund
+      - name: Verify live CAD parameter export
+        run: FORGECAD_BIN="$RUNNER_TEMP/forge-tools/node_modules/.bin/forgecad" node --test server/forge.test.mjs
       - name: Export reference geometry
         shell: bash
         run: |
