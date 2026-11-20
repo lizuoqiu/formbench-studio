@@ -1,0 +1,30 @@
+name: Export Pico reference models with ForgeCAD
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pinned CLI
+        run: npm install --prefix "$RUNNER_TEMP/forge-tools" forgecad@0.13.0 --legacy-peer-deps --no-audit --no-fund
+      - name: Export reference geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/geometry"
+          for part in base lid; do
+            for format in stl step; do
+              "$RUNNER_TEMP/forge-tools/node_modules/.bin/forgecad" export "$format" "forge/pico-$part.forge.js" --output "$RUNNER_TEMP/geometry/pico-$part.$format"
+              test -s "$RUNNER_TEMP/geometry/pico-$part.$format"
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-reference-geometry
+          path: ${{ runner.temp }}/geometry/
