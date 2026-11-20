@@ -1,0 +1,5 @@
+{
+  "name": "formbench-hardware-studio",
+  "compatibility_date": "2026-11-20",
+  "assets": {"directory": "./dist"}
+}

@@ -1,0 +1,9 @@
+export async function design(request, env) {
+ const send=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}});
+ if(request.method!=='POST')return send({error:'只支持 POST。'},405);
+ if(!env.OPENAI_API_KEY || !env.OPENAI_MODEL)return send({error:'模型尚未连接，请配置服务端密钥和实际可用的模型 ID。'},503);
+ if(env.PUBLIC_WORKER==='1' && !(request.headers.get('Cf-Access-Jwt-Assertion') && env.ACCESS_PROTECTED==='1'))return send({error:'须先配置 Cloudflare Access 保护。'},403);
+ let body;try{body=await request.json()}catch{return send({error:'无效的请求。'},400)}
+ const prompt=body?.prompt;if(typeof prompt!=='string'||!prompt.trim()||prompt.length>10000)return send({error:'设计说明须在 1–10000 字之间。'},400);
+ try{const r=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:env.OPENAI_MODEL,input:prompt,instructions:'你是硬件研究设计助手。用中文提出候选硬件设计，区分未验证假设，不虚构在售型号、验证结果、购物车、商家或实时报价。输出 name summary parts(name spec qty) steps。',text:{format:{type:'json_schema',name:'design',strict:true,schema:{type:'object',additionalProperties:false,properties:{name:{type:'string'},summary:{type:'string'},parts:{type:'array',items:{type:'object',additionalProperties:false,properties:{name:{type:'string'},spec:{type:'string'},qty:{type:'integer'}},required:['name','spec','qty']}},steps:{type:'array',items:{type:'string'}}},required:['name','summary','parts','steps']}}}}),signal:AbortSignal.timeout(90000)});if(!r.ok)return send({error:`模型服务返回 ${r.status}；请检查额度、权限及模型 ID。`},502);const j=await r.json();const x=JSON.parse(j.output?.flatMap(i=>i.content||[]).filter(i=>i.type==='output_text').map(i=>i.text).join(''));if(!x.name||!Array.isArray(x.parts)||!Array.isArray(x.steps))throw Error();return send({design:x})}catch{return send({error:'模型请求超时或返回了无效设计。'},502)}
+}
