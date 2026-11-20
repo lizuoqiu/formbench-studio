@@ -1,5 +1,9 @@
 name: Export Pico reference models with ForgeCAD
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['forge/*.forge.js', '.github/workflows/forge-assets.yml']
 permissions:
   contents: read
 jobs:
