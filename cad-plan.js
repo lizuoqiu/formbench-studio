@@ -6,7 +6,7 @@ export function validateCadPlan(plan,partCount=60){
  if(!exact(plan,['version','bodies'])||plan.version!==1||!Array.isArray(plan.bodies)||plan.bodies.length>40)bad();
  let n=0;for(const b of plan.bodies){
  if(!exact(b,['name','partIndex','role','positionMm','features'])||typeof b.name!=='string'||!b.name.trim()||b.name.length>200||!Number.isInteger(b.partIndex)||b.partIndex<0||b.partIndex>=partCount||!roles.includes(b.role)||!isvec(b.positionMm,-2000,2000)||!Array.isArray(b.features)||!b.features.length||b.features.length>40||(n+=b.features.length)>240||b.features[0]?.op!=='add')bad();
- for(const f of b.features)if(!exact(f,['op','shape','sizeMm','centerMm'])||!ops.includes(f.op)||!shapes.includes(f.shape)||!isvec(f.sizeMm,.1,2000)||!isvec(f.centerMm,-2000,2000)||(f.shape==='cylinder'&&Math.abs(f.sizeMm[0]-f.sizeMm[1])>1e-6))bad();
+ for(const f of b.features)if(!(exact(f,['op','shape','sizeMm','centerMm'])||(exact(f,['op','shape','sizeMm','centerMm','rotationDeg'])&&isvec(f.rotationDeg,-360,360)))||!ops.includes(f.op)||!shapes.includes(f.shape)||!isvec(f.sizeMm,.1,2000)||!isvec(f.centerMm,-2000,2000)||(f.shape==='cylinder'&&Math.abs(f.sizeMm[0]-f.sizeMm[1])>1e-6))bad();
  }
  return plan;
 }
