@@ -36,9 +36,9 @@ export function matchXiaoS3Reference(part) {
   const identity=[part.name,part.model].filter(s=>typeof s==='string').join(' ').normalize('NFKC').replace(/[‐‑–]/g,'-');
   if(!/\bXIAO[\s_-]*ESP32[\s_-]*S3(?![a-z0-9+])/i.test(identity))return null;
   const description=[identity,part.spec].join(' ').normalize('NFKC')
-    .replace(/(?:非|不含|不带|无|without\s+|non[-\s]?)\s*(?:Sense\b|Plus\b|摄像头|camera\b)/gi,' ')
+    .replace(/(?:非|不含|不带|无|without\s+(?:the\s+|an?\s+)?|no\s+|non[-\s]?)\s*(?:Sense\b(?:\s*(?:扩展板|expansion\s+board\b))?|Plus\b|摄像头|camera\b|扩展板|expansion\s+board\b)/gi,' ')
     .replace(/(?:无|不带|不含|未焊|未预焊|未装)(?:接)?排针|\b(?:no (?:pin )?headers?|without (?:pin )?headers?|headerless|unsoldered)\b/gi,' ');
-  if(/Sense|Plus|S3\s*\+|摄像头|camera|ESP32[\s_-]*(?:C\d|S2)|RP2040|nRF52840|兼容板|替代板|仿制|clone|carrier|扩展板|expansion board|排针|预焊|pre[ -]?soldered|\bheaders?\b/i.test(description))return null;
+  if(/\b113991115\b|Sense|Plus|S3\s*\+|摄像头|camera|ESP32[\s_-]*(?:C\d|S2)|RP2040|nRF52840|兼容板|替代板|仿制|clone|carrier|扩展板|expansion board|排针|预焊|pre[ -]?soldered|\bheaders?\b/i.test(description))return null;
   return id;
 }
 export function matchHardware(part) {

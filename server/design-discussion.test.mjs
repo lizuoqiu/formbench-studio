@@ -1,3 +1,4 @@
+import {reviewedFixture} from './test-fixtures/design-review.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {design} from './design.mjs';
@@ -5,7 +6,9 @@ import {readDesignRequest} from './design-conversation.mjs';
 const env={OPENAI_MODEL:'test-model',OPENAI_API_KEY:'test'};
 const req=body=>new Request('https://unit.test/api/design',{method:'POST',body:JSON.stringify(body)});
 const sendResult=(value,check=()=>{})=>async(_url,options)=>{
- check(JSON.parse(options.body));
+ const input=JSON.parse(options.body),review=reviewedFixture(input);
+ if(review)return review;
+ check(input);
  return Response.json({status:'completed',model:env.OPENAI_MODEL,output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(value)}]}]});
 };
 const decision={decision:'ask',question:'希望装置佩戴在手上，还是放在桌面？',options:['戴在手上','放在桌面']};
@@ -77,8 +80,10 @@ test('a revised single powered stroke follows the latest unambiguous world direc
  const build=axis=>{
   const assembly=structuredClone(base);
   assembly.deviceMotion='powered-linear';
-  assembly.parts.push({...part,name:'导向驱动模组'});
-  assembly.cadPlan.bodies.push({...body,partIndex:1,name:'固定导向'});
+  assembly.parts.push({...part,name:'导向驱动模组',sizeMm:[90,90,4]});
+  const ring=(op,diameter,height)=>({op,shape:'cylinder',sizeMm:[diameter,diameter,height],centerMm:[0,0,0],rotationDeg:[0,0,0]});
+  // A through-bore leaves room for the pad throughout the tested 12 mm strokes.
+  assembly.cadPlan.bodies.push({...body,partIndex:1,name:'固定导向环',features:[ring('add',90,4),ring('cut',80,6)]});
   assembly.cadPlan.motions=[{type:'prismatic',name:'触面伸缩',axis,travelMm:12,movingBodyIndices:[0],actuatorPartIndex:1,guidePartIndex:1,controllerPartIndex:1}];
   return assembly;
  };
@@ -112,7 +117,7 @@ test('a revised single powered stroke follows the latest unambiguous world direc
   assert.equal(r.status,200,text);
  }
  const multi=build([1,0,0]);
- multi.cadPlan.bodies.push({...body,partIndex:0,name:'第二滑台'});
+ multi.cadPlan.bodies.push({...body,partIndex:0,name:'第二滑台',positionMm:[0,100,0]});
  multi.cadPlan.motions.push({...multi.cadPlan.motions[0],name:'升降',axis:[0,0,1],movingBodyIndices:[2]});
  assert.equal((await response(request,sendResult(multi))).status,200);
 });

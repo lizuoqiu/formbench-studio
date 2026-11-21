@@ -22,34 +22,46 @@ function toBase64(bytes){
   const groups=[];for(let i=0;i<bytes.length;i+=24576)groups.push(btoa(String.fromCharCode(...bytes.subarray(i,i+24576))));
   return groups.join('');
 }
+export async function initializeCadKernel(){
+  const lib=await initManifold();lib.setup();return lib;
+}
+
+// The caller owns the returned local-space solid, including on the review path.
+export function buildCadSolid(lib,body){
+  const M=lib.Manifold;let solid=null;
+  try{
+    for(const f of body.features){
+      const [w,d,h]=f.sizeMm;
+      let primitive;
+      if(f.shape==='box')primitive=M.cube([w,d,h],true);
+      else if(f.shape==='cylinder'){const unit=M.cylinder(h,1,1,segments,true);try{primitive=unit.scale([w/2,d/2,1])}finally{unit.delete()}}
+      else if(f.shape==='ellipsoid'){const unit=M.sphere(1,segments);try{primitive=unit.scale([w/2,d/2,h/2])}finally{unit.delete()}}
+      else primitive=manifoldNativeFeature(lib,f,segments);
+      if(!primitive)throw Error('未知几何图元。');
+      if(f.rotationDeg?.some(angle=>angle!==0)){
+        const rotated=primitive.rotate(f.rotationDeg);primitive.delete();primitive=rotated;
+      }
+      const next=primitive.translate(f.centerMm);primitive.delete();
+      if(!solid){if(f.op!=='add'){next.delete();throw Error('首个特征须为添加实体。')}solid=next}
+      else {const previous=solid;solid=null;try{solid=f.op==='cut'?previous.subtract(next):previous.add(next)}finally{previous.delete();next.delete()}}
+    }
+    if(!solid||solid.status()!=='NoError'||solid.isEmpty()||!(solid.volume()>0))throw Error('布尔操作没有留下有效实体，请调整尺寸或切除位置。');
+    return solid;
+  }catch(error){solid?.delete();throw error;}
+}
+
 export async function compileCadPlan(plan,onProgress){
   validateCadPlan(plan);if(!plan.bodies.length)throw Error('CAD 计划缺少可编译的实体。');
-  const lib=await initManifold();lib.setup();const M=lib.Manifold;let remaining=maxBytes;
+  const lib=await initializeCadKernel();let remaining=maxBytes;
   const bodies=[];
   for(const [index,body] of plan.bodies.entries()){
     onProgress?.(cadBodyProgress(plan,index,'start'));
-    let solid=null;
+    const solid=buildCadSolid(lib,body);
     const {partIndex,name,role,positionMm}=body;
     try{
-      for(const f of body.features){
-        const [w,d,h]=f.sizeMm;
-        let primitive;
-        if(f.shape==='box')primitive=M.cube([w,d,h],true);
-        else if(f.shape==='cylinder'){const unit=M.cylinder(h,1,1,segments,true);try{primitive=unit.scale([w/2,d/2,1])}finally{unit.delete()}}
-        else if(f.shape==='ellipsoid'){const unit=M.sphere(1,segments);try{primitive=unit.scale([w/2,d/2,h/2])}finally{unit.delete()}}
-        else primitive=manifoldNativeFeature(lib,f,segments);
-        if(!primitive)throw Error('未知几何图元。');
-        if(f.rotationDeg?.some(angle=>angle!==0)){
-          const rotated=primitive.rotate(f.rotationDeg);primitive.delete();primitive=rotated;
-        }
-        const next=primitive.translate(f.centerMm);primitive.delete();
-        if(!solid){if(f.op!=='add'){next.delete();throw Error('首个特征须为添加实体。')}solid=next}
-        else {const previous=solid;try{solid=f.op==='cut'?solid.subtract(next):solid.add(next)}finally{previous.delete();next.delete()}}
-      }
-      if(!solid||solid.status()!=='NoError'||solid.isEmpty()||!(solid.volume()>0))throw Error('布尔操作没有留下有效实体，请调整尺寸或切除位置。');
       const file=binaryStl(solid.getMesh(),remaining);remaining-=file.length;
       bodies.push({partIndex,name,role,positionMm,fileName:'part-'+(partIndex+1)+'-body-'+(bodies.length+1)+'.stl',stlBase64:toBase64(file)});
-    }finally{solid?.delete();}
+    }finally{solid.delete();}
     onProgress?.(cadBodyProgress(plan,index,'finish'));
   }
   return {engine,units:'mm',bodies};

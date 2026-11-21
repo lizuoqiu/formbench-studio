@@ -27,7 +27,7 @@ function shortlist(value){
 }
 function mechanicalInput(ctx,inherited){
  return {requirement:ctx.prompt,feedback:ctx.history.filter(t=>t.role==='user').map(t=>t.text),
-  ...(ctx.baseDesign?{previousParts:ctx.baseDesign.parts.map(p=>({name:p.name,model:p.model,spec:p.spec,modelId:p.modelId,
+  ...((ctx.repairCandidate?.design||ctx.baseDesign)?{previousParts:(ctx.repairCandidate?.design||ctx.baseDesign).parts.map(p=>({name:p.name,model:p.model,spec:p.spec,modelId:p.modelId,
    ...(p.dimensionSourceUrl&&!p.modelId?{mechanicalData:inherited.some(r=>matchesModel(p,r))?'available':'recheck'}:{})}))}:{})};
 }
 function normalizedUrl(value){
@@ -135,8 +135,12 @@ function combinedRecords(candidates,fresh,inherited,status){
  }
  return {candidates,records,status,found:fresh.length,inherited:priorModels.size};
 }
+export async function retainedMechanicalEvidence(ctx,env){
+ const inherited=await inheritedRecords([...(ctx.repairCandidate?.design.parts||[]),...(ctx.baseDesign?.parts||[])],env.OPENAI_API_KEY);
+ return combinedRecords([],[],inherited,'no-candidates');
+}
 export async function sourceMechanicalEvidence(ctx,env,send,signal){
- const inherited=await inheritedRecords(ctx.baseDesign?.parts,env.OPENAI_API_KEY);
+ const inherited=await inheritedRecords([...(ctx.repairCandidate?.design.parts||[]),...(ctx.baseDesign?.parts||[])],env.OPENAI_API_KEY);
  const timeout=AbortSignal.timeout(75_000),stageSignal=AbortSignal.any([signal,timeout]);
  const call=async input=>{
   const response=await send('https://api.openai.com/v1/responses',{method:'POST',signal:stageSignal,

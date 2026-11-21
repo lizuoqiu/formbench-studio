@@ -12,6 +12,22 @@ const at=(t,href,fetcher)=>{
 const part={name:'红色 LED',spec:'5 mm 直插'};
 const choice={url:'https://item.taobao.com/item.htm?id=123&skuId=42',title:'测试商品',qty:2,options:['红色']};
 
+test('review rejection stays an error and explicit repair preserves its draft without normalizing it as a project',async t=>{
+  const repairCandidate={design:{name:'未通过的草稿',parts:[{name:'轴套',qty:1}],interaction:{invalid:'intentionally rejected'}},issues:['旋钮轴心没有与固定轴套重合。']};
+  const context={conversation:[{role:'user',text:'保留图片中的形状'}],discussionStart:0,images:[{dataUrl:'data:image/jpeg;base64,private-image'}],baseDesign:{name:'正式上一版'}};
+  const requests=[],phases=[];
+  at(t,'https://example.org/app/',(_url,init)=>{
+    requests.push(JSON.parse(init.body));
+    return requests.length===1?Response.json({error:'评审未通过。',repairCandidate},{status:502}):Response.json({design:sampleDesign()});
+  });
+  let failure;
+  await assert.rejects(generateDesign('原始用户需求',{context,onProgress:phase=>phases.push(phase)}),error=>{failure=error;return error.message==='评审未通过。'});
+  assert.deepEqual(failure.repairCandidate,repairCandidate);assert.deepEqual(phases,['request']);assert.equal(requests.length,1);
+  const approved=await generateDesign('原始用户需求',{context:{...context,repairCandidate:failure.repairCandidate}});
+  assert.equal(approved.name,sampleDesign().name);
+  assert.deepEqual(requests[1],{...context,repairCandidate,action:'generate',prompt:'原始用户需求'});
+});
+
 test('Pages makes no service or loopback requests, including for carts',async t=>{
   const fetcher=at(t,'https://example.github.io/work/',()=>{throw Error('unexpected request')});
   assert.deepEqual(await serviceCapabilities(),{ai:false,catalog:false,cart:'manual',localUrl:'http://127.0.0.1:4173/'});

@@ -1,5 +1,6 @@
 // Browser adapter. A static deployment never forwards a prompt, login or cart to another origin.
 import {catalog as models} from './assembly-hardware.js';
+import {validateInteraction} from './interaction-model.js';
 
 const localUrl='http://127.0.0.1:4173/', cartUrl='https://cart.taobao.com/cart.htm';
 const text=(s,max=500)=>typeof s==='string'?s.trim().slice(0,max):'';
@@ -15,7 +16,16 @@ async function call(path,body,signal){
     ...(body===undefined?{}:{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
   });
   const data=await response.json().catch(()=>null);
-  if(!response.ok||!data||typeof data!=='object')throw Error(text(data?.error)||'暂时无法连接服务。');
+  if(!response.ok||!data||typeof data!=='object'){
+    const error=Error(text(data?.error)||'暂时无法连接服务。');
+    const candidate=data?.repairCandidate;
+    if(path==='design'&&response.status===502&&candidate?.design&&typeof candidate.design==='object'&&!Array.isArray(candidate.design)&&Array.isArray(candidate.issues)){
+      const issues=candidate.issues.slice(0,12).map(issue=>text(issue,2000)).filter(Boolean);
+      // Keep rejected work separate from normalizeDesign and published projects.
+      if(issues.length)error.repairCandidate={design:candidate.design,issues};
+    }
+    throw error;
+  }
   return data;
 }
 const helperMessage=(type,requestId,extra={})=>window.postMessage({source:'formbench-studio',type,requestId,...extra},place().origin);
@@ -89,13 +99,18 @@ function normalizeDesign(d){
   const skill=g?.skill?.name?{name:text(g.skill.name,200),revision:text(g.skill.revision,150),sourceUrl:citationUrl(g.skill.sourceUrl),
     ...(project?.name==='interaction-hardware'&&text(project.revision,150)?{project:{name:project.name,revision:text(project.revision,150),sourcePath:'skills/interaction-hardware/SKILL.md'}}:{})}:null;
   const generation=g&&['openai-api','local-codex'].includes(g.provider)?{provider:g.provider,modelId:text(g.modelId,200)||null,modelSource:['response','configured'].includes(g.modelSource)?g.modelSource:'undisclosed',...(skill?{skill}:{})}:undefined;
+  if(generation&&g.designReview?.status==='preview-reviewed'&&Array.isArray(g.designReview.checks)){
+    generation.designReview=structuredClone(g.designReview);
+  }
   const research=g?.mechanicalResearch;
   if(generation&&['searched','no-candidates','unavailable'].includes(research?.status)&&
     Number.isInteger(research.requested)&&research.requested>=0&&Number.isInteger(research.found)&&research.found>=0&&research.found<=research.requested){
     generation.mechanicalResearch={status:research.status,requested:research.requested,found:research.found,
       ...(Number.isInteger(research.inherited)&&research.inherited>0?{inherited:research.inherited}:{})};
   }
-  return {...(generation?{generation}:{}),...(d.cadPlan?{cadPlan:d.cadPlan}:{}),...(d.deviceMotion?{deviceMotion:d.deviceMotion}:{}),name:text(d.name,200),summary:text(d.summary,5000),steps:(Array.isArray(d.steps)?d.steps:[]).map(s=>text(s,2000)).filter(Boolean),parts:d.parts.map(designPart)};
+  const parts=d.parts.map(designPart);
+  const interaction=d.interaction?validateInteraction(d.interaction,{bom:parts,cadPlan:d.cadPlan}):null;
+  return {...(interaction?{interaction}:{}),...(generation?{generation}:{}),...(d.cadPlan?{cadPlan:d.cadPlan}:{}),...(d.deviceMotion?{deviceMotion:d.deviceMotion}:{}),name:text(d.name,200),summary:text(d.summary,5000),steps:(Array.isArray(d.steps)?d.steps:[]).map(s=>text(s,2000)).filter(Boolean),parts};
 }
 export async function discussDesign(context,signal){
   const data=await call('design',{...context,action:'discuss'},signal);

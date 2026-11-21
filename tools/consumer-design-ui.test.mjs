@@ -146,7 +146,18 @@ test('prompt, immutable regeneration, truthful backend model receipts, old proje
       for(const source of [assembly,board]){
         assert.match(source,/xiao-esp32s3/);assert.match(source,/const portSolid=/);assert.match(source,/castellated/);
       }
-      assert.match(assembly,/stroke0/);assert.doesNotMatch(board,/stroke0/);
+      const {bodies,motions:[stroke]}=latest.design.cadPlan;
+      const prismatic=assembly.split('\n').filter(line=>line.includes('mechanism.addPrismatic('));
+      assert.equal(prismatic.length,1);
+      assert.ok(prismatic[0].includes(JSON.stringify('1. '+stroke.name)));
+      assert.ok(prismatic[0].includes('axis:'+JSON.stringify(stroke.axis)+', min:0, max:'+stroke.travelMm+', default:0'));
+      bodies.forEach(({name},i)=>{
+        assert.ok(assembly.includes('mechanism.addPart('+JSON.stringify(name)+','));
+        const jointAttachment=', "Motion frame 1", '+JSON.stringify(name)+');';
+        assert.equal(assembly.includes(jointAttachment),stroke.movingBodyIndices.includes(i),name);
+      });
+      assert.match(assembly,/mechanism\.toJointsView\(/);
+      assert.doesNotMatch(board,/mechanism\.|addPrismatic\(/);
       const latestFeedback=latest.iteration.conversation.filter(t=>t.role==='user').at(-1).text;
       assert.ok(latestFeedback.trim());await publicPage.locator('.iteration-history summary').click();
       assert.ok((await publicPage.locator('.iteration-history ol').innerText()).includes(latestFeedback));

@@ -1,3 +1,4 @@
+import {reviewedFixture} from './test-fixtures/design-review.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {design} from './design.mjs';
@@ -12,7 +13,8 @@ test('both design actions send attached photos as actual Responses image inputs,
  for(const action of ['discuss','generate']){
   const ctx={action,prompt,images:[photo],conversation:[{role:'user',text:'接口留在侧面'}]};
   const out=await design(request(ctx),env,async(_url,options)=>{
-   const input=JSON.parse(options.body);
+   const input=JSON.parse(options.body),review=reviewedFixture(input);
+   if(review)return review;
    assert.equal(input.store,false);
    assert.match(input.instructions,/标尺照片/);
    const [{role,content}]=input.input;

@@ -4,6 +4,7 @@ import {prepareMesh,createRaster,fitCamera,cameraBasis,projectWorldPoint,worldPo
 import {previewCadPlan,compileCadPlan,meshBounds,featurePlacement,cadDownloadName} from './consumer-geometry.js';
 import {completeCatalogAnchors,editableForgeSource,hasEditableCatalogSource} from './forge-source.js';
 import {validateCadPlan,wholePartBox} from './cad-plan.js';
+import {mountCadInteraction} from './consumer-interaction.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const sizeText=size=>size.map(n=>Number(n.toFixed(1))).join(' × ')+' mm';
@@ -446,7 +447,7 @@ export function mountConsumerCad(container,design,options={}){
   <div class="cc-parts-list" data-cc-parts-list>正在读取零件…</div>
   <details class="cc-list-only" data-cc-bom-only hidden><summary>仅清单</summary><ul></ul></details>
  </section>`;
- let disposed=false,concept=null,parts=[],scene=[],backdrop=[],frameScene=[],motionProgress=[],shellMeshes=null,geometry=null,activePlan=null,mode=installationView?'inside':declared?'closed':'open',yaw=-.64,pitch=.56,zoom=1,drag=null,frame=0,pendingPhase='ready',homePose={yaw,pitch},buildState=declared?'compiling':'legacy';
+ let disposed=false,concept=null,parts=[],scene=[],backdrop=[],frameScene=[],motionProgress=[],shellMeshes=null,geometry=null,activePlan=null,mode=installationView?'inside':declared?'closed':'open',yaw=-.64,pitch=.56,zoom=1,drag=null,frame=0,pendingPhase='ready',homePose={yaw,pitch},buildState=declared?'compiling':'legacy',interaction=null;
  function emit(phase,message){
   const busy=phase==='parts'||phase==='enclosure';
   root.dataset.ccState=busy?'loading':phase==='error'?'error':'ready';
@@ -460,6 +461,7 @@ export function mountConsumerCad(container,design,options={}){
   const inset=selectedPart!==null ? .22 : .08;
   const camera=fitCamera(target,yaw,pitch,{x:box.width*inset,y:box.height*.15,width:box.width*(1-2*inset),height:box.height*.72});camera.scale*=zoom;raster.draw(scene,camera,backdrop);
   drawFloorGrid(canvas,box,camera,concept.bounds?.min[2]||0);
+  interaction?.paint(camera,scene,(x,y)=>raster.pick(x,y),mode);
   if(pendingPhase){emit(pendingPhase,status.textContent);pendingPhase=null}
  }
  function schedule(){if(!frame)frame=requestAnimationFrame(paint)}
@@ -503,6 +505,14 @@ export function mountConsumerCad(container,design,options={}){
  }
  partsPanel?.addEventListener('change',togglePart);
  partsPanel?.addEventListener('click',showAll);
+ const focusHardware=event=>{
+  const index=event.detail?.partIndex;
+  if(!Number.isInteger(index)||!concept?.instances.some(item=>item.partIndex===index))return;
+  hiddenParts.delete(String(index));selectedPart=String(index);zoom=1;
+  mode='inside';installationView=true;yaw=installationYaw;pitch=inspectionPitch;
+  updateScene('view');
+ };
+ container.addEventListener('focus-hardware',focusHardware);
  function updateScene(phase='view'){
   if(!concept)return;scene=[];backdrop=[];frameScene=[];inspectionFrame=[];pendingPhase=declared&&buildState==='compiling'?'enclosure':declared&&buildState==='fallback'?'error':phase;
   const available=new Map();
@@ -513,7 +523,7 @@ export function mountConsumerCad(container,design,options={}){
    if(show)target.push(object);
    const fit=range.length?range:[object];
    frameScene.push(...fit);
-   if(selected)inspectionFrame.push(object);
+   if(selected)inspectionFrame.push(...fit);
    else if(selectedPart===null&&installationView&&zone)inspectionFrame.push(...fit);
   }
   if(concept.declared){
@@ -530,8 +540,9 @@ export function mountConsumerCad(container,design,options={}){
     const offset=mode==='open'?declaredExplosionOffset(item,concept).map((v,k)=>item.positionMm[k]+v):bodyPose(item,motions,motionProgress);
     const range=motions.find(motion=>motion.movingBodyIndices.includes(item.bodyIndex));
     for(const mesh of item.prepared){
-     const instance={id:'body-'+item.bodyIndex+'-'+item.partIndex+'-'+item.copy,mesh,offset};
-     const endpoints=range?[{mesh,offset:item.positionMm},{mesh,offset:item.positionMm.map((v,k)=>v+range.axis[k]*range.travelMm)}]:[];
+     const animated=(mode==='closed'||mode==='inside')?interaction?.transform(mesh,offset,item.bodyIndex)||mesh:mesh;
+     const instance={id:'body-'+item.bodyIndex+'-'+item.partIndex+'-'+item.copy,mesh:animated,offset};
+     const endpoints=range?[{mesh,offset:item.positionMm},{mesh,offset:item.positionMm.map((v,k)=>v+range.axis[k]*range.travelMm)}]:[{mesh,offset}];
      const installed=installationBodies.has(item.bodyIndex);
      // Keep the full mechanism in context while exposing the installed modules.
      const contextLayer=installationView&&installationBodies.size&&!installed?backdrop:layer;
@@ -584,7 +595,7 @@ export function mountConsumerCad(container,design,options={}){
   empty.hidden=!!hasGeometry;
   if(!hasGeometry)empty.textContent=hiddenParts.size&&available.size?'当前视图的部件已隐藏。':mode==='inside'?'尚无已确定安装位置的内部硬件。':'当前视图没有可显示的部件。';
   root.querySelectorAll('[data-cc-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.ccMode===mode)));
-  if(!hasGeometry){const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);emit(['enclosure','error'].includes(pendingPhase)?pendingPhase:phase==='view'?'view':'empty',status.textContent+' '+empty.textContent);pendingPhase=null}else schedule();
+  if(!hasGeometry){const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);interaction?.paint(null,[],()=>undefined,mode);emit(['enclosure','error'].includes(pendingPhase)?pendingPhase:phase==='view'?'view':'empty',status.textContent+' '+empty.textContent);pendingPhase=null}else schedule();
  }
  function renderSources(){
   root.querySelector('[data-cc-sources]').innerHTML=parts.map(part=>{
@@ -700,6 +711,8 @@ export function mountConsumerCad(container,design,options={}){
    emit('enclosure','正在准备装配视图。');
    if(declared){
     activePlan=currentCadPlan(design);
+    // Removed/reindexed bodies invalidate interaction references as well as CAD.
+    if(activePlan.bodies.length===design.cadPlan.bodies.length)interaction=mountCadInteraction(root,design.interaction,{onChange:()=>updateScene()});
     geometry=previewCadPlan(activePlan,parts.length);
     if(!activePlan.bodies.length){
      buildState='fallback';mode='references';geometry.notice='型号或尺寸已变更，请重新生成结构。';
@@ -756,10 +769,11 @@ export function mountConsumerCad(container,design,options={}){
   updateTravelLabel(index);
   updateScene();
  };
- canvas.onpointerdown=e=>{drag=[e.clientX,e.clientY,yaw,pitch];canvas.setPointerCapture(e.pointerId)};
- canvas.onpointermove=e=>{if(!drag)return;yaw=drag[2]+(e.clientX-drag[0])*.012;pitch=Math.max(-1.5,Math.min(1.5,drag[3]+(e.clientY-drag[1])*.012));schedule()};canvas.onpointerup=canvas.onpointercancel=()=>{drag=null};
+ canvas.onpointerdown=e=>{if(!interaction?.pointerDown(e))drag=[e.clientX,e.clientY,yaw,pitch];canvas.setPointerCapture(e.pointerId)};
+ canvas.onpointermove=e=>{if(interaction?.pointerMove(e))return;if(!drag)return;yaw=drag[2]+(e.clientX-drag[0])*.012;pitch=Math.max(-1.5,Math.min(1.5,drag[3]+(e.clientY-drag[1])*.012));schedule()};
+ canvas.onpointerup=e=>{interaction?.pointerUp(e);drag=null};canvas.onpointercancel=e=>{interaction?.pointerUp(e,true);drag=null};
  const wheel=e=>{e.preventDefault();scale(Math.exp(-e.deltaY*.0018))};canvas.addEventListener('wheel',wheel,{passive:false});
  canvas.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','=','-','0'].includes(e.key))return;e.preventDefault();if(e.key==='ArrowLeft')yaw-=.12;if(e.key==='ArrowRight')yaw+=.12;if(e.key==='ArrowUp')pitch=Math.min(1.5,pitch+.12);if(e.key==='ArrowDown')pitch=Math.max(-1.5,pitch-.12);if(e.key==='+'||e.key==='=')scale(1.2);if(e.key==='-')scale(1/1.2);if(e.key==='0')home();schedule()};
  const observer=new ResizeObserver(schedule);observer.observe(canvas);load();
- return ()=>{disposed=true;aborter.abort();clearTimeout(confirmationTimer);partAnimation?.cancel();observer.disconnect();cancelAnimationFrame(frame);canvas.removeEventListener('wheel',wheel);partsPanel?.removeEventListener('change',togglePart);partsPanel?.removeEventListener('click',showAll);partsPanel?.replaceChildren();root.oninput=root.onclick=null;canvas.onpointerdown=canvas.onpointermove=canvas.onpointerup=canvas.onpointercancel=canvas.onkeydown=null;scene=[]};
+ return ()=>{disposed=true;interaction?.dispose();aborter.abort();clearTimeout(confirmationTimer);partAnimation?.cancel();observer.disconnect();cancelAnimationFrame(frame);canvas.removeEventListener('wheel',wheel);container.removeEventListener('focus-hardware',focusHardware);partsPanel?.removeEventListener('change',togglePart);partsPanel?.removeEventListener('click',showAll);partsPanel?.replaceChildren();root.oninput=root.onclick=null;canvas.onpointerdown=canvas.onpointermove=canvas.onpointerup=canvas.onpointercancel=canvas.onkeydown=null;scene=[]};
 }

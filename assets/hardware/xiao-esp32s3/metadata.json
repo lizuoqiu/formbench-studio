@@ -10,6 +10,13 @@
   "measurementSourceUrl": "https://files.seeedstudio.com/wiki/SeeedStudio-XIAO-ESP32S3/res/seeed-studio-xiao-esp32s3-3d_model.zip",
   "manufacturerCadUrl": "https://files.seeedstudio.com/wiki/SeeedStudio-XIAO-ESP32S3/res/seeed-studio-xiao-esp32s3-3d_model.zip",
   "sourceFile": "reference.forge.js",
+  "interfaces": [{
+    "name": "USB-C 参考插口",
+    "centerMm": [12.0045, 0, 2.78],
+    "normal": [1, 0, 0],
+    "openingMm": [8.15, 2.70],
+    "evidence": "本项目 reference.forge.js 简化插座的口面与开口；配接公差及线头行程须与所购实物复核。"
+  }],
   "origin": "PCB centered in XY; +X points out of the USB port, +Z faces the components. Z=0 at the bottom contacts.",
   "boundsMm": {
     "min": [

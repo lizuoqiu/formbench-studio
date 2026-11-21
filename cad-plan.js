@@ -9,6 +9,30 @@ export function wholePartBox(body){
  return feature.op==='add'&&feature.shape==='box'?feature:null;
 }
 
+// A row containing the housing and the rod of a single actuator is not two
+// instances of that actuator. Only full-size anchors of complete copies qualify.
+export function completeCatalogAnchors(bodies,parts){
+  const anchors=bodies.map(wholePartBox),counts=new Map(),partial=new Set();
+  bodies.forEach(({partIndex},i)=>{
+    const size=parts[partIndex]?.sizeMm;
+    counts.set(partIndex,(counts.get(partIndex)||0)+1);
+    if(!size||!anchors[i]?.sizeMm.every((n,k)=>Math.abs(n-size[k])<=.01))partial.add(partIndex);
+  });
+  return bodies.map(({partIndex},i)=>!partial.has(partIndex)&&counts.get(partIndex)<=parts[partIndex]?.qty?anchors[i]:null);
+}
+
+// The kernel rotates features about X, then Y, then Z before placing their centre.
+export function featurePlacement(feature,origin=[0,0,0]){
+ const angles=(feature.rotationDeg||[0,0,0]).map(n=>n*Math.PI/180),c=angles.map(Math.cos),s=angles.map(Math.sin);
+ return point=>{
+  let [x,y,z]=point.map((n,k)=>n-origin[k]);
+  [y,z]=[y*c[0]-z*s[0],y*s[0]+z*c[0]];
+  [x,z]=[x*c[1]+z*s[1],-x*s[1]+z*c[1]];
+  [x,y]=[x*c[2]-y*s[2],x*s[2]+y*c[2]];
+  return [x,y,z].map((n,k)=>n+feature.centerMm[k]);
+ };
+}
+
 export function validateCadPlan(plan,partCount=60){
  const bad=()=>{throw Error('Invalid CAD plan')};
  if(!(exact(plan,['version','bodies'])||exact(plan,['version','bodies','motions']))||plan.version!==1||!Array.isArray(plan.bodies)||plan.bodies.length>40)bad();

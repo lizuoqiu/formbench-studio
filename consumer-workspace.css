@@ -146,3 +146,14 @@ body:has(#project:not([hidden])) { background: white; }
 @media(max-width: 760px) { .parts-search { width: 100%; } }
 
 #retry-model { margin: 0 0 10px; }
+
+.functional-details { margin-top: 16px; }
+.functional-details h3 { font-size: 14px; margin: 0 0 6px; }
+.functional-details p, .functional-details li { font-size: 13px; line-height: 1.6; }
+.functional-details p { margin: 6px 0; }
+#functional-details details { margin: 10px 0; font-size: 13px; }
+#functional-details summary { cursor: pointer; }
+#functional-details ul { padding-left: 18px; margin: 6px 0; }
+.functional-details table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.functional-details td, .functional-details th { padding: 5px; text-align: left; border-bottom: 1px solid #dfdfdf; }
+.functional-details td:first-child { white-space: nowrap; }

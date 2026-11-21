@@ -1,3 +1,4 @@
+import {reviewedFixture} from './test-fixtures/design-review.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {design} from './design.mjs';
@@ -14,7 +15,9 @@ function completed(value,output=[]){
 }
 async function run({request={},rows=[cited],sources=[url,file],candidates=[chosen],final=raw,fail=false}={}){
  const calls=[],result=await design(new Request('https://example.test/api/design',{method:'POST',body:JSON.stringify({prompt:'给不公开的工坊做一个6V模块',...request})}),env,async(_,options)=>{
-  const data=JSON.parse(options.body);calls.push(data);
+  const data=JSON.parse(options.body),review=reviewedFixture(data);
+  if(review)return review;
+  calls.push(data);
   if(data.text?.format?.name==='mechanical_shortlist')return completed({parts:candidates});
   if(data.tools)return fail?Response.json({}, {status:503}):completed({parts:rows},[{type:'web_search_call',status:'completed',action:{type:'search',sources:sources.map(url=>({url}))}}]);
   return completed(final);

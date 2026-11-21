@@ -1,4 +1,5 @@
 import {validateCadPlan} from '../cad-plan.js';
+import {validateInteraction} from '../interaction-model.js';
 
 export const maxDesignRequestBytes=2*1024*1024;
 const encoder=new TextEncoder();
@@ -59,7 +60,27 @@ function previousDesign(raw){
   try{base.cadPlan=validateCadPlan(raw.cadPlan,parts.length);}
   catch{throw new DesignInputError('上一版设计的 CAD 方案无效。');}
  }
+ if(raw.interaction!=null){
+  try{base.interaction=validateInteraction(raw.interaction,{bom:parts,cadPlan:base.cadPlan});}
+  catch{throw new DesignInputError('上一版交互定义与 BOM 或 CAD 不一致。');}
+ }
  return base;
+}
+
+function readRepairCandidate(raw){
+ if(raw==null)return null;
+ if(!isObject(raw)||!isObject(raw.design)||!Array.isArray(raw.issues)||!raw.issues.length||raw.issues.length>12||
+    !raw.issues.every(issue=>nonempty(issue,1500))||encoder.encode(JSON.stringify(raw)).length>512000)
+  throw new DesignInputError('续修草稿或问题记录无效。');
+ // The rejected interaction is inert input for the designer. Never start its runtime.
+ const design=previousDesign({...raw.design,interaction:null});
+ const model=raw.design.interaction;
+ if(model!=null){
+  if(!isObject(model)||encoder.encode(JSON.stringify(model)).length>160000)throw new DesignInputError('续修交互草稿格式无效。');
+  design.interaction=Object.fromEntries(['version','controllerPartIndex','controls','outputs','connections','signalChannels','timer','initialState','states','transitions']
+    .filter(k=>Object.hasOwn(model,k)).map(k=>[k,model[k]]));
+ }
+ return {design,issues:raw.issues.map(s=>s.trim())};
 }
 
 export async function readDesignRequest(request){
@@ -79,7 +100,7 @@ export async function readDesignRequest(request){
   throw new DesignInputError('讨论记录超过本次请求上限。',413);
  if(!Number.isInteger(discussionStart)||discussionStart<0||discussionStart>history.length)
   throw new DesignInputError('本轮讨论的起始位置无效。');
- return {action,prompt:prompt.trim(),history,discussionStart,images:readImages(body.images),baseDesign:body.baseDesign==null?null:previousDesign(body.baseDesign)};
+ return {action,prompt:prompt.trim(),history,discussionStart,images:readImages(body.images),repairCandidate:readRepairCandidate(body.repairCandidate),baseDesign:body.baseDesign==null?null:previousDesign(body.baseDesign)};
 }
 
 export const ready=()=>({decision:'ready',question:'',options:[]});
@@ -92,10 +113,8 @@ export const discussionInstructions=`你是与用户共同设计可触摸硬件�
 export const revisionInstructions=`这是一项连续设计任务。按原始需求和历次讨论理解目标，后来明确的用户意见优先。助手提出的备选项并不代表用户已经选择。若给出 baseDesign，以上一版完整 BOM、实体、运动关系、毫米尺寸和装配位置为起点。对于局部修改，保留无关零件的型号、尺寸、位置、特征和顺序，仅更新相关实体和必要的关联部件；增删零件后校正所有 BOM/body 索引。modelSourceInvalidated=true 代表原有尺寸或型号后来变更，按当前值重新确定该件的 CAD。始终返回一份完整、相互一致的新版设计。用户给出的尺寸可引用原始需求或后续用户发言。`;
 
 export const photoInstructions='用户附上产品或标尺照片。用照片辨认外形、接口位置、安装朝向和相对比例。只有看得清刻度、测量平面且无明显透视误差时才可作粗略尺寸参考，并标为估算。仅将用户明确提供的尺寸作为指定尺寸。隐藏面、深度和公差没有依据时，在必要处询问或标明待核对。';
-export function modelInput({prompt,history,discussionStart,baseDesign,action,images=[]}){
- let base=baseDesign;
- if(base&&action==='discuss')base={name:base.name,summary:base.summary,parts:base.parts.map(({name,purpose,qty})=>({name,purpose,qty}))};
- else if(base)base={...base,parts:base.parts.map(part=>{
+export function projectDesignForModel(base){
+ return {...base,parts:base.parts.map(part=>{
   const {mechanicalEvidenceReceipt,...data}=part;
   // Manufacturer claims in a client-owned project are reintroduced through
   // validated evidence. The drawing and its existing design dimensions remain usable.
@@ -104,6 +123,11 @@ export function modelInput({prompt,history,discussionStart,baseDesign,action,ima
   }
   return data;
  })};
+}
+export function modelInput({prompt,history,discussionStart,baseDesign,action,images=[]}){
+ let base=baseDesign;
+ if(base&&action==='discuss')base={name:base.name,summary:base.summary,parts:base.parts.map(({name,purpose,qty})=>({name,purpose,qty}))};
+ else if(base)base=projectDesignForModel(base);
  const text=!history.length&&!base?prompt:JSON.stringify({prompt,conversation:history,discussionStart,...(base?{baseDesign:base}:{})});
  if(!images.length)return text;
  return [{role:'user',content:[{type:'input_text',text},...images.map(({dataUrl})=>({type:'input_image',image_url:dataUrl,detail:'high'}))]}];

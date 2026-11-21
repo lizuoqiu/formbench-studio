@@ -125,6 +125,12 @@ function renderDiscussion(state,error=''){
     panel.querySelector('#cancel-discussion').onclick=stopDraft;
     return;
   }
+  if(state.repairCandidate){
+    panel.innerHTML=`<div class="discussion-card"><h3>方案尚未通过评审</h3>${error?`<p role="alert" class="discussion-error">${esc(error)}</p>`:''}<ul>${state.repairCandidate.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul><p>本次需求和照片已保留。修订后会重新检查，当前草稿尚未保存为项目。</p><div class="discussion-controls"><button type="button" class="small-button" id="repair-discussion">按评审意见修订</button>${cancel}</div></div>`;
+    panel.querySelector('#repair-discussion').onclick=()=>requestDraft(state,'generate');
+    panel.querySelector('#cancel-discussion').onclick=stopDraft;
+    return;
+  }
   const ask=state.question;
   panel.innerHTML=`<div class="discussion-card">${error?`<p role="alert" class="discussion-error">${esc(error)}</p>`:''}${ask?`<h3 id="discussion-question">${esc(ask.question)}</h3><div class="answer-options">${ask.options.map((label,i)=>`<button type="button" data-answer-index="${i}" class="small-button">${esc(label)}</button>`).join('')}</div><form class="answer-form"><label for="discussion-answer">其他想法</label><div><input id="discussion-answer" maxlength="1800" autocomplete="off"><button type="submit" id="send-answer" class="small-button">回复</button></div></form>`:''}<div class="discussion-controls">${error?'<button type="button" class="small-button" id="retry-discussion">重试</button>':''}<button type="button" id="skip-discussion" class="discussion-link">直接生成</button>${cancel}</div></div>`;
   const answer=value=>{
@@ -152,7 +158,7 @@ async function requestDraft(state,action){
   try{
     state.images??=await state.photoInput?.selected()??[];
     if(draft!==state)return;
-    const context={prompt:state.prompt,conversation:state.conversation,discussionStart:state.discussionStart,...(state.baseDesign?{baseDesign:state.baseDesign}:{}),...(state.images.length?{images:state.images}:{})};
+    const context={prompt:state.prompt,conversation:state.conversation,discussionStart:state.discussionStart,...(state.baseDesign?{baseDesign:state.baseDesign}:{}),...(state.images.length?{images:state.images}:{}),...(state.repairCandidate?{repairCandidate:state.repairCandidate}:{})};
     let d;
     if(action==='discuss'){
       const decision=await discussDesign(context,signal);
@@ -175,6 +181,7 @@ async function requestDraft(state,action){
     await showProject(d,false,{prompt:state.prompt,iteration:next},state.images);
   }catch(error){
     if(draft!==state)return;
+    if(error?.repairCandidate){state.repairCandidate=error.repairCandidate;state.question=null;}
     state.busy=false;setDraftBusy(state);renderDiscussion(state,error?.message||'设计服务暂时无法连接。');
   }
 }
@@ -244,7 +251,8 @@ const measure=p=>Array.isArray(p.sizeMm)&&p.sizeMm.length===3&&p.sizeMm.every(x=
 const selected=r=>r.candidates[r.choice]||null;
 function disposeViewer(){try{cadDispose?.()}finally{cadDispose=null}}
 function mount(){
-  disposeViewer();const target=$('#cad-panel'),badge=$('#geometry-state'),declared=!!design?.cadPlan?.bodies?.length;let active=true;
+  disposeViewer();const info=$('#functional-details');if(info)info.innerHTML=functionalDetails(design);
+  const target=$('#cad-panel'),badge=$('#geometry-state'),declared=!!design?.cadPlan?.bodies?.length;let active=true;
   const retry=$('#retry-model');
   retry.hidden=true;retry.onclick=mount;
   const onStatus=({phase,mode,message,exact,engine})=>{
@@ -267,7 +275,8 @@ function mount(){
         sourceButton.onclick=async()=>{
           sourceButton.disabled=true;
           try{
-            const source=await editableForgeSource(plan,design.parts);
+            const activeInteraction=design.parts.some(p=>p.modelSourceInvalidated)?null:design.interaction;
+            const source=await editableForgeSource(plan,design.parts,null,activeInteraction);
             if(!active)return;
             const url=URL.createObjectURL(new Blob([source],{type:'text/javascript;charset=utf-8'}));
             const a=document.createElement('a');a.href=url;a.download=filename+'.forge.js';a.click();
@@ -289,6 +298,34 @@ function projectDescription(text){
   const split=sentence>=0?37+sentence:140;
   return `<p class="project-summary">${esc(summary.slice(0,split))}${sentence<0?'…':''}</p>
     <details class="description-more"><summary>完整说明</summary><p>${esc(summary)}</p></details>`;
+}
+function functionalDetails(d){
+  const interaction=d.interaction,review=d.generation?.designReview;
+  if(!interaction&&!review)return '';
+  const parts=d.parts;
+  const name=i=>esc(parts[i]?.name||'零件');
+  const controller=interaction?.controllerPartIndex;
+  const reviewList=items=>(items||[]).map(item=>`<li>${esc(item)}</li>`).join('');
+  const checked=(review?.checks||[]).filter(c=>c.status==='pass');
+  const physical=review?.physicalChecks||[];
+  const replay=review?.behavior;
+  const states=replay?.status==='replayed'?replay.visitedStates?.length:0;
+  const operations=replay?.observations?.length;
+  const replayNote=states&&operations?`<p>已重放 ${states} 个状态中的 ${operations} 次操作与计时事件。</p>`:'';
+  const findings=review?`<details class="review-note"><summary>设计复核${review.attempts>1?' · 已修订并复查':''}</summary>
+    ${review.correctedIssues?.length?`<p>生成时修订的问题</p><ul>${reviewList(review.correctedIssues)}</ul>`:''}
+    <ul>${reviewList(checked.map(c=>c.note))}</ul>${replayNote}
+    ${physical.length?`<p>实物待测</p><ul>${reviewList(physical)}</ul>`:''}</details>`:'';
+  if(!interaction)return findings;
+  const path=[...new Set(interaction.controls.map(c=>name(c.partIndex)))].join(' / ')+
+    (Number.isInteger(controller)?' → '+name(controller):'')+
+    (interaction.outputs.length?' → '+[...new Set(interaction.outputs.map(o=>name(o.partIndex)))].join(' / '):'');
+  const kinds={signal:'信号',power:'供电',ground:'共地'};
+  const rows=interaction.connections.map(w=>`<tr><td>${kinds[w.kind]}</td><td>${name(w.fromPartIndex)} <code>${esc(w.fromPin)}</code></td><td>${name(w.toPartIndex)} <code>${esc(w.toPin)}</code></td></tr>`).join('');
+  return `<section class="functional-details" aria-label="交互原理"><h3>交互原理</h3><p>${path}</p>
+    ${Number.isInteger(controller)?`<p>主控型号 · ${esc(parts[controller]?.model||parts[controller]?.name||'待选型')}</p><button class="small-button" type="button" data-focus-controller="${controller}">在模型中查看控制板</button>`:''}
+    ${rows?`<details><summary>引脚连接方案 · ${interaction.connections.length} 项</summary><table><thead><tr><th>用途</th><th>起点</th><th>终点</th></tr></thead><tbody>${rows}</tbody></table></details>`:''}
+    ${findings}</section>`;
 }
 function projectWorkspace(){
   const tabs = [
@@ -326,6 +363,7 @@ function projectWorkspace(){
     <aside class="project-inspector" id="project-details" aria-label="项目详情">
       <div id="desktop-components"><div id="model-components"></div></div>
       <section class="project-brief"><h2>项目说明</h2>${projectDescription(design.summary)}
+        <div id="functional-details">${functionalDetails(design)}</div>
         <details class="project-origin"><summary>模型来源</summary>${provenance(design)}</details>
       </section>
       <section class="revision-panel" aria-label="修改设计">${sharedProject?'<p class="shared-edit-note">这是固定分享版本。创建个人副本后，可以继续修改。</p>':''}<form id="revision-form" ${sharedProject?'hidden':''}><label for="revision-prompt">修改设计</label>
@@ -355,6 +393,14 @@ function selectProjectView(view){
   download.classList.toggle('off-model',view!=='model');
 }
 project.addEventListener('click',event=>{
+  const focus=event.target.closest('[data-focus-controller]');
+  if(focus){
+    selectProjectView('model');
+    const panel=$('#cad-panel');
+    panel.dispatchEvent(new CustomEvent('focus-hardware',{detail:{partIndex:Number(focus.dataset.focusController)}}));
+    if(window.matchMedia('(max-width: 760px)').matches)panel.scrollIntoView({block:'start'});
+    return;
+  }
   const button=event.target.closest('[data-project-view]');
   if(button)selectProjectView(button.dataset.projectView);
 });
@@ -439,6 +485,8 @@ const sameItem=(a,b)=>{const x=productUrl(a),y=productUrl(b);return !!x&&!!y&&x.
 const knownTitle=c=>c?.listingTitle||((c?.titleSource==='page'||c?.titleSource==='user')?c.title:'')||'';
 const skuKey=c=>{const u=productUrl(c?.url);return u?[u.searchParams.get('id'),c.skuId||u.searchParams.get('skuId')||'',...(c.options||[c.sku||''])].join(':'):''};
 function clearPartSource(p){
+  if(design?.interaction)delete design.interaction;
+  if(design?.generation?.designReview)delete design.generation.designReview;
   delete p.geometryReference;delete p.mechanicalEvidenceReceipt;delete p.dimensionSourceUrl;delete p.sourceUrl;delete p.dimensionQuote;
 }
 function updateGeometry(p,dimensionsSupplied){

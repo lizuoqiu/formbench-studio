@@ -1,3 +1,4 @@
+import {featurePlacement} from './cad-plan.js';
 import {validateCadPlan} from './cad-plan.js';
 import {decodeSTL} from './assembly-hardware.js';
 import {makeDocumentedProxy} from './part-geometry.js';
@@ -57,17 +58,7 @@ function roundedPrismPreview(size){
  }
  return faces;
 }
-// The kernel rotates features about X, then Y, then Z before placing their centre.
-export function featurePlacement(feature,origin=[0,0,0]){
- const angles=(feature.rotationDeg||[0,0,0]).map(n=>n*Math.PI/180),c=angles.map(Math.cos),s=angles.map(Math.sin);
- return point=>{
-  let [x,y,z]=point.map((n,k)=>n-origin[k]);
-  [y,z]=[y*c[0]-z*s[0],y*s[0]+z*c[0]];
-  [x,z]=[x*c[1]+z*s[1],-x*s[1]+z*c[1]];
-  [x,y]=[x*c[2]-y*s[2],x*s[2]+y*c[2]];
-  return [x,y,z].map((n,k)=>n+feature.centerMm[k]);
- };
-}
+export {featurePlacement} from './cad-plan.js';
 function previewFeature(feature){
  let faces;
  if(feature.shape==='capsule'){

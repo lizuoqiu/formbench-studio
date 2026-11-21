@@ -1,6 +1,7 @@
-import {validateCadPlan,wholePartBox} from './cad-plan.js';
+import {validateCadPlan,wholePartBox,completeCatalogAnchors} from './cad-plan.js';
 import {getHardwareMetadata} from './assembly-hardware.js';
 import {forgeNativeFeature} from './native-features.js';
+import {forgeJointAssembly} from './forge-joints.js';
 
 const axisVectors = [[1,0,0], [0,1,0], [0,0,1]];
 const nativeFiles=new Map([
@@ -9,17 +10,7 @@ const nativeFiles=new Map([
 ]);
 export const hasEditableCatalogSource=id=>nativeFiles.has(id);
 
-// A row containing the housing and the rod of a single actuator is not two
-// instances of that actuator. Only full-size anchors of complete copies qualify.
-export function completeCatalogAnchors(bodies,parts){
-  const anchors=bodies.map(wholePartBox),counts=new Map(),partial=new Set();
-  bodies.forEach(({partIndex},i)=>{
-    const size=parts[partIndex]?.sizeMm;
-    counts.set(partIndex,(counts.get(partIndex)||0)+1);
-    if(!size||!anchors[i]?.sizeMm.every((n,k)=>Math.abs(n-size[k])<=.01))partial.add(partIndex);
-  });
-  return bodies.map(({partIndex},i)=>!partial.has(partIndex)&&counts.get(partIndex)<=parts[partIndex]?.qty?anchors[i]:null);
-}
+export {completeCatalogAnchors} from './cad-plan.js';
 
 function placeFeature(shape,feature){
   (feature.rotationDeg || []).forEach((degrees,i) => {
@@ -73,27 +64,17 @@ export function cadBodyToForgeScript(body) {
   return ['// Local part coordinates, in millimetres.', ...bodyStatements(body), ''].join('\n');
 }
 
-export function cadPlanToForgeScript(raw) {
-  return assemblySource(validateCadPlan(raw,160),new Map());
+export function cadPlanToForgeScript(raw,interaction=null) {
+  return assemblySource(validateCadPlan(raw,160),new Map(),interaction);
 }
-function assemblySource(plan,natives) {
+function assemblySource(plan,natives,interaction) {
   if (!plan.bodies.length) throw Error('没有可以导出的 CAD 实体。');
   const lines = ['// Named assembly parts in millimetres, initially shown retracted.'];
-  const motionByBody = new Map();
-  if(plan.motions?.length)lines.push('const strokeParameter = typeof Param === "undefined" ? param : (...args) => Param.number(...args);');
-  for (const [index,motion] of (plan.motions || []).entries()) {
-    const label = JSON.stringify(`${index+1}. ${motion.name} (mm)`);
-    lines.push(`const stroke${index} = strokeParameter(${label}, 0, {min:0,max:${motion.travelMm},unit:"mm"});`);
-    for (const i of motion.movingBodyIndices) motionByBody.set(i,{index,axis:motion.axis});
-  }
   const members = plan.bodies.map((body,i) => {
     lines.push('', `function buildPart${i}() {`, ...bodyStatements(body,natives.get(i)).map(s=>'  '+s), '}');
-    const motion = motionByBody.get(i);
-    const position = body.positionMm.map((p,k) => motion && motion.axis[k] ?
-      `${p} + (${motion.axis[k]}) * stroke${motion.index}` : String(p));
-    return `  { name: ${JSON.stringify(body.name)}, tags: ${JSON.stringify(body.role)}, shape: buildPart${i}().translate(${position.join(', ')}) }`;
+    return `  { name: ${JSON.stringify(body.name)}, tags: ${JSON.stringify(body.role)}, shape: buildPart${i}().translate(${body.positionMm.join(', ')}) }`;
   });
-  lines.push('', 'return [', members.join(',\n'), '];', '');
+  lines.push('', ...(forgeJointAssembly(plan,interaction) || ['return [', members.join(',\n'), '];']), '');
   return lines.join('\n');
 }
 
@@ -107,7 +88,7 @@ async function readNative(id){
 }
 
 // Source text comes only from the fixed assets above, never from a design/part.
-export async function editableForgeSource(raw,parts,bodyIndex=null){
+export async function editableForgeSource(raw,parts,bodyIndex=null,interaction=null){
   const plan=validateCadPlan(raw,parts.length),anchors=completeCatalogAnchors(plan.bodies,parts);
   if(bodyIndex!==null&&(!Number.isInteger(bodyIndex)||!plan.bodies[bodyIndex]))throw Error('零件不存在。');
   const natives=new Map(),assets=new Map();
@@ -119,6 +100,6 @@ export async function editableForgeSource(raw,parts,bodyIndex=null){
     const native=assets.get(id);
     if(native.sizeMm.every((n,k)=>Math.abs(n-part.sizeMm[k])<=.01))natives.set(i,{...native,anchor});
   }
-  if(bodyIndex===null)return assemblySource(plan,natives);
+  if(bodyIndex===null)return assemblySource(plan,natives,interaction);
   return ['// Local part coordinates, in millimetres.',...bodyStatements(plan.bodies[bodyIndex],natives.get(bodyIndex)),''].join('\n');
 }

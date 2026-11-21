@@ -83,7 +83,7 @@ test('the selected CLI receives separate generated parts and its binary STL reac
   } finally {await rm(dir,{recursive:true,force:true})}
 });
 
-test('editable assembly positions named bodies independently and parameterizes only moving bodies',async()=>{
+test('editable assembly attaches only the moving body to a native linear joint',async()=>{
   const {cadPlanToForgeScript}=await import('../forge-source.js');
   const p={version:1,bodies:[
     body([feature('add','box',[10,8,4])],{name:'座 "A"',partIndex:0}),
@@ -93,7 +93,11 @@ test('editable assembly positions named bodies independently and parameterizes o
   assert.ok(source.includes(JSON.stringify('座 "A"')));
   assert.match(source,/max:22/);
   assert.match(source,/buildPart0\(\)\.translate\(30, 40, 50\)/);
-  assert.match(source,/buildPart1\(\)\.translate\(30, 40 \+ \(-1\) \* stroke0, 50\)/);
+  assert.match(source,/buildPart1\(\)\.translate\(30, 40, 50\)/);
+  assert.match(source,/addPrismatic\("1\. 伸出", "Assembly origin", "Motion frame 1", \{axis:\[0,-1,0\]/);
+  assert.match(source,/addFixed\("Attach 拳", "Motion frame 1", "拳"\)/);
+  assert.doesNotMatch(source,/addFixed\("Attach 座/);
+  assert.match(source,/toJointsView\(/);
 });
 
 test('installed research ForgeCAD produces a measured through-hole and reference geometry',

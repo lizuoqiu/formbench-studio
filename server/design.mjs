@@ -1,12 +1,15 @@
 import {validateCadPlan,cadPlanSchema} from './cad-plan.mjs';
-import {modelingGuide,generation} from './modeling-guide.mjs';
-import {DesignInputError,readDesignRequest,modelInput,photoInstructions,ready,readDecision,discussionSchema,discussionInstructions,revisionInstructions} from './design-conversation.mjs';
-import {referenceIds,catalogInstructions,designReference,alignCatalogAnchors} from './design-references.mjs';
-import {sourceMechanicalEvidence,evidenceInstructions,withMechanicalEvidence,attachMechanicalEvidence} from './design-evidence.mjs';
+import {modelingGuide,functionalReviewGuide,generation} from './modeling-guide.mjs';
+import {interactionSchema,validateInteraction,validateInteractionGeometry,normalizeInteractionTimerAliases} from '../interaction-model.js';
+import {reviewInteractionGeometry} from './interaction-geometry-review.mjs';
+import {ModelStageError,structuredCall,format,addModelData,evaluateDraft,replayInteraction} from './design-review.mjs';
+import {DesignInputError,readDesignRequest,modelInput,projectDesignForModel,photoInstructions,ready,readDecision,discussionSchema,discussionInstructions,revisionInstructions} from './design-conversation.mjs';
+import {referenceIds,catalogInstructions,designReference,alignCatalogAnchors,resolvedCatalogGeometry} from './design-references.mjs';
+import {sourceMechanicalEvidence,retainedMechanicalEvidence,evidenceInstructions,withMechanicalEvidence,attachMechanicalEvidence} from './design-evidence.mjs';
 const string={type:'string'},obj=properties=>({type:'object',additionalProperties:false,properties,required:Object.keys(properties)}),array=items=>({type:'array',items});
 const role=['internal','external','panel','enclosure'];
 const deviceMotion=['stationary','powered-linear','other'];
-export const schema=obj({name:string,summary:string,deviceMotion:{type:'string',enum:deviceMotion},parts:array(obj({name:string,spec:string,qty:{type:'integer'},model:string,modelId:{type:'string',enum:['',...referenceIds]},sizeMm:array({type:'number'}),dimensionSource:{type:'string',enum:['catalog','estimated','specified']},dimensionQuote:string,role:{type:'string',enum:role},placement:{type:'string',enum:['mounted','loose']},purpose:string})),steps:array(string),cadPlan:cadPlanSchema});
+export const schema=obj({name:string,summary:string,deviceMotion:{type:'string',enum:deviceMotion},parts:array(obj({name:string,spec:string,qty:{type:'integer'},model:string,modelId:{type:'string',enum:['',...referenceIds]},sizeMm:array({type:'number'}),dimensionSource:{type:'string',enum:['catalog','estimated','specified']},dimensionQuote:string,role:{type:'string',enum:role},placement:{type:'string',enum:['mounted','loose']},purpose:string})),steps:array(string),cadPlan:cadPlanSchema,interaction:interactionSchema});
 export const instructions=`你是研究原型硬件设计师。根据用户当前需求，从零选择合适结构、器件、接口、供电与制造方式，并用中文说明具体步骤、装配和功能验证；不要把每个项目都做成 Pico 状态灯。列真实可识别的器件系列或可搜索的采购规格，不能确认型号时写待选型，自制外壳列入 BOM。每项包括数量、作用、安装位置（internal 内部、panel 面板、external 外部、enclosure 自制壳体）、三维外包络 sizeMm [长,宽,高] 毫米；不要用电路板尺寸代替含连接器的整个组件。估计写 estimated。确为用户给出的三维尺寸，可写 specified，并以 dimensionQuote 摘录含部件和毫米尺寸的用户原文；否则引用留空。目录ID仅在型号和封装符合时使用，没有匹配填空。目录只代表参考几何，不能声称验证购买 SKU、公差、库存、商家、价格或真实装配。可用几何参考：${catalogInstructions}。未验证的供电、运动空间、安装孔位和功能在步骤中说明如何检查。`;
 const str=(s,n)=>typeof s==='string'&&s.trim().length>0&&s.length<=n;
 const sizes=v=>Array.isArray(v)&&v.length===3&&v.every(n=>Number.isFinite(n)&&n>0&&n<=10000);
@@ -94,57 +97,109 @@ function validateInstallation(raw,prompt,strokeDirection,changingPoweredStroke){
  }
  return plan;
 }
-export function normalizeDesign(raw,prompt,latestIntent=prompt,strokeDirection=requestedStrokeDirection([latestIntent]),changingPoweredStroke=false){if(!str(raw?.name,200)||!str(raw.summary,5000)||!Array.isArray(raw.parts)||!raw.parts.length||raw.parts.length>60||!Array.isArray(raw.steps)||!raw.steps.length||raw.steps.length>60||!raw.steps.every(s=>str(s,2000)))throw Error('invalid design');
+function normalizePhysical(raw,prompt,latestIntent=prompt,strokeDirection=requestedStrokeDirection([latestIntent]),changingPoweredStroke=false){if(!str(raw?.name,200)||!str(raw.summary,5000)||!Array.isArray(raw.parts)||!raw.parts.length||raw.parts.length>60||!Array.isArray(raw.steps)||!raw.steps.length||raw.steps.length>60||!raw.steps.every(s=>str(s,2000)))throw Error('invalid design');
  const parts=raw.parts.map(p=>{if(!str(p?.name,200)||!str(p.spec,800)||!str(p.model,240)||!Number.isInteger(p.qty)||p.qty<1||p.qty>999||!role.includes(p.role)||!sizes(p.sizeMm)||!str(p.purpose,500))throw Error('invalid part');
  const result={name:p.name.trim(),spec:p.spec.trim(),model:p.model.trim(),qty:p.qty,role:p.role,purpose:p.purpose.trim(),modelId:'',sizeMm:p.sizeMm,dimensionSource:'estimated',dimensionNote:'AI 估算的设计包络；采购和制作前须核对实物。',dimensionSourceUrl:'',...(['mounted','loose'].includes(p.placement)?{placement:p.placement}:{})};
  if(p.dimensionSource==='specified'&&specified(p,prompt))return {...result,dimensionSource:'specified',dimensionQuote:p.dimensionQuote,dimensionNote:'需求原文：'+p.dimensionQuote};
  const reference=designReference(p);return reference?{...result,...reference}:result;});
  const plan=validateInstallation(raw,latestIntent,strokeDirection,changingPoweredStroke);
- return {name:raw.name.trim(),summary:raw.summary.trim(),parts,steps:raw.steps.map(s=>s.trim()),cadPlan:alignCatalogAnchors(plan,raw.parts,parts),...(raw.deviceMotion?{deviceMotion:raw.deviceMotion}:{})};}
+ const cadPlan=alignCatalogAnchors(plan,raw.parts,parts);
+ return {name:raw.name.trim(),summary:raw.summary.trim(),parts,steps:raw.steps.map(s=>s.trim()),cadPlan,...(raw.deviceMotion?{deviceMotion:raw.deviceMotion}:{})};
+}
+function designInteraction(raw,design){
+ try{return validateInteraction(raw,{bom:design.parts,cadPlan:design.cadPlan});}
+ catch(error){throw new AssemblyError('交互定义未通过校验。'+error.message);}
+}
+export function normalizeDesign(raw,...args){
+ const design=normalizePhysical(raw,...args),interaction=designInteraction(raw.interaction,design);
+ return interaction?{...design,interaction}:design;
+}
 export async function design(request,env,send=fetch){const reply=(body,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'no-store'}});
  if(request.method!=='POST')return reply({error:'只支持 POST。'},405);
  if(!env.OPENAI_API_KEY||!env.OPENAI_MODEL)return reply({error:'设计服务尚未连接。'},503);
- const timeout=AbortSignal.timeout(300_000);
+ const timeout=AbortSignal.timeout(600_000);
  const signal=AbortSignal.any([request.signal,timeout]);
  let discussing=false;
  try{
   const ctx=await readDesignRequest(request);
   discussing=ctx.action==='discuss';
   if(discussing&&ctx.history.slice(ctx.discussionStart).filter(turn=>turn.role==='assistant').length>=2)return reply(ready());
-  const guide=discussing?null:await modelingGuide(env);
+  const hasImages=ctx.images.length>0;
+  const photos=hasImages?'\n'+photoInstructions:'';
+  if(discussing){
+   const call=await structuredCall(send,env,signal,{instructions:discussionInstructions+photos,input:modelInput(ctx),
+    text:format('hardware_clarification',discussionSchema)},'设计讨论',{hasImages});
+   return reply(readDecision(call.value));
+  }
+  const [guide,reviewSkill]=await Promise.all([modelingGuide(env),functionalReviewGuide(env)]);
   const userMessages=[ctx.prompt,...ctx.history.filter(turn=>turn.role==='user').map(turn=>turn.text)];
   const currentTurns=ctx.baseDesign?ctx.history.slice(ctx.discussionStart).filter(turn=>turn.role==='user').map(turn=>turn.text):userMessages;
   const strokeDirection=requestedStrokeDirection(currentTurns.length?currentTurns:[ctx.prompt]);
-  const axisNote=strokeDirection?'本轮用户指定所述部件'+strokeAxes[strokeDirection].label+'。按装配世界坐标布置机构和回程。':'';
-  const evidence=discussing?{candidates:[],records:[]}:await sourceMechanicalEvidence(ctx,env,send,signal);
-  const designInstructions=[instructions,...(ctx.history.length||ctx.baseDesign?[revisionInstructions]:[]),axisNote,evidenceInstructions,guide?.text].join('\n');
-  const input={model:env.OPENAI_MODEL,store:false,instructions:(discussing?discussionInstructions:designInstructions)+(ctx.images.length?'\n'+photoInstructions:''),input:withMechanicalEvidence(modelInput(ctx),evidence),
-   text:{format:{type:'json_schema',name:discussing?'hardware_clarification':'hardware_design',strict:true,schema:discussing?discussionSchema:schema}}};
-  const r=await send('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify(input),signal});
-  if(!r.ok&&ctx.images.length&&[400,415,422].includes(r.status)){
-   const failure=await r.clone().json().catch(()=>null);
-   if(/image|vision|multimodal/i.test(String(failure?.error?.message||'')+' '+String(failure?.error?.code||'')))
-    return reply({error:'当前模型未能处理这组照片。请更换支持图片的模型，或移除照片后重试。'},502);
-  }
-  if(!r.ok)return reply({error:`模型服务返回 ${r.status}，未能生成方案。`},502);
-  const data=await r.json();
-  if(data.status!=='completed'){
-   const reason=data.incomplete_details?.reason;
-   return reply({error:reason==='max_output_tokens'?'模型输出已达长度上限，CAD 方案未生成完整。':'模型服务未返回完整方案，请重试。'},502);
-  }
-  const txt=data.output.filter(i=>i.type==='message').flatMap(i=>i.content??[]).filter(c=>c.type==='output_text').map(c=>c.text).join('');
-  const value=JSON.parse(txt);
-  if(discussing)return reply(readDecision(value));
   const changingPoweredStroke=Boolean(strokeDirection)&&ctx.baseDesign?.cadPlan?.motions?.length===1;
-  const result=await attachMechanicalEvidence(normalizeDesign(value,userMessages.join('\n'),userMessages.at(-1),strokeDirection,changingPoweredStroke),evidence.records,env.OPENAI_API_KEY);
-  const provenance=generation('openai-api',data.model??env.OPENAI_MODEL,data.model?'response':'configured',guide.skill);
-  provenance.mechanicalResearch={status:evidence.status,requested:evidence.candidates.length,found:evidence.found,
-   ...(evidence.inherited?{inherited:evidence.inherited}:{})};
-  return reply({design:{...result,generation:provenance}});
+  const axisNote=strokeDirection?'本轮用户指定所述部件'+strokeAxes[strokeDirection].label+'。按装配世界坐标布置机构和回程。':'';
+  const physicalArgs=[userMessages.join('\n'),userMessages.at(-1),strokeDirection,changingPoweredStroke];
+  const pending=ctx.repairCandidate?.design,priorAlias=normalizeInteractionTimerAliases(pending?.interaction);
+  let retained=false;
+  if(pending&&priorAlias.corrections.length){
+   try{normalizeDesign({...pending,interaction:priorAlias.model},...physicalArgs);retained=true;}catch{/* another defect still requires design work */}
+  }
+  let evidence=retained?await retainedMechanicalEvidence(ctx,env):await sourceMechanicalEvidence(ctx,env,send,signal);
+  const authoring=[instructions,...(ctx.history.length||ctx.baseDesign?[revisionInstructions]:[]),axisNote,evidenceInstructions,guide.text].join('\n')+photos;
+  let originalInput=withMechanicalEvidence(modelInput(ctx),evidence);
+  let previousIssues=ctx.repairCandidate?.issues||[],lastCandidate=null;
+  let input=ctx.repairCandidate?addModelData(originalInput,{task:'从以下未发布草稿和失败记录继续修正，保留正确部分；仅以新一轮校验和资料为准。',rejectedDraft:projectDesignForModel(ctx.repairCandidate.design),issues:previousIssues}):originalInput;
+  for(let attempt=1;attempt<=2;attempt++){
+   const reuseThisDraft=retained&&attempt===1;
+   const draft=reuseThisDraft?{value:pending,model:null}:await structuredCall(send,env,signal,{instructions:authoring,input,text:format('hardware_design',schema)},attempt===1?'设计生成':'设计修正',{hasImages});
+   const aliases=normalizeInteractionTimerAliases(draft.value?.interaction);
+   const normalizedDraft=aliases.corrections.length?{...draft.value,interaction:aliases.model}:draft.value;
+   let candidate,definitionIssues=[],physicalValid=false,interactiveValid=false;
+   try{candidate=normalizePhysical(normalizedDraft,...physicalArgs);physicalValid=true;}
+   catch(error){definitionIssues.push(error instanceof AssemblyError?error.message:'草图的零件信息或结构数据不完整。');}
+   let geometry={status:'unavailable',checks:['CAD 数据未通过，无法执行几何检查。'],issues:[]},catalogGeometry=[];
+   if(physicalValid){
+    candidate=await attachMechanicalEvidence(candidate,evidence.records,env.OPENAI_API_KEY);
+    catalogGeometry=resolvedCatalogGeometry(candidate);
+    try{const model=designInteraction(normalizedDraft.interaction,candidate);if(model)candidate.interaction=model;interactiveValid=true;}
+    catch(error){candidate.interaction=normalizedDraft.interaction;definitionIssues.push(error.message);}
+    let mechanicalInteraction=candidate.interaction;
+    if(!interactiveValid){
+     try{mechanicalInteraction=validateInteractionGeometry(candidate.interaction,{bom:candidate.parts,cadPlan:candidate.cadPlan});}
+     catch{mechanicalInteraction=null;}
+    }
+    geometry=await reviewInteractionGeometry({...candidate,interaction:mechanicalInteraction},{signal,local:env.PUBLIC_WORKER!=='1'});
+    if(!interactiveValid&&!mechanicalInteraction)geometry.checks.push('控制件的安装映射未通过校验，其操作行程未测试。');
+   }else candidate={name:draft.value?.name,summary:draft.value?.summary,parts:Array.isArray(draft.value?.parts)?draft.value.parts.filter(Boolean).map(
+    ({name,model,spec,sizeMm,qty,purpose,placement,role})=>({name,model,spec,sizeMm,qty,purpose,placement,role})):[],
+    cadPlan:draft.value?.cadPlan,interaction:draft.value?.interaction,steps:draft.value?.steps,deviceMotion:draft.value?.deviceMotion};
+   const behavior=interactiveValid?replayInteraction(candidate.interaction):{status:'unavailable',initialState:null,visitedStates:[],observations:[],issues:[]};
+   const evaluation=await evaluateDraft({ctx,candidate,geometry,catalogGeometry,behavior,normalizations:aliases.corrections,definitionIssues,previousIssues,skill:reviewSkill,env,send,signal});
+   lastCandidate=physicalValid?candidate:null;
+   if(!evaluation.issues.length){
+    const provenance=generation('openai-api',draft.model??env.OPENAI_MODEL,draft.model?'response':'configured',guide.skill);
+    provenance.mechanicalResearch={status:evidence.status,requested:evidence.candidates.length,found:evidence.found,
+     ...(evidence.inherited?{inherited:evidence.inherited}:{})};
+    provenance.designReview={status:'preview-reviewed',attempts:attempt,skill:reviewSkill.skill,modelId:evaluation.model??null,
+     checks:evaluation.review.checks,physicalChecks:evaluation.review.physicalChecks,geometry,behavior,
+     ...(reuseThisDraft?{draftSource:'retained-candidate'}:{}),...(aliases.corrections.length?{normalizations:aliases.corrections}:{}),
+     ...(attempt>1||reuseThisDraft?{correctedIssues:previousIssues}:{})};
+    return reply({design:{...candidate,generation:provenance}});
+   }
+   previousIssues=evaluation.issues;
+   if(reuseThisDraft){
+    // The review found a genuine design defect after migration. Research any parts needed for an actual repair.
+    evidence=await sourceMechanicalEvidence(ctx,env,send,signal);
+    originalInput=withMechanicalEvidence(modelInput(ctx),evidence);
+   }
+   if(attempt<2)input=addModelData(originalInput,{task:'修改以下草稿，逐项解决评审发现的问题。保留已满足的目标。返回完整、索引一致、能重新接受独立评审的设计。',
+    rejectedDraft:reuseThisDraft?projectDesignForModel({...pending,interaction:aliases.model}):normalizedDraft,issues:previousIssues,geometry,catalogGeometry});
+  }
+  return reply({error:'设计已修正并重新评审，仍需处理。'+previousIssues.slice(0,3).join(' '),
+   review:{status:'needs-revision',attempts:2,issues:previousIssues},...(lastCandidate?{repairCandidate:{design:lastCandidate,issues:previousIssues.slice(0,12).map(s=>s.slice(0,1500))}}:{})},502);
  }catch(error){
   if(error instanceof DesignInputError)return reply({error:error.message},error.status);
-  if(timeout.aborted||error.name==='TimeoutError')return reply({error:'模型生成超过 5 分钟，请重试。'},504);
+  if(timeout.aborted||error.name==='TimeoutError')return reply({error:'设计或评审未在时限内完成（单阶段 5 分钟，整轮 10 分钟）。请重试。'},504);
   if(request.signal.aborted)return reply({error:'生成请求已取消。'},499);
-  return reply({error:error instanceof AssemblyError?error.message:discussing?'设计讨论暂时无法完成，可以重试或直接生成。':'设计未完成或零件信息不完整，请重试。'},502);
+  return reply({error:error instanceof AssemblyError||error instanceof ModelStageError?error.message:discussing?'设计讨论暂时无法完成，可以重试或直接生成。':'设计未完成或零件信息不完整，请重试。'},502);
  }
 }

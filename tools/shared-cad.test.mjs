@@ -38,11 +38,14 @@ test('each published revision has its original design, matching saved ForgeCAD p
   assert.equal(reference.toString('ascii',1,4),'PNG');
 });
 
-test('the shared reading timer preserves all four recorded revisions and the initial clarification',async()=>{
+test('the shared reading timer preserves all five recorded revisions and the initial clarification',async()=>{
   const {projects}=await json('manifest.json');
   const {versions}=projects.find(project=>project.slug==='reading-timer');
-  assert.deepEqual(versions.map(v=>v.version),[1,2,3,4]);
+  assert.deepEqual(versions.map(v=>v.version),[1,2,3,4,5]);
+  assert.equal(versions.at(-1).interactive,true);
+  assert.equal(versions.at(-1).verification.interaction,'checked');
   const records=await Promise.all(versions.map(v=>json(v.design)));
+  assert.equal(records.at(-1).design.generation.designReview.status,'preview-reviewed');
   const first=records[0].iteration.conversation;
   assert.ok(first.some(m=>m.role==='assistant' && m.text.trim()));
   assert.ok(first.some(m=>m.role==='user' && m.text.trim()));

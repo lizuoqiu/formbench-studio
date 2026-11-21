@@ -15,6 +15,7 @@ export function shareLink(slug,version,base=location.href){
   return url.href;
 }
 export function verificationText(value){
+  if(value?.cad==='checked'&&value.interaction==='checked')return 'CAD 和交互预览已核验 · 未实物验证';
   return value?.cad==='checked'?'仅 CAD 已核验 · 未实物验证':'CAD 尚未核验 · 未实物验证';
 }
 export async function galleryProjects(){
@@ -60,9 +61,10 @@ export async function mountGallery(container,onOpen){
 }
 export function sharedProjectBar(shared){
   const {entry,selected}=shared;
+  const playable=entry.versions.findLast(v=>v.interactive===true&&v.version>selected.version);
   const referenceImage=galleryAsset(selected.referenceImage);
   return `<section class="shared-project-bar" aria-label="分享项目"><div class="shared-project-context"><b>${entry.source==='example'?'示例':'工作室精选'}</b><span>公开版本 · 只读</span><span>${esc(verificationText(selected.verification))}</span></div>
-    <div class="shared-project-controls"><label>版本 <select id="shared-version" aria-label="分享项目版本">${entry.versions.map(v=>`<option value="${v.version}" ${v.version===selected.version?'selected':''}>${esc(v.label||'第 '+v.version+' 版')}</option>`).join('')}</select></label><button type="button" class="small-button" id="copy-project">创建个人副本</button><button type="button" class="small-button" id="close-shared">关闭</button></div>
+    <div class="shared-project-controls">${playable?`<a class="small-button" href="${esc(shareLink(entry.slug,playable.version))}">试用互动版</a>`:''}<label>版本 <select id="shared-version" aria-label="分享项目版本">${entry.versions.map(v=>`<option value="${v.version}" ${v.version===selected.version?'selected':''}>${esc(v.label||'第 '+v.version+' 版')}</option>`).join('')}</select></label><button type="button" class="small-button" id="copy-project">创建个人副本</button><button type="button" class="small-button" id="close-shared">关闭</button></div>
     ${selected.verification?.note?`<p class="shared-verification-note">${esc(selected.verification.note)}</p>`:''}${referenceImage?`<a class="shared-reference-image" href="${esc(referenceImage)}" target="_blank" rel="noopener noreferrer">查看该版参考图 ↗</a>`:''}</section>`;
 }
 export function showShareDialog(link){
