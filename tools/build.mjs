@@ -1,3 +1,4 @@
+import {gzipSync} from 'node:zlib';
 import { mkdir,readdir,cp,rm,writeFile,readFile } from 'node:fs/promises';
 await rm('dist',{recursive:true,force:true});await mkdir('dist');
 for(const name of ['index.html','style.css','app.js','studio.js','mechanical.js','mechanical.css','mesh-renderer.js','assembly-hardware.js','part-geometry.js','model-selection.js','project-layout.js','assembly-handoff.js','hardware-library.js','hardware-library.css','wiring.js','wiring.css','frame.css','studio-entry.css','samples'])await cp(name,'dist/'+name,{recursive:true});
@@ -9,6 +10,8 @@ await writeFile('dist/forge/assets.json',JSON.stringify(assets));
 // Preserve per-model source links and license notices alongside their public geometry.
 await cp('assets/hardware','dist/assets/hardware',{recursive:true});
 await cp('assets/cad-reader','dist/assets/cad-reader',{recursive:true});
+const wasm=await readFile('assets/cad-reader/occt-import-js.wasm');
+await writeFile('dist/assets/cad-reader/occt-import-js.wasm.gz',gzipSync(wasm,{level:9}));
 
 // The same assets and transforms that power the viewer, for CAD tools consuming the BOM.
 const {catalog,picoLayout}=await import('../assembly-hardware.js');

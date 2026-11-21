@@ -68,12 +68,16 @@ function convertStep(bytes,name,occt){
   }return finish(meshes);
 }
 export function decodePurchasedCad(bytes,name,occt){return /\.stl$/i.test(name)?readSTL(bytes,name):convertStep(bytes,name,occt);}
-let active=false;
-export async function readPurchasedCad(fileOrBytes,filename=fileOrBytes?.name){
+let queue=Promise.resolve(),cadWorker;
+export function readPurchasedCad(fileOrBytes,filename=fileOrBytes?.name){
+  const job=queue.then(()=>readOneCad(fileOrBytes,filename));
+  queue=job.catch(()=>{});
+  return job;
+}
+async function readOneCad(fileOrBytes,filename){
   if(typeof filename!=='string'||!/\.(stl|step|stp)$/i.test(filename))fail('请选择 .stl、.step 或 .stp 文件。');
-  if(active)fail('请等待当前文件读取完成。');
   const size=fileOrBytes?.size??fileOrBytes?.byteLength;if(!Number.isSafeInteger(size)||size<=0||size>MAX_BYTES)fail('请选择非空且不超过 16 MiB 的 CAD 文件。');
-  active=true;try{
+
     const buf=typeof fileOrBytes.arrayBuffer==='function'?await fileOrBytes.arrayBuffer():ArrayBuffer.isView(fileOrBytes)?new Uint8Array(fileOrBytes.buffer,fileOrBytes.byteOffset,fileOrBytes.byteLength).slice().buffer:fileOrBytes.slice(0);
     if(typeof Worker==='undefined'){
       if(typeof window!=='undefined')fail('此浏览器不支持后台读取 CAD，请改用支持 Worker 的浏览器。');
@@ -83,10 +87,21 @@ export async function readPurchasedCad(fileOrBytes,filename=fileOrBytes?.name){
       const factory=require('./assets/cad-reader/occt-import-js.js');return decodePurchasedCad(new Uint8Array(buf),filename,await factory());
     }
     return await new Promise((resolve,reject)=>{
-      const w=new Worker(new URL('./assets/cad-reader/reader-worker.js',import.meta.url)),done=(fn,arg)=>{clearTimeout(t);w.terminate();fn(arg);};
-      const t=setTimeout(()=>done(reject,Error('CAD 读取超时；请使用简化的 STEP 或 STL 文件。')),TIMEOUT);
-      w.onmessage=({data})=>data.error?done(reject,Error(data.error)):done(resolve,data.result);w.onerror=()=>done(reject,Error('CAD 读取器无法运行，请检查模型后重试。'));
-      w.postMessage({buffer:buf,filename},[buf]);
+      const w=cadWorker??=new Worker(new URL('./assets/cad-reader/reader-worker.js',import.meta.url));
+      let timer;
+      const finish=(fn,arg,reset=false)=>{
+        clearTimeout(timer);w.onmessage=w.onerror=null;
+        if(reset){w.terminate();cadWorker=null}
+        fn(arg);
+      };
+      const limit=(ms,message)=>{clearTimeout(timer);timer=setTimeout(()=>finish(reject,Error(message),true),ms)};
+      limit(180_000,'CAD 读取器下载超时，请检查网络后重试。');
+      w.onmessage=({data})=>{
+        if(data.phase==='parsing'){limit(TIMEOUT,'CAD 解析超时，请使用简化的模型文件。');return}
+        if(data.error)finish(reject,Error(data.error));
+        else finish(resolve,data.result);
+      };
+      w.onerror=()=>finish(reject,Error('CAD 读取器无法运行，请重新加载页面后重试。'),true);
+      w.postMessage({buffer:buf,filename,protocol:2},[buf]);
     });
-  }finally{active=false;}
 }
