@@ -8,6 +8,53 @@ const controlBodies=control=>control.kind==='touch'?[control.fixedBodyIndex]:con
 const clock=value=>Math.floor(Math.max(0,value)/60).toString().padStart(2,'0')+':'+Math.floor(Math.max(0,value)%60).toString().padStart(2,'0');
 let viewerSequence=0;
 
+const lightColors=[
+ ['red',/(?<!粉)(?:红色|红光|红灯)|\bred\b/i,'240 68 68','#ffb2b2'],
+ ['green',/绿色|绿光|绿灯|\bgreen\b/i,'77 226 138','#a0ffbd'],
+ ['blue',/蓝色|蓝光|蓝灯|\bblue\b/i,'67 135 245','#b0d2ff'],
+ ['yellow',/黄色|黄光|黄灯|\byellow\b/i,'245 206 63','#fff0a2'],
+ ['orange',/橙色|橙光|橙灯|琥珀|\borange\b|\bamber\b/i,'245 152 55','#ffdda6'],
+ ['purple',/紫色|紫光|紫灯|\bpurple\b|\bviolet\b/i,'173 103 240','#e2bcff'],
+ ['pink',/粉色|粉红|粉光|\bpink\b/i,'242 106 174','#ffc0e1'],
+ ['cyan',/青色|青光|青灯|\bcyan\b/i,'58 211 221','#b0f7ff'],
+ ['white',/白色|白光|白灯|\bwhite\b/i,'230 238 245','#ffffff']
+];
+// Read only explicit light specifications and clauses bound to this output.
+// PWM frequency, timer durations and another lamp's instructions are not cycles.
+export function lightPresentation(output,design={}){
+ const part=design.parts?.[output.partIndex]||{},metadata=[output.label,part.name,part.model,part.spec,part.purpose].filter(value=>typeof value==='string');
+ const names=[output.label,part.name,part.model].filter(value=>typeof value==='string'&&value.length>=2);
+ const single=(design.interaction?.outputs||[]).filter(item=>item.kind==='light').length===1;
+ const clauses=(design.steps||[]).filter(step=>typeof step==='string').flatMap(step=>step.split(/[。；;\n，,]/)).filter(clause=>names.some(name=>clause.includes(name))||(single&&/单灯|LED|(?:指示|提示|呼吸|红|绿|蓝|黄|橙|紫|白|青)灯/i.test(clause)));
+ const text=[...metadata,...clauses].join('\n');
+ const colors=lightColors.filter(([,pattern])=>pattern.test(text));
+ const selected=colors.length===1?colors[0]:lightColors.find(([name])=>name==='green');
+ const cycles=[];
+ const patterns=[
+  /(\d+(?:\.\d+)?)\s*(?:秒|seconds?|secs?|s)\s*(?:的\s*)?(?:明暗|亮灭|呼吸)\s*(?:周期|循环)/gi,
+  /(?:明暗|亮灭|呼吸)\s*(?:周期|循环)\s*(?:为|是|约|[:：=])?\s*(\d+(?:\.\d+)?)\s*(?:秒|seconds?|secs?|s)/gi,
+  /每\s*(\d+(?:\.\d+)?)\s*秒\s*(?:完成)?\s*一(?:次|轮|个)\s*(?:呼吸|明暗|亮灭)/g,
+  /(\d+(?:\.\d+)?)\s*秒\s*一(?:轮|次)\s*(?:明暗|亮灭|呼吸)/g,
+  /(?:breath(?:e|ing)?|pulse)\s*(?:cycle|period)\s*(?:of|is|[:=])?\s*(\d+(?:\.\d+)?)\s*(?:seconds?|secs?|s)\b/gi,
+  /(\d+(?:\.\d+)?)\s*(?:seconds?|secs?|s)\s*(?:breath(?:e|ing)?|pulse)\s*(?:cycle|period)\b/gi
+ ];
+ for(const pattern of patterns)for(const match of text.matchAll(pattern)){const value=Number(match[1]);if(value>0&&Number.isFinite(value))cycles.push(value);}
+ const unique=[...new Set(cycles)];
+ return {color:selected[0],rgb:selected[2],core:selected[3],cycleSeconds:unique.length===1?unique[0]:2.8,explicitColor:colors.length===1,explicitCycle:unique.length===1};
+}
+
+export function displayValue(output,design={},seconds){
+ const part=design.parts?.[output.partIndex]||{};
+ const metadata=[output.label,part.name,part.model,part.spec,part.purpose].filter(value=>typeof value==='string').join('\n');
+ if(/分钟|\bminutes?\b/i.test(metadata)&&!/秒|\bseconds?\b/i.test(metadata)){
+  const names=[output.label,part.name].filter(value=>typeof value==='string'&&value.length>=2);
+  const clauses=(design.steps||[]).filter(step=>typeof step==='string').flatMap(step=>step.split(/[。；;\n，,]/)).filter(clause=>names.some(name=>clause.includes(name))||/分钟|\bminutes?\b/i.test(clause));
+  const instructions=[metadata,...clauses].join('\n');
+  if(/分钟[^。；;\n]{0,12}向上取整|向上取整[^。；;\n]{0,12}分钟|\bminutes?[^.\n]{0,30}(?:round(?:ed)?\s+up|ceil)|(?:round(?:ed)?\s+up|ceil)[^.\n]{0,30}\bminutes?/i.test(instructions)&&!/向下取整|四舍五入|\bfloor\b|round(?:ed)?\s+down/i.test(instructions))return String(Math.ceil(Math.max(0,seconds)/60));
+ }
+ return clock(seconds);
+}
+
 // The contract names moving bodies explicitly. A control's fixed board and all
 // other bodies retain their original vertices, even when they share a BOM part.
 export function interactionMesh(mesh,offset,bodyIndex,model,snapshot,gestures={}){
@@ -27,7 +74,7 @@ export function interactionMesh(mesh,offset,bodyIndex,model,snapshot,gestures={}
  return {...mesh,points,projected:new Float64Array(points.length*3)};
 }
 
-export function mountCadInteraction(root,model,{onChange=()=>{}}={}){
+export function mountCadInteraction(root,model,{design={},onChange=()=>{}}={}){
  if(!model?.controls?.length||!model?.states?.length)return null;
  const stage=root.querySelector('.cc-stage'),footer=root.querySelector('.cc-footer'),canvas=stage.querySelector('canvas');
  const overlay=document.createElement('div');overlay.className='ci-overlay';overlay.setAttribute('aria-hidden','true');
@@ -56,6 +103,11 @@ export function mountCadInteraction(root,model,{onChange=()=>{}}={}){
  }
  for(const output of model.outputs||[]){
   const element=document.createElement('span');element.className='ci-output ci-output-'+output.kind;element.dataset.ciOutput=output.id;
+  if(output.kind==='light'){
+   const appearance=lightPresentation(output,{...design,interaction:model});
+   element.style.setProperty('--ci-light-rgb',appearance.rgb);element.style.setProperty('--ci-light-core',appearance.core);
+   element.style.setProperty('--ci-breathe-cycle',appearance.cycleSeconds+'s');
+  }
   element.title=output.label;overlay.append(element);outputs.set(output.id,{element,output});
  }
  let snapshot=initialInteraction(model),gestures={},camera=null,scene=[],pick=null,enabled=false,active=null,lastTick=performance.now(),poseRevision=0;
@@ -75,8 +127,8 @@ export function mountCadInteraction(root,model,{onChange=()=>{}}={}){
  }
  function outputText(output){
   const mode=snapshot.outputs?.[output.id]||'off';
-  if(mode==='remaining')return clock(snapshot.remainingSeconds);
-  if(mode==='value')return model.timer?clock(snapshot.setSeconds):String(snapshot.setSeconds??0);
+  if(mode==='remaining')return displayValue(output,design,snapshot.remainingSeconds);
+  if(mode==='value')return model.timer?displayValue(output,design,snapshot.setSeconds):String(snapshot.setSeconds??0);
   return {off:'关闭',on:'开启',breathe:'呼吸'}[mode]||mode;
  }
  function notify(){renderState();onChange(snapshot);}

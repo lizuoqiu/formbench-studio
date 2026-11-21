@@ -712,7 +712,7 @@ export function mountConsumerCad(container,design,options={}){
    if(declared){
     activePlan=currentCadPlan(design);
     // Removed/reindexed bodies invalidate interaction references as well as CAD.
-    if(activePlan.bodies.length===design.cadPlan.bodies.length)interaction=mountCadInteraction(root,design.interaction,{onChange:()=>updateScene()});
+    if(activePlan.bodies.length===design.cadPlan.bodies.length)interaction=mountCadInteraction(root,design.interaction,{design,onChange:()=>updateScene()});
     geometry=previewCadPlan(activePlan,parts.length);
     if(!activePlan.bodies.length){
      buildState='fallback';mode='references';geometry.notice='型号或尺寸已变更，请重新生成结构。';
