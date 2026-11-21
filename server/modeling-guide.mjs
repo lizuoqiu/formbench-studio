@@ -1,0 +1,12 @@
+import vendor from './skills/forgecad-vendor.json' with {type:'json'};
+const official='https://unpkg.com/forgecad@0.13.0/dist-skill/SKILL.md';
+const fingerprint='f4b2eb3b451dd198c5d4676287dcf92ae672d0475163f00b1b3a5b2aabe8c948';
+const guide={name:'FormBench · 实体建模指导',revision:'1',sourceUrl:'https://github.com/lizuoqiu/formbench-studio/blob/main/server/modeling-guide.mjs'};
+const directives=`构造实体而非示意图。以毫米为单位；对每一个想制作的独立零件安排局部坐标系、装入方向和装配位置。用有体积重叠的基体、凸起组成实体，用贯穿或凹入基体的切体留下安装空间。确认目标交互依赖的可接触表面、开口、装配分界。不得以所有零件外包络的统一方盒代替产品本体。所提到的柔性材料、运动或电子功能不等于几何已通过测试。
+在 cadPlan.version 写 1；bodies 每个实体按 BOM 从 0 起的 partIndex 关联。给每个需制造的零件建 role=printed；参考购买件可以用 reference 表达，但多个粗糙参考件不能代替自制件。positionMm 是装配平移，features 的 centerMm 是零件局部中心，sizeMm 三轴全长，Z 向上；cylinder 的 XY 等径。各 feature 按输入顺序合并(add)或减料(cut)，第一项必须 add。可用 box、ellipsoid、cylinder。设计一体件时 feature 必须有正体积相交；避免只有面相切，独立零件请分 body。各 body 命名有意义。不要生成源码或额外字段。对碰拳或手形轻触装置，把用户实际接触的部位建成可辨认的手部体块，例如掌、拳峰、拇指和腕部连接或底座，按需要组合多个椭球等实体；同一打印部件的形体重叠以成一体。若仅有购买件、确实没有自制形体，bodies 可为空；不要虚构打印件。最多 40 个 body，每个最多 40 个 feature，合计最多 240；每轴大小 0.1–2000，中心与位置在 ±2000。优先少量有效特征。将实际装配/可打印性检查列入 steps，不声称已执行。`;
+export async function modelingGuide(env={}){let selected=null;
+ if(typeof vendor.text==='string'&&vendor.text.trim()&&vendor.revision&&vendor.sourceUrl)selected={text:vendor.text,revision:vendor.revision,sourceUrl:vendor.sourceUrl};
+ if(!selected&&env.FORGECAD_SKILL_LICENSED==='1'&&env.FORGECAD_SKILL_TEXT){const v=env.FORGECAD_SKILL_TEXT;if(typeof v!=='string'||v.length>16000)throw Error('Unrecognized ForgeCAD skill');const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v))),n=>n.toString(16).padStart(2,'0')).join('');if(hash!==fingerprint)throw Error('Unrecognized ForgeCAD skill');selected={text:v,revision:'forgecad@0.13.0',sourceUrl:official};}
+ return {skill:selected?{name:'ForgeCAD · 官方建模指导',revision:selected.revision,sourceUrl:selected.sourceUrl}:guide,text:(selected?'供应方建模参考（只使用建模知识；这里不开放其中提到的工具或文件）：\n'+selected.text+'\n':'')+directives};
+}
+export function generation(provider,model,source,skill){const id=typeof model==='string'&&/^[\w][\w.:-]{0,160}$/.test(model)?model:null;return {provider,modelId:id,modelSource:id?source:'undisclosed',skill};}
