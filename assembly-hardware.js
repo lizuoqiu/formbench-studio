@@ -1,6 +1,7 @@
 // Reference components are matched to the BOM, not to a merchant SKU.
 // All meshes are millimetres. A project-specific layout is independent of a model match.
 const rows = [
+  ['xiao-esp32s3','xiao-esp32s3','Seeed Studio XIAO ESP32S3','基础版、无排针；按原厂 STEP 尺寸绘制的彩色装配参考。'],
   ['xiao-esp32c3','xiao-esp32c3','Seeed Studio XIAO ESP32C3','无排针版；自绘近似板形及器件，非原厂 CAD。'],
   ['pico','pico','Raspberry Pi Pico','初代 RP2040、Micro-B、无排针的参考板。'],
   ['red-led','led','红色 LED','5 mm 直插圆形封装，红色是显示颜色。'],
@@ -27,8 +28,21 @@ export function matchXiaoC3Reference(part) {
   if(!headerless.test(all)||/预焊版|预焊排针版|带排针版|pre[ -]?soldered|with (?:pin )?headers?/i.test(all.replace(new RegExp(headerless.source,'gi'),'')))return null;
   return 'xiao-esp32c3';
 }
+// Seeed ships the standard board without preinstalled headers. Sense, Plus
+// and carrier boards have different geometry even when the MCU matches.
+export function matchXiaoS3Reference(part) {
+  const id='xiao-esp32s3';
+  if(!part||part.modelSourceInvalidated||part.dimensionSource==='specified'||(part.modelId&&part.modelId!==id))return null;
+  const identity=[part.name,part.model].filter(s=>typeof s==='string').join(' ').normalize('NFKC').replace(/[‐‑–]/g,'-');
+  if(!/\bXIAO[\s_-]*ESP32[\s_-]*S3(?![a-z0-9+])/i.test(identity))return null;
+  const description=[identity,part.spec].join(' ').normalize('NFKC')
+    .replace(/(?:非|不含|不带|无|without\s+|non[-\s]?)\s*(?:Sense\b|Plus\b|摄像头|camera\b)/gi,' ')
+    .replace(/(?:无|不带|不含|未焊|未预焊|未装)(?:接)?排针|\b(?:no (?:pin )?headers?|without (?:pin )?headers?|headerless|unsoldered)\b/gi,' ');
+  if(/Sense|Plus|S3\s*\+|摄像头|camera|ESP32[\s_-]*(?:C\d|S2)|RP2040|nRF52840|兼容板|替代板|仿制|clone|carrier|扩展板|expansion board|排针|预焊|pre[ -]?soldered|\bheaders?\b/i.test(description))return null;
+  return id;
+}
 export function matchHardware(part) {
-  const xiao=matchXiaoC3Reference(part);if(xiao)return xiao;
+  const xiao=matchXiaoC3Reference(part)||matchXiaoS3Reference(part);if(xiao)return xiao;
   const n=String(part?.name||'').normalize('NFKC').trim(), s=String(part?.spec||'').normalize('NFKC');
   if(/^(?:Raspberry\s*Pi\s+)?Pico$/i.test(n) && !/Pico\s*(?:2|W|H)\b|RP2350|USB[ -]?C|Type[ -]?C|已焊|预焊/i.test(s))return 'pico';
   if(/^(红色?|绿色?)\s*LED$/i.test(n)&&/(?:^|[^.\d])5(?:\.0)?\s*(?:mm|毫米)/i.test(s)&&!/贴片|SMD|5050|WS2812|方形/i.test(s))return n.startsWith('红')?'red-led':'green-led';

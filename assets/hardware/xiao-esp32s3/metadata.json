@@ -1,0 +1,127 @@
+{
+  "label": "Seeed Studio XIAO ESP32S3（基础版，无排针）",
+  "modelType": "dimensioned-approximation",
+  "description": "结构自绘，整板包络来自 Seeed 的基础版 STEP。模型包括可辨识的 USB-C、屏蔽罩、两排七个焊盘、按键和天线座。",
+  "author": "Formwork project contributors; measurements from Seeed Studio",
+  "license": "CC0-1.0 (original geometry only)",
+  "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "units": "mm",
+  "sourceUrl": "https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/",
+  "measurementSourceUrl": "https://files.seeedstudio.com/wiki/SeeedStudio-XIAO-ESP32S3/res/seeed-studio-xiao-esp32s3-3d_model.zip",
+  "manufacturerCadUrl": "https://files.seeedstudio.com/wiki/SeeedStudio-XIAO-ESP32S3/res/seeed-studio-xiao-esp32s3-3d_model.zip",
+  "sourceFile": "reference.forge.js",
+  "origin": "PCB centered in XY; +X points out of the USB port, +Z faces the components. Z=0 at the bottom contacts.",
+  "boundsMm": {
+    "min": [
+      -10.4775,
+      -8.89,
+      0
+    ],
+    "max": [
+      12.0045,
+      8.89,
+      4.46
+    ]
+  },
+  "sizeMm": [
+    22.482,
+    17.78,
+    4.46
+  ],
+  "boardSizeMm": [
+    20.955,
+    17.78,
+    1.25
+  ],
+  "meshes": [
+    {
+      "file": "pcb.stl",
+      "label": "基础版 PCB 轮廓、通孔和侧面半孔",
+      "color": [
+        42,
+        49,
+        56
+      ],
+      "triangles": 1548,
+      "boundsMm": {
+        "min": [
+          -10.4775,
+          -8.89,
+          0.035
+        ],
+        "max": [
+          10.4775,
+          8.89,
+          1.25
+        ]
+      }
+    },
+    {
+      "file": "pads.stl",
+      "label": "镀金排焊盘、底面测试点与天线座",
+      "color": [
+        208,
+        163,
+        76
+      ],
+      "triangles": 3492,
+      "boundsMm": {
+        "min": [
+          -9.7965,
+          -8.885,
+          0.0
+        ],
+        "max": [
+          8.42,
+          8.885,
+          2.5
+        ]
+      }
+    },
+    {
+      "file": "metal.stl",
+      "label": "USB-C 壳、中央屏蔽罩和按钮座",
+      "color": [
+        185,
+        195,
+        202
+      ],
+      "triangles": 216,
+      "boundsMm": {
+        "min": [
+          -6.8325,
+          -6.73,
+          1.15
+        ],
+        "max": [
+          12.0045,
+          6.73,
+          4.46
+        ]
+      }
+    },
+    {
+      "file": "polymer.stl",
+      "label": "USB-C 舌片、侧键和天线座底托",
+      "color": [
+        57,
+        63,
+        69
+      ],
+      "triangles": 96,
+      "boundsMm": {
+        "min": [
+          -10.2565,
+          -6.5,
+          1.25
+        ],
+        "max": [
+          11.62,
+          6.5,
+          3.01
+        ]
+      }
+    }
+  ],
+  "limitations": "Independently modeled reference. Port cavity, plated pads, shield and switches are simplified. Distribution excludes the manufacturer STEP, headers, detachable antenna, camera and any expansion board. Verify mating dimensions with the purchased revision."
+}

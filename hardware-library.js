@@ -25,6 +25,7 @@ export async function prepareBindingDownload(binding){
 const localModelFile=(id,file)=>{const dir=catalog[id]?.dir;if(!/^[a-zA-Z0-9_-]+$/.test(dir||'')||typeof file!=='string'||!/^[a-zA-Z0-9_][\w.-]*\.(?:stl|step|stp|zip|scad|py|js|wrl|json)$/i.test(file))return null;return new URL(`./assets/hardware/${dir}/${file}`,import.meta.url).href};
 function sourceClass(data){
  const type=data?.modelType||data?.sourceType||'';
+ if(type==='dimensioned-approximation')return {label:'按尺寸自绘的参考模型',independent:true};
  if(/^(?:independent-reference|independent-model|self-authored|illustrative-cable-route|illustrative-wire-route)$/.test(type)||/\bindependent model\b|\bFormBench contributors\b/i.test(data?.author||''))return {label:'自建参考模型',independent:true};
  if(type==='manufacturer-cad')return {label:'原厂 CAD 转换',independent:false};
  if(type==='open-cad-reference'||type==='candidate-fastener')return {label:'开放授权 CAD',independent:false};
@@ -32,7 +33,7 @@ function sourceClass(data){
  return {label:'有来源记录的参考模型',independent:false};
 }
 export function hardwareMetadataUI(id,data,bounds,resolved){
- const entry=catalog[id]||{},kind=sourceClass(data),links=[sourceLink(kind.independent?'尺寸与产品资料':'上游模型来源',data?.sourceUrl),sourceLink('许可说明',data?.licenseUrl)].filter(Boolean);
+ const entry=catalog[id]||{},kind=sourceClass(data),links=[sourceLink(kind.independent?'尺寸与产品资料':'上游模型来源',data?.sourceUrl),sourceLink('原厂 CAD 下载',data?.manufacturerCadUrl),sourceLink('许可说明',data?.licenseUrl)].filter(Boolean);
  const sourceFiles=[['STEP 实体',data?.stepFile],['建模源文件',data?.sourceFile!==data?.stepFile?data?.sourceFile:null]].map(([label,file])=>{const href=localModelFile(id,file);return href?`<a download href="${esc(href)}">下载 ${esc(label)} <small>${esc(file)}</small></a>`:''}).filter(Boolean);
  const meshes=(data?.meshes||[]).map(mesh=>{const href=/\.stl$/i.test(mesh.file||'')&&localModelFile(id,mesh.file);return href?`<li><a download href="${esc(href)}">${esc(mesh.label||mesh.file)} <small>${esc(mesh.file)}</small></a></li>`:''}).filter(Boolean);
  return `<dl><div><dt>参考型号</dt><dd><strong>${esc(data?.label||entry.label||id)}</strong></dd></div><div><dt>来源类型</dt><dd>${esc(data?kind.label:'来源记录暂不可用')}</dd></div><div><dt>适配情况</dt><dd>${resolved?.catalogOriginal?'已匹配原厂参考型号。请按到货版本核对接口和安装。':'按零件描述给出的候选。安装尺寸需结合选购型号核对。'}</dd></div>${bounds?`<div><dt>模型外包络</dt><dd>${bounds.map(measure).join(' × ')} mm</dd></div>`:''}${data?.author?`<div><dt>模型作者</dt><dd>${esc(data.author)}</dd></div>`:''}<div><dt>许可</dt><dd>${esc(data?.license||'来源记录未提供')}</dd></div></dl>${data?.description||entry.description?`<p>${esc(data?.description||entry.description)}</p>`:''}${kind.independent?'<p class="hl-provenance">此几何由项目独立建立。下方链接提供尺寸或产品参考资料，不是原厂 CAD 文件。</p>':''}${links.length?`<div class="hl-sources">${links.join('')}</div>`:'<p>暂无可打开的来源链接。</p>'}${sourceFiles.length?`<div class="hl-downloads">${sourceFiles.join('')}</div>`:''}${meshes.length?`<details class="hl-mesh-files"><summary>下载分件 STL · ${meshes.length} 个文件</summary><p>各分件使用模型坐标，单位 mm；STL 文件不保存预览颜色。</p><ul>${meshes.join('')}</ul></details>`:''}${data?.modifications||data?.provenance?`<details class="hl-source-record"><summary>来源与处理记录</summary><p>${esc(data.modifications||data.provenance)}</p></details>`:''}`;

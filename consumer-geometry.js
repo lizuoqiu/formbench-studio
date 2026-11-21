@@ -57,6 +57,17 @@ function roundedPrismPreview(size){
  }
  return faces;
 }
+// The kernel rotates features about X, then Y, then Z before placing their centre.
+export function featurePlacement(feature,origin=[0,0,0]){
+ const angles=(feature.rotationDeg||[0,0,0]).map(n=>n*Math.PI/180),c=angles.map(Math.cos),s=angles.map(Math.sin);
+ return point=>{
+  let [x,y,z]=point.map((n,k)=>n-origin[k]);
+  [y,z]=[y*c[0]-z*s[0],y*s[0]+z*c[0]];
+  [x,z]=[x*c[1]+z*s[1],-x*s[1]+z*c[1]];
+  [x,y]=[x*c[2]-y*s[2],x*s[2]+y*c[2]];
+  return [x,y,z].map((n,k)=>n+feature.centerMm[k]);
+ };
+}
 function previewFeature(feature){
  let faces;
  if(feature.shape==='capsule'){
@@ -65,8 +76,8 @@ function previewFeature(feature){
  }else if(feature.shape==='roundedPrism') faces=roundedPrismPreview(feature.sizeMm);
  else if(feature.shape==='ellipsoid') faces=cappedSurface(feature.sizeMm.map(n=>n/2));
  else faces=makeDocumentedProxy({shape:feature.shape,sizeMm:feature.sizeMm}).meshes.flatMap(mesh=>mesh.triangles.map(face=>face.map(point=>point.map((n,k)=>n-feature.sizeMm[k]/2))));
- const angles=(feature.rotationDeg||[0,0,0]).map(n=>n*Math.PI/180),c=angles.map(Math.cos),s=angles.map(Math.sin);
- return faces.map(face=>face.map(([x,y,z])=>{[y,z]=[y*c[0]-z*s[0],y*s[0]+z*c[0]];[x,z]=[x*c[1]+z*s[1],-x*s[1]+z*c[1]];[x,y]=[x*c[2]-y*s[2],x*s[2]+y*c[2]];return [x,y,z].map((n,k)=>n+feature.centerMm[k])}));
+ const place=featurePlacement(feature);
+ return faces.map(face=>face.map(place));
 }
 export function previewCadPlan(raw,partCount=60){
  const plan=validateCadPlan(raw,partCount);

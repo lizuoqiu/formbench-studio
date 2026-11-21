@@ -1,6 +1,14 @@
 const shapes=['box','ellipsoid','cylinder','roundedPrism','capsule'],ops=['add','cut'],roles=['printed','reference'];
 const exact=(v,ks)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length===ks.length&&ks.every(k=>Object.hasOwn(v,k));
 const isvec=(v,min,max)=>Array.isArray(v)&&v.length===3&&v.every(n=>Number.isFinite(n)&&n>=min&&n<=max);
+// A clearance or a feature of a larger assembly is not an instance of a purchased part.
+export function wholePartBox(body){
+ if(body.role!=='reference'||body.features.length!==1)return null;
+ if(/净空|避让|让位|预留|留空|插拔空间|扫掠|运动空间|keep[ -]?out|clearance|(?:swept|reserved) (?:space|volume|envelope)/i.test(body.name))return null;
+ const feature=body.features[0];
+ return feature.op==='add'&&feature.shape==='box'?feature:null;
+}
+
 export function validateCadPlan(plan,partCount=60){
  const bad=()=>{throw Error('Invalid CAD plan')};
  if(!(exact(plan,['version','bodies'])||exact(plan,['version','bodies','motions']))||plan.version!==1||!Array.isArray(plan.bodies)||plan.bodies.length>40)bad();

@@ -1,21 +1,12 @@
 import {validateCadPlan,cadPlanSchema} from './cad-plan.mjs';
 import {modelingGuide,generation} from './modeling-guide.mjs';
 import {DesignInputError,readDesignRequest,modelInput,ready,readDecision,discussionSchema,discussionInstructions,revisionInstructions} from './design-conversation.mjs';
-import {catalog as models, matchHardware} from '../assembly-hardware.js';
-import xiao from '../assets/hardware/xiao-esp32c3/metadata.json' with {type:'json'};
-import pico from '../assets/hardware/pico/metadata.json' with {type:'json'};
-import led from '../assets/hardware/led/metadata.json' with {type:'json'};
-import button from '../assets/hardware/button/metadata.json' with {type:'json'};
-import resistor from '../assets/hardware/resistor/metadata.json' with {type:'json'};
-import screw from '../assets/hardware/screw/metadata.json' with {type:'json'};
-import wire from '../assets/hardware/wire/metadata.json' with {type:'json'};
-import cable from '../assets/hardware/usb-cable/metadata.json' with {type:'json'};
-const refs={'xiao-esp32c3':xiao,pico,'red-led':led,'green-led':led,button,resistor,screw,wire,'usb-cable':cable};
+import {referenceIds,catalogInstructions,designReference,alignCatalogAnchors} from './design-references.mjs';
 const string={type:'string'},obj=properties=>({type:'object',additionalProperties:false,properties,required:Object.keys(properties)}),array=items=>({type:'array',items});
 const role=['internal','external','panel','enclosure'];
 const deviceMotion=['stationary','powered-linear','other'];
-export const schema=obj({name:string,summary:string,deviceMotion:{type:'string',enum:deviceMotion},parts:array(obj({name:string,spec:string,qty:{type:'integer'},model:string,modelId:{type:'string',enum:['',...Object.keys(models)]},sizeMm:array({type:'number'}),dimensionSource:{type:'string',enum:['catalog','estimated','specified']},dimensionQuote:string,role:{type:'string',enum:role},placement:{type:'string',enum:['mounted','loose']},purpose:string})),steps:array(string),cadPlan:cadPlanSchema});
-export const instructions=`你是研究原型硬件设计师。根据用户当前需求，从零选择合适结构、器件、接口、供电与制造方式，并用中文说明具体步骤、装配和功能验证；不要把每个项目都做成 Pico 状态灯。列真实可识别的器件系列或可搜索的采购规格，不能确认型号时写待选型，自制外壳列入 BOM。每项包括数量、作用、安装位置（internal 内部、panel 面板、external 外部、enclosure 自制壳体）、三维外包络 sizeMm [长,宽,高] 毫米；不要用电路板尺寸代替含连接器的整个组件。估计写 estimated。确为用户给出的三维尺寸，可写 specified，并以 dimensionQuote 摘录含部件和毫米尺寸的用户原文；否则引用留空。目录ID仅在型号和封装符合时使用，没有匹配填空。目录只代表参考几何，不能声称验证购买 SKU、公差、库存、商家、价格或真实装配。可用几何参考：${Object.entries(models).map(([k,v])=>`${k}=${v.label}（${v.description}）`).join('；')}。未验证的供电、运动空间、安装孔位和功能在步骤中说明如何检查。`;
+export const schema=obj({name:string,summary:string,deviceMotion:{type:'string',enum:deviceMotion},parts:array(obj({name:string,spec:string,qty:{type:'integer'},model:string,modelId:{type:'string',enum:['',...referenceIds]},sizeMm:array({type:'number'}),dimensionSource:{type:'string',enum:['catalog','estimated','specified']},dimensionQuote:string,role:{type:'string',enum:role},placement:{type:'string',enum:['mounted','loose']},purpose:string})),steps:array(string),cadPlan:cadPlanSchema});
+export const instructions=`你是研究原型硬件设计师。根据用户当前需求，从零选择合适结构、器件、接口、供电与制造方式，并用中文说明具体步骤、装配和功能验证；不要把每个项目都做成 Pico 状态灯。列真实可识别的器件系列或可搜索的采购规格，不能确认型号时写待选型，自制外壳列入 BOM。每项包括数量、作用、安装位置（internal 内部、panel 面板、external 外部、enclosure 自制壳体）、三维外包络 sizeMm [长,宽,高] 毫米；不要用电路板尺寸代替含连接器的整个组件。估计写 estimated。确为用户给出的三维尺寸，可写 specified，并以 dimensionQuote 摘录含部件和毫米尺寸的用户原文；否则引用留空。目录ID仅在型号和封装符合时使用，没有匹配填空。目录只代表参考几何，不能声称验证购买 SKU、公差、库存、商家、价格或真实装配。可用几何参考：${catalogInstructions}。未验证的供电、运动空间、安装孔位和功能在步骤中说明如何检查。`;
 const str=(s,n)=>typeof s==='string'&&s.trim().length>0&&s.length<=n;
 const sizes=v=>Array.isArray(v)&&v.length===3&&v.every(n=>Number.isFinite(n)&&n>0&&n<=10000);
 const triplet=/(\d+(?:\.\d+)?)\s*[x×*＊]\s*(\d+(?:\.\d+)?)\s*[x×*＊]\s*(\d+(?:\.\d+)?)\s*(?:mm|毫米)/ig;
@@ -82,7 +73,20 @@ function validateInstallation(raw,prompt,strokeDirection,changingPoweredStroke){
   const {label,accepts}=strokeAxes[strokeDirection],axis=plan.motions[0].axis;
   if(!accepts(axis))throw new AssemblyError('要求'+label+'，当前 CAD 伸出方向为 ['+axis.join(', ')+']。请重新生成机构。');
  }
- const placedParts=new Set(plan.bodies.map(body=>body.partIndex));
+ const placedParts=new Set(),placedGeometry=new Set(),motionByBody=new Map();
+ for(const [motionIndex,motion] of (plan.motions||[]).entries()){
+  for(const index of motion.movingBodyIndices)motionByBody.set(index,motionIndex);
+ }
+ for(const [index,body] of plan.bodies.entries()){
+  placedParts.add(body.partIndex);
+  // A single purchased assembly can contribute several different fixed and moving solids.
+  // Only coincident copies of the same geometry for the same BOM row are duplicates.
+  const features=body.features.map(f=>[f.op,f.shape,f.sizeMm,
+   f.centerMm.map((v,i)=>v+body.positionMm[i]),f.rotationDeg||[0,0,0]]);
+  const key=JSON.stringify([body.partIndex,body.role,motionByBody.get(index)??null,features]);
+  if(placedGeometry.has(key))throw new AssemblyError('同一零件在相同安装位重复放置了相同的实体：'+raw.parts[body.partIndex].name+'。请核对数量和位置。');
+  placedGeometry.add(key);
+ }
  for(const [index,part] of raw.parts.entries()){
   if(part.placement==='mounted'&&!placedParts.has(index))
    throw new AssemblyError('CAD 缺少已安装零件的位置：'+part.name+'。请重新生成。');
@@ -93,10 +97,9 @@ export function normalizeDesign(raw,prompt,latestIntent=prompt,strokeDirection=r
  const parts=raw.parts.map(p=>{if(!str(p?.name,200)||!str(p.spec,800)||!str(p.model,240)||!Number.isInteger(p.qty)||p.qty<1||p.qty>999||!role.includes(p.role)||!sizes(p.sizeMm)||!str(p.purpose,500))throw Error('invalid part');
  const result={name:p.name.trim(),spec:p.spec.trim(),model:p.model.trim(),qty:p.qty,role:p.role,purpose:p.purpose.trim(),modelId:'',sizeMm:p.sizeMm,dimensionSource:'estimated',dimensionNote:'AI 估算的设计包络；采购和制作前须核对实物。',dimensionSourceUrl:'',...(['mounted','loose'].includes(p.placement)?{placement:p.placement}:{})};
  if(p.dimensionSource==='specified'&&specified(p,prompt))return {...result,dimensionSource:'specified',dimensionQuote:p.dimensionQuote,dimensionNote:'需求原文：'+p.dimensionQuote};
- const id=matchHardware({...p,spec:p.spec+' '+p.model}),meta=id&&id===p.modelId&&refs[id];if(!meta)return result;
- const b=meta.boundsMm,dim=meta.sizeMm??(Array.isArray(b)?b[0].map((x,k)=>Number((b[1][k]-x).toFixed(3))):null);
- if(!sizes(dim))return result;return {...result,modelId:id,sizeMm:dim,dimensionSource:'catalog',dimensionNote:`目录参考模型外廓：${meta.label}；${meta.modelType==='dimensioned-approximation'?meta.description+' ':''}不代表已核对购买规格。`,dimensionSourceUrl:meta.measurementSourceUrl||meta.sourceUrl};});
- return {name:raw.name.trim(),summary:raw.summary.trim(),parts,steps:raw.steps.map(s=>s.trim()),cadPlan:validateInstallation(raw,latestIntent,strokeDirection,changingPoweredStroke),...(raw.deviceMotion?{deviceMotion:raw.deviceMotion}:{})};}
+ const reference=designReference(p);return reference?{...result,...reference}:result;});
+ const plan=validateInstallation(raw,latestIntent,strokeDirection,changingPoweredStroke);
+ return {name:raw.name.trim(),summary:raw.summary.trim(),parts,steps:raw.steps.map(s=>s.trim()),cadPlan:alignCatalogAnchors(plan,raw.parts,parts),...(raw.deviceMotion?{deviceMotion:raw.deviceMotion}:{})};}
 export async function design(request,env,send=fetch){const reply=(body,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'no-store'}});
  if(request.method!=='POST')return reply({error:'只支持 POST。'},405);
  if(!env.OPENAI_API_KEY||!env.OPENAI_MODEL)return reply({error:'设计服务尚未连接。'},503);

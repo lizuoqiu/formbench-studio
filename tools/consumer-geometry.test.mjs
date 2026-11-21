@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {previewCadPlan,compileCadPlan,meshBounds,cadBodyToForgeScript,runCadWorker,cadDownloadName} from '../consumer-geometry.js';
-import {buildDeclaredAssembly,resolveConsumerGeometry,declaredHomeCamera,declaredExplosionOffset,currentCadPlan,bodyPose,visibleAssemblyInstances} from '../consumer-cad.js';
+import {buildDeclaredAssembly,resolveConsumerGeometry,declaredHomeCamera,declaredExplosionOffset,currentCadPlan,bodyPose,visibleAssemblyInstances,assemblyStl} from '../consumer-cad.js';
+import {decodeSTL} from '../assembly-hardware.js';
 import {compileCadPlan as compileSolid} from '../cad-plan-compiler.js';
 
 const feature=(shape,sizeMm,centerMm=[0,0,0],op='add')=>({op,shape,sizeMm,centerMm});
@@ -10,6 +11,27 @@ const plan=bodies=>({version:1,bodies});
 const part=(fields={})=>({name:'打印拳部',spec:'定制',model:'自建结构',qty:1,role:'external',sizeMm:[50,40,45],dimensionSource:'specified',...fields});
 const near=(a,b)=>a.forEach((v,k)=>assert.ok(Math.abs(v-b[k])<1e-5,`${a} != ${b}`));
 const volume=faces=>Math.abs(faces.reduce((sum,[a,b,c])=>sum+(a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]))/6,0));
+
+test('a purchased part uses its complete placement box and exports the displayed, rotated detail at the current travel',()=>{
+ const p=part({index:0,qty:1,role:'internal',geometryKind:'catalog',sizeMm:[20,10,4],
+  meshes:[{label:'connector',triangles:[[[2,2,2],[6,2,2],[2,3,2]]]}]});
+ const box={...feature('box',p.sizeMm,[3,4,5]),rotationDeg:[0,0,90]};
+ const anchor=body('板卡',[box],{role:'reference',positionMm:[50,20,10]});
+ function assemble(bodies,parts=[p]){
+  const cadPlan=plan(bodies),geometry=previewCadPlan(cadPlan,1);
+  return buildDeclaredAssembly({parts,cadPlan},parts,geometry);
+ }
+ const assembly=assemble([anchor]),item=assembly.instances[0];
+ assert.equal(item.source,'catalog');near(item.meshes[0].triangles[0][0],[6,-4,5]);
+ const travel=[{axis:[0,0,1],travelMm:16,movingBodyIndices:[0]}];
+ const [worldFace]=decodeSTL(assemblyStl(assembly,travel,[.5]));
+ near(worldFace[0],[56,16,23]);
+ const split=assemble([anchor,body('输出杆',[feature('cylinder',[2,2,12])],{role:'reference'})]);
+ assert.deepEqual(split.instances.map(i=>i.source),['generated','generated']);
+ assert.equal(assemble([{...anchor,features:[feature('box',[12,10,4])]}]).instances[0].source,'generated');
+ const copies=assemble([anchor,{...anchor,positionMm:[50,80,10]}],[{...p,qty:2}]);
+ assert.deepEqual(copies.instances.map(i=>i.source),['catalog','catalog']);
+});
 
 test('closed enclosure submits physical shafts to depth testing while keeping embedded reference pads inside',()=>{
  const items=[

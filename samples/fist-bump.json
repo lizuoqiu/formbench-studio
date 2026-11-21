@@ -52,7 +52,7 @@
       },
       {
         "name": "微型直线舵机",
-        "spec": "6 V、20 mm 行程、100:1、RC 位置输入版本；竖直安装，尺寸为含耳部和出线余量的收回态安装预留，非厂家尺寸图",
+        "spec": "6 V、20 mm 行程、100:1、RC 位置输入版本。BOM 包络包含本设计的竖装支承和收回态输出侧。",
         "model": "Actuonix PQ12-100-6-R",
         "qty": 1,
         "role": "internal",
@@ -60,13 +60,18 @@
         "modelId": "",
         "sizeMm": [
           20,
-          17,
+          24.5,
           59
         ],
         "dimensionSource": "estimated",
-        "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": "",
-        "placement": "mounted"
+        "dimensionNote": "20 × 24.5 × 59 mm 为此样例含支承的收回态组合包络；厂图标注机壳宽 21.5、厚 15、长 36.5 mm。轴向、装座和承压面需与实际采购版本复核。",
+        "dimensionSourceUrl": "https://www.actuonix.com/assets/images/datasheets/ActuonixPQ12Datasheet.pdf",
+        "placement": "mounted",
+        "geometryReference": {
+          "kind": "datasheet-approximation",
+          "detail": "本图按 Actuonix PQ12 Rev D 绘制固定壳的 21.5 × 15 × 36.5 mm 最大壳体尺寸及偏心输出轴。下段装座、机盖细节、滑杆与平顶承压面按本研究装配示意。20 mm 是厂商全行程，图中工作行程按项目运动计划。原厂收回态两安装孔心距 42 mm，实际输出端为 Ø3 mm 孔的圆耳；腕柱未采用销接，承压适配面、支承高度与间隙须按到货实物复核。",
+          "sourceUrl": "https://www.actuonix.com/assets/images/datasheets/ActuonixPQ12Datasheet.pdf"
+        }
       },
       {
         "name": "升降腕柱",
@@ -120,7 +125,12 @@
         "dimensionSource": "estimated",
         "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
         "dimensionSourceUrl": "",
-        "placement": "mounted"
+        "placement": "mounted",
+        "geometryReference": {
+          "kind": "envelope-approximation",
+          "detail": "四片随动接触区依据指节内壁位置绘制；导电布软尾的可变走向待布线时确认。",
+          "sourceUrl": ""
+        }
       },
       {
         "name": "交互控制板",
@@ -129,15 +139,15 @@
         "qty": 1,
         "role": "internal",
         "purpose": "接收一次性邀约，读取轻触，控制运动和等待状态",
-        "modelId": "",
+        "modelId": "xiao-esp32s3",
         "sizeMm": [
-          22,
-          18,
-          6
+          22.482,
+          17.78,
+          4.46
         ],
-        "dimensionSource": "estimated",
-        "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": "",
+        "dimensionSource": "catalog",
+        "dimensionNote": "结构自绘，整板包络来自 Seeed 的基础版 STEP。模型包括可辨识的 USB-C、屏蔽罩、两排七个焊盘、按键和天线座。 安装底面保持在原预留的 Z=3 mm。",
+        "dimensionSourceUrl": "https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/",
         "placement": "mounted"
       },
       {
@@ -154,9 +164,14 @@
           7
         ],
         "dimensionSource": "estimated",
-        "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
+        "dimensionNote": "19 × 17 × 7 mm 为含出线的设计预留；插座朝向源于底盒左侧的现有开口。",
         "dimensionSourceUrl": "",
-        "placement": "mounted"
+        "placement": "mounted",
+        "geometryReference": {
+          "kind": "envelope-approximation",
+          "detail": "受电转接板尚待选型。模型示意插座开口、中心舌片和两颗下拉电阻；焊接位置、触点和固定孔待具体 SKU 确定。",
+          "sourceUrl": ""
+        }
       },
       {
         "name": "执行器电源",
@@ -172,9 +187,14 @@
           8
         ],
         "dimensionSource": "estimated",
-        "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": "",
-        "placement": "mounted"
+        "dimensionNote": "23 × 14 × 8 mm 包含接线空间；其中无排针稳压板实际标称外廓为 13.1 × 8.1 × 2.82 mm，安装朝向是此方案的布局选择。",
+        "dimensionSourceUrl": "https://www.pololu.com/file/0J1921/step-up-voltage-regulator-u3v16fx-dimensions.pdf",
+        "placement": "mounted",
+        "geometryReference": {
+          "kind": "datasheet-approximation",
+          "detail": "Pololu U3V16F6 #4942。按官方图绘制板框、1.02 mm 板厚、三孔的位置和孔径，以及板上 1.8 mm 的最高器件；电感、芯片和贴片布局按图简化。未装排针。",
+          "sourceUrl": "https://www.pololu.com/file/0J1921/step-up-voltage-regulator-u3v16fx-dimensions.pdf"
+        }
       },
       {
         "name": "电机支路保护板",
@@ -190,9 +210,14 @@
           10
         ],
         "dimensionSource": "estimated",
-        "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
+        "dimensionNote": "26 × 18 × 10 mm 为待选模块的接线安装预留。现有模型把 PCB 放在原预留的底面；具体板框、元件位置和高度待复核。",
         "dimensionSourceUrl": "",
-        "placement": "mounted"
+        "placement": "mounted",
+        "geometryReference": {
+          "kind": "envelope-approximation",
+          "detail": "所选系列 TPS2595 的 WSON 封装宽、长各 2 mm。PCB 与周围贴片只表示安装方式；成品板的焊点、接口、孔距和方向随 SKU 确认。",
+          "sourceUrl": "https://www.ti.com/product/TPS2595"
+        }
       },
       {
         "name": "供电与装配附件",
@@ -518,7 +543,7 @@
           ]
         },
         {
-          "name": "PQ12 固定本体（安装占位）",
+          "name": "PQ12 固定侧 · 偏轴外壳与装座预留",
           "partIndex": 2,
           "role": "reference",
           "positionMm": [
@@ -529,16 +554,54 @@
           "features": [
             {
               "op": "add",
-              "shape": "box",
+              "shape": "roundedPrism",
               "sizeMm": [
                 20,
                 17,
-                49
+                12.5
               ],
               "centerMm": [
                 0,
                 0,
+                -18.25
+              ],
+              "rotationDeg": [
+                0,
+                0,
                 0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "roundedPrism",
+              "sizeMm": [
+                11,
+                21.5,
+                36.5
+              ],
+              "centerMm": [
+                0,
+                5.25,
+                6.049999999999997
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "roundedPrism",
+              "sizeMm": [
+                15,
+                13,
+                36.5
+              ],
+              "centerMm": [
+                0,
+                9.5,
+                6.049999999999997
               ],
               "rotationDeg": [
                 0,
@@ -550,25 +613,120 @@
               "op": "cut",
               "shape": "cylinder",
               "sizeMm": [
+                3,
+                3,
+                18
+              ],
+              "centerMm": [
+                0,
+                7.5,
+                24.299999999999997
+              ],
+              "rotationDeg": [
+                0,
+                90,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "cylinder",
+              "sizeMm": [
                 6.4,
                 6.4,
-                25
+                26
               ],
               "centerMm": [
                 0,
                 0,
-                13
+                13.5
               ],
               "rotationDeg": [
                 0,
                 0,
                 0
               ]
+            },
+            {
+              "op": "cut",
+              "shape": "cylinder",
+              "sizeMm": [
+                2.5,
+                2.5,
+                1.3
+              ],
+              "centerMm": [
+                5.32,
+                -3.3,
+                -9.8
+              ],
+              "rotationDeg": [
+                0,
+                90,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "cylinder",
+              "sizeMm": [
+                2.5,
+                2.5,
+                1.3
+              ],
+              "centerMm": [
+                5.32,
+                -3.3,
+                21.4
+              ],
+              "rotationDeg": [
+                0,
+                90,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "cylinder",
+              "sizeMm": [
+                2.5,
+                2.5,
+                1.3
+              ],
+              "centerMm": [
+                7.32,
+                4.9,
+                22
+              ],
+              "rotationDeg": [
+                0,
+                90,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "cylinder",
+              "sizeMm": [
+                2.5,
+                2.5,
+                1.3
+              ],
+              "centerMm": [
+                7.32,
+                13.7,
+                -9.100000000000001
+              ],
+              "rotationDeg": [
+                0,
+                90,
+                0
+              ]
             }
           ]
         },
         {
-          "name": "PQ12 活动输出杆及托头",
+          "name": "PQ12 活动侧 · 轴杆与承压接触面示意",
           "partIndex": 2,
           "role": "reference",
           "positionMm": [
@@ -581,14 +739,33 @@
               "op": "add",
               "shape": "cylinder",
               "sizeMm": [
-                6,
-                6,
-                31
+                5.8,
+                5.8,
+                28
               ],
               "centerMm": [
                 0,
                 0,
-                15.5
+                14
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "cylinder",
+              "sizeMm": [
+                6,
+                6,
+                3.2
+              ],
+              "centerMm": [
+                0,
+                0,
+                29.4
               ],
               "rotationDeg": [
                 0,
@@ -1142,14 +1319,14 @@
               "op": "add",
               "shape": "box",
               "sizeMm": [
-                22,
-                18,
-                6
+                22.482,
+                17.78,
+                4.46
               ],
               "centerMm": [
                 0,
                 0,
-                0
+                -0.77
               ],
               "rotationDeg": [
                 0,
@@ -1175,12 +1352,69 @@
               "sizeMm": [
                 17,
                 17,
-                2
+                1.8
               ],
               "centerMm": [
                 0,
                 0,
-                -2
+                -2.1
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "roundedPrism",
+              "sizeMm": [
+                3.8,
+                10,
+                8
+              ],
+              "centerMm": [
+                -6,
+                0,
+                0.6
+              ],
+              "rotationDeg": [
+                0,
+                90,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "roundedPrism",
+              "sizeMm": [
+                2.7,
+                8.7,
+                7
+              ],
+              "centerMm": [
+                -6.85,
+                0,
+                0.65
+              ],
+              "rotationDeg": [
+                0,
+                90,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                5.4,
+                6.45,
+                0.56
+              ],
+              "centerMm": [
+                -5.85,
+                0,
+                0.65
               ],
               "rotationDeg": [
                 0,
@@ -1192,14 +1426,33 @@
               "op": "add",
               "shape": "box",
               "sizeMm": [
-                8,
-                10,
-                4
+                1.6,
+                0.85,
+                0.6
               ],
               "centerMm": [
-                -6,
+                1.4,
+                -2.1,
+                -0.94
+              ],
+              "rotationDeg": [
                 0,
-                1
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                1.6,
+                0.85,
+                0.6
+              ],
+              "centerMm": [
+                1.4,
+                2.1,
+                -0.94
               ],
               "rotationDeg": [
                 0,
@@ -1223,14 +1476,166 @@
               "op": "add",
               "shape": "box",
               "sizeMm": [
-                23,
-                14,
-                8
+                13.1,
+                8.1,
+                1.02
               ],
               "centerMm": [
                 0,
                 0,
+                -3.49
+              ],
+              "rotationDeg": [
+                0,
+                0,
                 0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "cylinder",
+              "sizeMm": [
+                1.02,
+                1.02,
+                2
+              ],
+              "centerMm": [
+                -5.28,
+                -2.53,
+                -3.49
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "cylinder",
+              "sizeMm": [
+                1.02,
+                1.02,
+                2
+              ],
+              "centerMm": [
+                -5.28,
+                0.01,
+                -3.49
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "cylinder",
+              "sizeMm": [
+                1.02,
+                1.02,
+                2
+              ],
+              "centerMm": [
+                -5.28,
+                2.55,
+                -3.49
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "roundedPrism",
+              "sizeMm": [
+                4.1,
+                4.1,
+                1.83
+              ],
+              "centerMm": [
+                3.55,
+                1.15,
+                -2.095
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                2.1,
+                1.7,
+                0.86
+              ],
+              "centerMm": [
+                -0.3,
+                -0.15,
+                -2.58
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                1.65,
+                1.18,
+                1.03
+              ],
+              "centerMm": [
+                -2.75,
+                -1.8,
+                -2.485
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                1.65,
+                1.18,
+                1.03
+              ],
+              "centerMm": [
+                -2.75,
+                1.8,
+                -2.485
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                1,
+                0.65,
+                0.55
+              ],
+              "centerMm": [
+                1.7,
+                -2.65,
+                -2.735
               ],
               "rotationDeg": [
                 0,
@@ -1256,12 +1661,88 @@
               "sizeMm": [
                 26,
                 18,
-                10
+                1.6
               ],
               "centerMm": [
                 0,
                 0,
+                -4.2
+              ],
+              "rotationDeg": [
+                0,
+                0,
                 0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                2,
+                2,
+                0.77
+              ],
+              "centerMm": [
+                0,
+                0,
+                -3.055
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                2.3,
+                1.7,
+                1.1
+              ],
+              "centerMm": [
+                -3.2,
+                1.4,
+                -2.9
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                2.3,
+                1.7,
+                1.1
+              ],
+              "centerMm": [
+                3.2,
+                -1.4,
+                -2.9
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                1.5,
+                1,
+                0.72
+              ],
+              "centerMm": [
+                2,
+                2.4,
+                -3.09
               ],
               "rotationDeg": [
                 0,
@@ -1303,7 +1784,8 @@
         "name": "ForgeCAD · 官方建模指导",
         "revision": "7523f68ce05ec642608c7f2001c5ae7ca7b1bee0",
         "sourceUrl": "https://github.com/ForgeCAD/forgecad-public-kit/blob/7523f68ce05ec642608c7f2001c5ae7ca7b1bee0/skills/forgecad/SKILL.md"
-      }
+      },
+      "reviewNote": "保留原始 API 生成的第 2 版交互设计。工程复核补充内部器件的目录模型或独立参考模型；可在零件来源中查看资料、安装预留和待选型项。"
     }
   }
 }

@@ -23,7 +23,7 @@ function syncExampleUrl(example='',version=null){
     if(version!=null)url.searchParams.set('version',String(version));
     else url.searchParams.delete('version');
   }else if(['fist','status'].includes(url.searchParams.get('example'))){
-    url.searchParams.delete('example');url.searchParams.delete('version');
+    url.searchParams.delete('example');url.searchParams.delete('version');url.searchParams.delete('view');
   }else return;
   history.replaceState(history.state,'',url);
 }
@@ -230,17 +230,18 @@ function mount(){
     try{
       const plan=currentCadPlan(design);
       if(plan.bodies.length){
-        const source=cadPlanToForgeScript(plan),filename=design.name.replace(/[^\p{L}\p{N}._-]+/gu,'-').slice(0,80)||'assembly';
+        const filename=design.name.replace(/[^\p{L}\p{N}._-]+/gu,'-').slice(0,80)||'assembly';
         sourceButton.hidden=false;
         sourceButton.onclick=()=>{
-          const url=URL.createObjectURL(new Blob([source],{type:'text/javascript;charset=utf-8'}));
+          const url=URL.createObjectURL(new Blob([cadPlanToForgeScript(plan)],{type:'text/javascript;charset=utf-8'}));
           const a=document.createElement('a');a.href=url;a.download=filename+'.forge.js';a.click();
           setTimeout(()=>URL.revokeObjectURL(url),1500);
         };
       }
     }catch{sourceButton.hidden=true}
   }
-  try{onStatus({phase:'parts'});const cleanup=mountConsumerCad(target,design,{onStatus,engine:caps.cadEngine,partsPanel:$('#model-components'),exampleAsset:fistAsset(exampleAsset)?exampleAsset:null});cadDispose=()=>{active=false;cleanup?.()}}
+  const initialMode=new URLSearchParams(location.search).get('view')==='inside'?'inside':undefined;
+  try{onStatus({phase:'parts'});const cleanup=mountConsumerCad(target,design,{onStatus,initialMode,engine:caps.cadEngine,partsPanel:$('#model-components'),exampleAsset:fistAsset(exampleAsset)?exampleAsset:null});cadDispose=()=>{active=false;cleanup?.()}}
   catch(error){onStatus({phase:'error',message:error?.message||'当前设备暂时无法显示三维预览。'});target.replaceChildren()}
 }
 function projectDescription(text){
@@ -263,7 +264,7 @@ function projectWorkspace(){
     <nav class="project-views" aria-label="项目视图">${nav}</nav>
     <div class="project-actions">
       ${iteration.previousId?'<button id="previous-version" type="button" class="small-button">上一版</button>':''}
-      <button type="button" class="file-action" id="download-forge" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg>下载整机 CAD</button>
+      <button type="button" class="file-action" id="download-forge" title="编辑装配结构与行程。目录采购件在源文件中使用定位包络；完整外形可在 CAD 文件中下载 STL。" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg>ForgeCAD 源文件</button>
     </div>
   </div>
   <small id="save-status" role="status"></small>

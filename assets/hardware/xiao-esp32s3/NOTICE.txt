@@ -1,0 +1,15 @@
+Formwork contributors independently authored reference.forge.js and its four colored STL groups.
+These original reference files are made available under CC0-1.0.
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Seeed Studio XIAO ESP32S3, standard board without soldered headers, Sense or Plus expansion:
+https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/
+Seeed's downloadable original model is XIAO-ESP32S3 v2.step (2023-05-27) in:
+https://files.seeedstudio.com/wiki/SeeedStudio-XIAO-ESP32S3/res/seeed-studio-xiao-esp32s3-3d_model.zip
+
+Nominal board size in the guide is 21 x 17.8 mm. Measured dimensions in this supplier STEP are
+20.955 x 17.78 x 1.25 mm for the board envelope and 22.482 x 17.78 x 4.46 mm including the USB-C
+port. The standard shield measures 10.6 x 12.6 mm horizontally. Other package sizes and placements
+are simplified. Pins, camera, breakout, silkscreen artwork and antenna cable are omitted.
+The supplier STEP and its topology, tessellation, textures and images are not included.
+Coordinates: PCB centred in XY, USB faces +X, populated side up (+Z), bottom contacts at Z=0.

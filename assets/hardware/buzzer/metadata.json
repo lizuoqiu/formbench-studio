@@ -1,4 +1,6 @@
 {
+  "modelType": "dimensioned-approximation",
+  "sizeMm": [22, 30, 10.5],
   "label": "DFRobot Gravity DFR0032 数字蜂鸣器模块（几何参考）",
   "description": "含 PCB、带出声孔的蜂鸣器、三针侧进连接器、接脚、晶体管与阻容。对应高低电平控制的带驱动整板，不是裸蜂鸣器。",
   "license": "CC0-1.0",
