@@ -20,3 +20,20 @@ test('intersecting triangles change frontmost color and part across the image, i
     assert.equal(raster.pick(0,0),undefined);assert.equal(displayed[3],0);
   }
 });
+
+test('inspection draws the actual shell translucently behind opaque interior hardware',()=>{
+ globalThis.devicePixelRatio=1;
+ let pixels;
+ const context={createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:image=>{pixels=image.data}};
+ const canvas={getContext:()=>context,getBoundingClientRect:()=>({width:60,height:60})};
+ const renderer=createRaster(canvas),camera={yaw:0,pitch:Math.PI/2,target:[0,0,0],scale:1};
+ const surface=(radius,z,color)=>prepareMesh([[[-radius,-radius,z],[radius,-radius,z],[0,radius,z]]],color);
+ const shell={id:'shell',mesh:surface(25,20,[255,0,0])};
+ const controller={id:'controller',mesh:surface(6,0,[0,255,0])};
+ renderer.draw([controller],camera,[shell]);
+ const alpha=(x,y)=>pixels[(y*60+x)*4+3];
+ assert.equal(renderer.pick(30,30),'controller');
+ assert.equal(alpha(30,30),255);
+ assert.ok(alpha(30,20)>0&&alpha(30,20)<100);
+ assert.equal(renderer.pick(30,20),undefined);
+});

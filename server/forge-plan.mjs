@@ -1,21 +1,35 @@
 import {Worker} from 'node:worker_threads';
+import {forgeMode,compileWithForge} from './forge-plan-cli.mjs';
 import {validateCadPlan} from './cad-plan.mjs';
 const workerUrl=new URL('./forge-plan-worker.mjs',import.meta.url), maxWait=30000;
 const reply=(body,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'no-store'}});
 let active=false;
-export async function forgePlan(req) {
+export {configuredForgeEngine as forgePlanEngine} from './forge-plan-cli.mjs';
+export async function forgePlan(req,env={}) {
   if(req.method!=='POST')return reply({error:'需要 POST。'},405);
-  let plan;
+  const mode=forgeMode(env);
+  let plan,useForge=Boolean(mode);
   try{
     const payload=await req.json();
-    if(!payload||Object.keys(payload).length!==1||!Object.hasOwn(payload,'cadPlan'))throw Error('请提供 cadPlan。');
+    if(!payload||Object.keys(payload).some(k=>!['cadPlan','engine'].includes(k))||!Object.hasOwn(payload,'cadPlan'))throw Error('请提供 cadPlan。');
+    if(Object.hasOwn(payload,'engine')){
+      if(!['forgecad','manifold'].includes(payload.engine))throw Error('未知 CAD 引擎。');
+      useForge=payload.engine==='forgecad';
+    }
     plan=validateCadPlan(payload.cadPlan);
     if(!plan?.bodies?.length)throw Error('CAD 计划缺少可编译的实体。');
   }catch(e){return reply({error:e.message||'CAD 计划格式无效。'},400)}
-  if(active)return reply({error:'另一个 CAD 任务正在编译，请稍后再试。'},429);
-  if(req.signal.aborted)return reply({error:'已取消编译。'},408);
+  const engine=useForge?{engine:'ForgeCAD CLI'}:{};
+  if(useForge&&!mode)return reply({...engine,error:'本机尚未启用 ForgeCAD 的研究版或授权 CLI。'},503);
+  if(useForge&&mode==='research'&&new URL(req.url).hostname!=='127.0.0.1')return reply({...engine,error:'ForgeCAD 研究模式仅在本机使用。'},403);
+  if(active)return reply({...engine,error:'另一个 CAD 任务正在编译，请稍后再试。'},429);
+  if(req.signal.aborted)return reply({...engine,error:'已取消编译。'},408);
   active=true;let worker,timeout,abort;
   try{
+    if(useForge){
+      try{return reply(await compileWithForge(plan,env,mode,req.signal))}
+      catch(e){return reply({...engine,error:e.message},e.status||502)}
+    }
     worker=new Worker(workerUrl,{workerData:plan,execArgv:[]});
     return await new Promise(resolve=>{
       worker.once('message',m=>resolve(m.result?reply(m.result):reply({error:m.error||'实体编译失败。'},422)));

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {previewCadPlan,compileCadPlan,meshBounds,cadBodyToForgeScript,runCadWorker,cadDownloadName} from '../consumer-geometry.js';
-import {buildDeclaredAssembly,resolveConsumerGeometry,declaredHomeCamera,declaredExplosionOffset,currentCadPlan} from '../consumer-cad.js';
+import {buildDeclaredAssembly,resolveConsumerGeometry,declaredHomeCamera,declaredExplosionOffset,currentCadPlan,bodyPose,visibleAssemblyInstances} from '../consumer-cad.js';
 import {compileCadPlan as compileSolid} from '../cad-plan-compiler.js';
 
 const feature=(shape,sizeMm,centerMm=[0,0,0],op='add')=>({op,shape,sizeMm,centerMm});
@@ -10,6 +10,53 @@ const plan=bodies=>({version:1,bodies});
 const part=(fields={})=>({name:'打印拳部',spec:'定制',model:'自建结构',qty:1,role:'external',sizeMm:[50,40,45],dimensionSource:'specified',...fields});
 const near=(a,b)=>a.forEach((v,k)=>assert.ok(Math.abs(v-b[k])<1e-5,`${a} != ${b}`));
 const volume=faces=>Math.abs(faces.reduce((sum,[a,b,c])=>sum+(a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]))/6,0));
+
+test('the static built-in example reads a saved export only for the exact complete plan',async()=>{
+ const baseUrl='https://example.test/project/workbench.html',exampleAsset='fist-bump';
+ const p=plan([body('缓存契约试件',[feature('box',[5,4,3])])]);
+ const result=await compileSolid(p); // Synthetic in-memory export format fixture.
+ const cached={engine:'ForgeCAD CLI 0.0.0-test',version:'0.0.0-test',units:'mm',cadPlan:{bodies:p.bodies,version:1},bodies:result.bodies};
+ let assetReads=0,workers=0;
+ const fetcher=async url=>{assetReads++;assert.equal(url.pathname,'/project/samples/fist-bump-cad.json');return Response.json(cached)};
+ class WorkerMock{
+  postMessage({cadPlan}){workers++;compileSolid(cadPlan).then(result=>this.onmessage({data:{result}}))}
+  terminate(){}
+ }
+ const options={baseUrl,WorkerClass:WorkerMock,fetcher};
+ const exact=await compileCadPlan(p,{...options,exampleAsset});
+ assert.equal(exact.engine,cached.engine);assert.match(exact.notice,/示例保存/);assert.equal(workers,0);
+ const ordinary=await compileCadPlan(p,options);
+ assert.equal(ordinary.engine,'Manifold 3.5.1');assert.equal(assetReads,1);assert.equal(workers,1);
+ const changed=structuredClone(p);changed.bodies[0].features[0].sizeMm[0]=7;
+ const newResult=await compileCadPlan(changed,{...options,exampleAsset});
+ assert.equal(newResult.engine,'Manifold 3.5.1');near(meshBounds(newResult.bodies[0].meshes).sizeMm,[7,4,3]);
+ for(const response of [new Response('missing',{status:404}),Response.json({...cached,cadPlan:changed,version:'9.0.0'}),Response.json({...cached,cadPlan:changed,bodies:[]})]){
+  const fallback=await compileCadPlan(changed,{...options,exampleAsset,fetcher:async()=>response});
+  assert.equal(fallback.engine,'Manifold 3.5.1');
+ }
+ const local=await compileCadPlan(p,{...options,exampleAsset,baseUrl:'http://127.0.0.1:4173',fetcher:async(url,req)=>{
+  assert.equal(url.pathname,'/api/forge/plan');assert.equal(req.method,'POST');return Response.json(result);
+ }});
+ assert.equal(local.engine,result.engine);
+});
+
+test('rounded profiles and elliptical capsules keep their declared bounds and rounded volume',async()=>{
+ const cases=[
+  ['roundedPrism',[30,20,10],(30*20-(4-Math.PI)*4**2)*10],
+  ['capsule',[30,20,10],Math.PI*5*10*(20+4*5/3)],
+  ['capsule',[10,30,20],Math.PI*5*10*(20+4*5/3)],
+  ['capsule',[20,10,30],Math.PI*5*10*(20+4*5/3)],
+  ['capsule',[10,10,10],4*Math.PI*5**3/3]
+ ];
+ const p=plan(cases.map(([shape,size])=>body(shape,[feature(shape,size)])));
+ const preview=previewCadPlan(p);
+ const exact=await compileCadPlan(p,{baseUrl:'http://127.0.0.1/',fetcher:async(_url,request)=>Response.json(await compileSolid(JSON.parse(request.body).cadPlan))});
+ for(const result of [preview,exact])for(const [i,[,size,expectedVolume]] of cases.entries()){
+  const meshes=result.bodies[i].meshes;
+  near(meshBounds(meshes).min,size.map(n=>-n/2));near(meshBounds(meshes).max,size.map(n=>n/2));
+  assert.ok(Math.abs(volume(meshes[0].triangles)/expectedVolume-1)<.02);
+ }
+});
 
 test('curved body preview has its declared shape, rotation and local coordinates',()=>{
  const p=plan([body('拳形',[feature('ellipsoid',[40,30,20]),feature('cylinder',[10,10,40],[0,0,-12])])]);
@@ -48,6 +95,53 @@ test('static worker consumes the same real kernel response and terminates after 
  const p=plan([body('静态曲面',[feature('ellipsoid',[8,10,6],[3,4,5])])]);
  const result=await compileCadPlan(p,{baseUrl:'https://example.test/workbench/',WorkerClass:WorkerMock,partCount:1});
  assert.equal(result.exact,true);assert.equal(terminated,1);near(meshBounds(result.bodies[0].meshes).sizeMm,[8,10,6]);
+});
+
+test('explicit Forge selection requires the server engine even when a static worker result is cached',async()=>{
+ const p=plan([body('测试固定引擎',[feature('box',[7,8,9])])]);
+ let workers=0;
+ class WorkerMock{constructor(){workers++}postMessage({cadPlan}){compileSolid(cadPlan).then(result=>this.onmessage({data:{result}}))}terminate(){}}
+ const baseUrl='https://example.test/subdirectory/',config={baseUrl,WorkerClass:WorkerMock};
+ await compileCadPlan(p,config);
+ const local={...config,engine:'forgecad'};
+ await assert.rejects(compileCadPlan(p,{...local,fetcher:async()=>{throw Error('服务未连接')}}),/服务未连接/);
+ const onServer=await compileSolid(p);
+ await assert.rejects(compileCadPlan(p,{...local,fetcher:async()=>Response.json(onServer)}),/ForgeCAD/);
+ const exact=await compileCadPlan(p,{...local,fetcher:async (url,request)=>{
+  assert.equal(url.pathname,'/subdirectory/api/forge/plan');
+  assert.equal(JSON.parse(request.body).engine,'forgecad');
+  return Response.json({...onServer,engine:'ForgeCAD CLI'});
+ }});
+ assert.equal(exact.engine,'ForgeCAD CLI');
+ await assert.rejects(compileCadPlan(p,{...config,baseUrl:'http://localhost:8444/',fetcher:async()=>Response.json({engine:'ForgeCAD CLI',error:'ForgeCAD 未启动'},{status:503})}),/ForgeCAD 未启动/);
+ assert.equal(workers,1);
+});
+
+test('motion starts from assembly coordinates, affects only declared bodies and survives index changes',async()=>{
+ const names=['尺寸已修改的附件','外部接触件','滑台','驱动器','导轨','控制板','尚未定位的支架'];
+ const roles=['external','panel','internal','internal','internal','internal','internal'];
+ const fixture=names.map((name,i)=>part({name,role:roles[i],sizeMm:[8,8,8],modelSourceInvalidated:i===0}));
+ const p=plan(names.slice(0,6).map((name,i)=>body(name,[feature('box',[8,8,8])],{partIndex:i,role:i<3?'printed':'reference',positionMm:[8*i,12,20]})));
+ p.motions=[{type:'prismatic',name:'接触件伸缩',axis:[0,-1,0],travelMm:18,movingBodyIndices:[1,2],actuatorPartIndex:3,guidePartIndex:4,controllerPartIndex:5}];
+ const design={cadPlan:p,parts:fixture},active=currentCadPlan(design);
+ assert.deepEqual(active.motions[0].movingBodyIndices,[0,1]);
+ const parts=await resolveConsumerGeometry(design);
+ const concept=buildDeclaredAssembly(design,parts,previewCadPlan(active,parts.length));
+ const home=declaredHomeCamera(concept,active.motions);
+ const facing=Math.sin(home.yaw)*active.motions[0].axis[0]+Math.cos(home.yaw)*active.motions[0].axis[1];
+ assert.ok(facing>.5&&facing<.95,'view sees the advancing face and its lateral travel');
+ assert.deepEqual(visibleAssemblyInstances(concept,'inside').map(item=>item.name),['滑台','驱动器','导轨','控制板']);
+ assert.deepEqual(visibleAssemblyInstances(concept,'closed').map(item=>item.name),['外部接触件']);
+ assert.deepEqual(visibleAssemblyInstances(concept,'references').map(item=>item.name),['尺寸已修改的附件','尚未定位的支架']);
+ const [contact,carriage,actuator]=concept.instances;
+ near(bodyPose(contact,active.motions,[0]),[8,12,20]);
+ near(bodyPose(contact,active.motions,[1]),[8,-6,20]);
+ near(bodyPose(carriage,active.motions,[.5]),[16,3,20]);
+ near(bodyPose(actuator,active.motions,[1]),actuator.positionMm);
+ for(const i of [1,3,4,5]){
+  const invalid=structuredClone(design);invalid.parts[i].modelSourceInvalidated=true;
+  assert.deepEqual(currentCadPlan(invalid).motions,[]);
+ }
 });
 
 test('busy local service falls back to a separate real browser-worker computation',async()=>{

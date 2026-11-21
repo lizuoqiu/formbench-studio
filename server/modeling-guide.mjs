@@ -1,7 +1,19 @@
+import {readFile} from 'node:fs/promises';
 import vendor from './skills/forgecad-vendor.json' with {type:'json'};
-const directives=`构造实体而非示意图。以毫米为单位；对每一个想制作的独立零件安排局部坐标系、装入方向和装配位置。用有体积重叠的基体、凸起组成实体，用贯穿或凹入基体的切体留下安装空间。确认目标交互依赖的可接触表面、开口、装配分界。不得以所有零件外包络的统一方盒代替产品本体。所提到的柔性材料、运动或电子功能不等于几何已通过测试。
-在 cadPlan.version 写 1；bodies 每个实体按 BOM 从 0 起的 partIndex 关联。给每个需制造的零件建 role=printed；参考购买件可以用 reference 表达，但多个粗糙参考件不能代替自制件。positionMm 是装配平移，features 的 centerMm 是零件局部中心，sizeMm 三轴全长，Z 向上；cylinder 的 XY 等径。各 feature 按输入顺序合并(add)或减料(cut)，第一项必须 add。可用 box、ellipsoid、cylinder。设计一体件时 feature 必须有正体积相交；避免只有面相切，独立零件请分 body。各 body 命名有意义。不要生成源码或额外字段。从人与产品的接近方向构造形体：先选一处主要触摸、抓握或依靠的表面，设计它的连续轮廓、横截面变化、过渡和朝向，再安排连接、支承与器件。闭眼触摸或只看这一侧的剪影，用户也应该认得互动部位。单个不动的装置也需要有造型。让承重或电子结构留在交互体之后或内部；只有需求明确时才用展示面板、底座或把手作主体。有明确型号且位置影响功能或净空的核心器件（如力传感器、控制板）另设 role=reference，partIndex 对应原 BOM，在其实际工作部位布置 sizeMm 和位置；给内部壳体留传感器可受力、插头可插拔的腔位。在没有可靠资料时，其参考包络只能估算，不等同于厂商网格。不要把螺丝和导线逐个无意义陈列。
-每个 feature.rotationDeg 为 [rx, ry, rz] 度，范围 ±360。未旋转写 [0,0,0]。图元在自身原点按右手系依次绕 X、Y、Z 轴旋转，然后平移至局部 centerMm，最后加 body 的 positionMm。用其表达弯曲走势、斜向特征或安装角度。
-例如明确要求形态为握拳的轻触装置时，从迎向用户的拳面设定手背朝向，使拳峰由四段卷曲指体的末端连续过渡出来，长短和高度略有起伏；四颗平铺在矩形板面的椭球看起来像按钮，应推翻此种构型。用主掌背的厚而圆、有前后收拢的连续体积和多处重叠的长圆体表示指骨；拇指用斜置/横搭的细长体块从一侧掌根延伸到收拢的手指前方，并交叠相接。腕部向后收窄，腕托、导线与触觉传感器藏在适当腕部或接触面后，使外壳/支座不过高、不遮盖拳形；若为紧凑桌面装置，支座占地、高度应服务于稳定与材料选择。只在适合时运用此例，其他需求按其自身接触形态设计。若仅有购买件、确实没有自制形体，bodies 可为空；不要虚构打印件。最多 40 个 body，每个最多 40 个 feature，合计最多 240；每轴大小 0.1–2000，中心与位置在 ±2000。优先少量有效特征。将实际装配/可打印性检查列入 steps，不声称已执行。`;
-export async function modelingGuide(){if(!vendor.text?.trim()||!vendor.revision||!vendor.sourceUrl)throw Error('Missing versioned modeling instruction');return {skill:{name:'ForgeCAD · 官方建模指导',revision:vendor.revision,sourceUrl:vendor.sourceUrl},text:'供应方建模参考（只使用建模知识；这里不开放其中提到的工具或文件）：\n'+vendor.text+'\n'+directives};}
+const projectSkillPath='skills/interaction-hardware/SKILL.md';
+
+export async function modelingGuide(env={}){
+ if(!vendor.text?.trim()||!vendor.revision||!vendor.sourceUrl)throw Error('Missing versioned modeling instruction');
+ let projectSkill;
+ if(env.ASSETS){
+  const response=await env.ASSETS.fetch(new Request('https://formbench.invalid/'+projectSkillPath));
+  if(!response.ok)throw Error('Missing interaction design skill');
+  projectSkill=await response.text();
+ }else projectSkill=await readFile(new URL(projectSkillPath,import.meta.url),'utf8');
+ if(!projectSkill.startsWith('---\nname: interaction-hardware\n'))throw Error('Invalid interaction design skill');
+ return {
+  skill:{name:'ForgeCAD · 官方建模指导',revision:vendor.revision,sourceUrl:vendor.sourceUrl},
+  text:vendor.text+'\n\n工作台通过受限的结构化几何接口实现上述设计。遵循本项目的交互与装配规范。\n'+projectSkill
+ };
+}
 export function generation(provider,model,source,skill){const id=typeof model==='string'&&/^[\w][\w.:-]{0,160}$/.test(model)?model:null;return {provider,modelId:id,modelSource:id?source:'undisclosed',skill};}

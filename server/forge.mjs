@@ -1,7 +1,7 @@
 // Single-user, loopback-only adapter. Model code and CLI path are server-owned.
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {copyFile,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
@@ -17,7 +17,12 @@ export async function forge(req,env){
  try{
  dir=await mkdtemp(join(tmpdir(),'formwork-forge-'));const out=join(dir,'part.stl');
  const source=fileURLToPath(new URL(`../forge/pico-${p.part}.forge.js`,import.meta.url));
- await run(env.FORGECAD_BIN||'forgecad',['export','stl',source,'--output',out,'--param',`Length=${p.w}`,'--param',`Width=${p.d}`,...(p.part==='base'?['--param',`Height=${p.h}`]:[])],{cwd:dir,timeout:90000,maxBuffer:256*1024});
+ const params={Length:p.w,Width:p.d,...(p.part==='base'?{Height:p.h}:{})};
+ await writeFile(join(dir,'forgecad.json'),'{}');
+ await copyFile(source,join(dir,'template.forge.js'));
+ const model=join(dir,'part.forge.js');
+ await writeFile(model,`return require("./template.forge.js", ${JSON.stringify(params)});\n`);
+ await run(env.FORGECAD_BIN||'forgecad',['export','stl',model,'--output',out],{cwd:dir,timeout:90000,maxBuffer:256*1024});
  const mesh=await readFile(out);
  if(mesh.length<84||mesh.length!==84+50*mesh.readUInt32LE(80)||!mesh.readUInt32LE(80))return fail('ForgeCAD 未返回有效的二进制 STL。',502);
  const name=`forge-pico-${p.part}-${p.w}x${p.d}x${p.h}.stl`;

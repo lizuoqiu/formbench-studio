@@ -8,10 +8,10 @@ const place=()=>new URL(globalThis.location.href);
 const isPages=()=>/(?:^|\.)github\.io$/i.test(place().hostname);
 const hereIsLocal=()=>['127.0.0.1','localhost','[::1]'].includes(place().hostname);
 const capabilityFallback=()=>({ai:false,catalog:false,cart:'manual',...(!hereIsLocal()?{localUrl}:{})});
-async function call(path,body){
+async function call(path,body,signal){
   if(isPages())throw Object.assign(Error('此静态页面未连接生成服务，请在本机打开设计工作台。'),{localUrl});
   const response=await fetch(new URL('./api/'+path,place()),{
-    method:body===undefined?'GET':'POST',credentials:'same-origin',mode:'same-origin',redirect:'error',cache:'no-store',
+    method:body===undefined?'GET':'POST',credentials:'same-origin',mode:'same-origin',redirect:'error',cache:'no-store',signal,
     ...(body===undefined?{}:{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
   });
   const data=await response.json().catch(()=>null);
@@ -36,7 +36,7 @@ function helperPresent(){
 export async function serviceCapabilities(){
   const fallback=capabilityFallback();
   const [ext,d]=await Promise.all([helperPresent(),isPages()?null:call('capabilities').catch(()=>null)]);
-  return {...fallback,ai:d?.ai===true,...(d?.ai===true&&text(d.aiModel,180)?{aiModel:text(d.aiModel,180)}:{}),...(['local-codex','openai-api'].includes(d?.aiProvider)?{aiProvider:d.aiProvider}:{}),catalog:d?.catalog===true,cart:ext?'browser':d?.cart==='official'?'official':'manual'};
+  return {...fallback,...(d?.cadEngine==='forgecad'?{cadEngine:'forgecad'}:{}),ai:d?.ai===true,...(d?.ai===true&&text(d.aiModel,180)?{aiModel:text(d.aiModel,180)}:{}),...(['local-codex','openai-api'].includes(d?.aiProvider)?{aiProvider:d.aiProvider}:{}),catalog:d?.catalog===true,cart:ext?'browser':d?.cart==='official'?'official':'manual'};
 }
 
 const sampleRows=[
@@ -67,17 +67,31 @@ function designPart(raw){
     ...(ref&&dimensionSource==='catalog'?{modelId:ref}:{}),sizeMm,dimensionSource,
     dimensionNote:text(raw.dimensionNote,900),dimensionSourceUrl:sourceUrl,sourceUrl,
     ...(['internal','panel','external','enclosure'].includes(raw.role)?{role:raw.role}:{}),
+    ...(['mounted','loose'].includes(raw.placement)?{placement:raw.placement}:{}),
+    ...(raw.dimensionQuote?{dimensionQuote:text(raw.dimensionQuote,500)}:{}),
     ...(['box','cylinder'].includes(raw.shape)?{shape:raw.shape}:{}),purpose:text(raw.purpose,500)};
 }
-export async function generateDesign(prompt,{onProgress}={}){
-  if(typeof prompt!=='string'||!prompt.trim()||prompt.length>10000)throw Error('请填写 1–10000 字的设计需求。');
-  onProgress?.('request');
-  const {design:d}=await call('design',{prompt:prompt.trim()});
-  onProgress?.('response');
+function normalizeDesign(d){
   if(!text(d?.name,200)||!Array.isArray(d.parts)||!d.parts.length||d.parts.length>60)throw Error('没有收到有效的硬件方案，请重新生成。');
   const g=d.generation;
   const generation=g&&['openai-api','local-codex'].includes(g.provider)?{provider:g.provider,modelId:text(g.modelId,200)||null,modelSource:['response','configured'].includes(g.modelSource)?g.modelSource:'undisclosed',...(g.skill?.name?{skill:{name:text(g.skill.name,200),revision:text(g.skill.revision,150),sourceUrl:citationUrl(g.skill.sourceUrl)}}:{})}:undefined;
-  return {...(generation?{generation}:{}),...(d.cadPlan?{cadPlan:d.cadPlan}:{}),name:text(d.name,200),summary:text(d.summary,5000),steps:(Array.isArray(d.steps)?d.steps:[]).map(s=>text(s,900)).filter(Boolean),parts:d.parts.map(designPart)};
+  return {...(generation?{generation}:{}),...(d.cadPlan?{cadPlan:d.cadPlan}:{}),...(d.deviceMotion?{deviceMotion:d.deviceMotion}:{}),name:text(d.name,200),summary:text(d.summary,5000),steps:(Array.isArray(d.steps)?d.steps:[]).map(s=>text(s,900)).filter(Boolean),parts:d.parts.map(designPart)};
+}
+export async function discussDesign(context,signal){
+  const data=await call('design',{...context,action:'discuss'},signal);
+  if(data.design)return {design:normalizeDesign(data.design)};
+  if(data.decision==='ready')return {decision:'ready'};
+  if(data.decision==='ask'&&text(data.question,600)&&Array.isArray(data.options)){
+    return {decision:'ask',question:text(data.question,600),options:data.options.slice(0,3).map(option=>text(option,160)).filter(Boolean)};
+  }
+  throw Error('没有收到有效的设计回复，请重试。');
+}
+export async function generateDesign(prompt,{onProgress,context,signal}={}){
+  if(typeof prompt!=='string'||!prompt.trim()||prompt.length>10000)throw Error('请填写 1–10000 字的设计需求。');
+  onProgress?.('request');
+  const data=await call('design',{...(context?{...context,action:'generate'}:{}),prompt:prompt.trim()},signal);
+  onProgress?.('response');
+  return normalizeDesign(data.design);
 }
 function detail(raw){
   if(!raw||typeof raw!=='object')return null;

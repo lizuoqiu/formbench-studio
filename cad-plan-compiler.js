@@ -1,6 +1,7 @@
 // Both the browser and Node workers execute these same bounded CSG operations.
 import initManifold from './assets/manifold-3d/manifold.js';
 import {validateCadPlan} from './cad-plan.js';
+import {manifoldNativeFeature} from './native-features.js';
 const engine='Manifold 3.5.1',segments=48,maxBytes=12*1024*1024;
 function binaryStl(mesh,remaining) {
   const {vertProperties:p,numProp:s,triVerts:t}=mesh,n=t.length/3,bytes=84+n*50;
@@ -35,7 +36,8 @@ export async function compileCadPlan(plan){
         if(f.shape==='box')primitive=M.cube([w,d,h],true);
         else if(f.shape==='cylinder'){const unit=M.cylinder(h,1,1,segments,true);try{primitive=unit.scale([w/2,d/2,1])}finally{unit.delete()}}
         else if(f.shape==='ellipsoid'){const unit=M.sphere(1,segments);try{primitive=unit.scale([w/2,d/2,h/2])}finally{unit.delete()}}
-        else throw Error('未知几何图元。');
+        else primitive=manifoldNativeFeature(lib,f,segments);
+        if(!primitive)throw Error('未知几何图元。');
         if(f.rotationDeg?.some(angle=>angle!==0)){
           const rotated=primitive.rotate(f.rotationDeg);primitive.delete();primitive=rotated;
         }

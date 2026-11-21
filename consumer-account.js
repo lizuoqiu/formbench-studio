@@ -36,11 +36,20 @@ export async function saveConsumerProject(project){
     if(generation!==epoch||owner!==account.user?.id)return;
     if(service==='offline')throw Error('账号服务暂时无法连接，请稍后再保存。');
     if(owner){
-      try{await api('projects/'+encodeURIComponent(record.id),'PUT',record)}
+      try{await api('projects/'+encodeURIComponent(record.id),'PUT',{id:record.id,name:record.design.name+(record.iteration?.version>1?' · 第 '+record.iteration.version+' 版':''),data:record})}
       catch(e){if(e.status===401)await check();throw e}
     }else keepGuest({...record,updatedAt:new Date().toISOString()});
   };
   const job=saveQueue.then(save);saveQueue=job.catch(()=>{});return job;
+}
+export async function readConsumerProject(id){
+  await initial;
+  const owner=account.user?.id;
+  const generation=epoch;
+  await saveQueue;
+  const rec=owner?(await api('projects/'+encodeURIComponent(id))).project:guestProjects().find(p=>p.id===id);
+  if(generation!==epoch||owner!==account.user?.id||!rec?.design)throw Error('无法读取这一版设计。');
+  return rec;
 }
 const el=(tag,text,className)=>{const node=document.createElement(tag);if(text)node.textContent=text;if(className)node.className=className;return node};
 function button(text,action,cls){const b=el('button',text,cls);b.type='button';b.addEventListener('click',action);return b}
@@ -111,6 +120,7 @@ export function mountConsumerAccount(container,callbacks={}){
           if(!owner)lastGuestId=rec.id;dialog.close();await callbacks.onOpen?.(rec);
         }catch(e){if(dialog.open)setMessage(e.message)}finally{b.disabled=false}
       });b.append(el('strong',p.name||p.design?.name||'硬件方案'));
+      if(p.iteration?.version>1)b.append(el('small','第 '+p.iteration.version+' 版'));
       const date=new Date(p.updatedAt);if(!Number.isNaN(date.valueOf()))b.append(el('small',date.toLocaleDateString('zh-CN')));
       li.append(b);list.append(li);
     }

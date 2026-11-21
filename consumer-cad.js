@@ -114,8 +114,22 @@ export async function resolveConsumerGeometry(design){
 // reference envelope at the same centre without stretching the purchased part.
 function shiftedMeshes(meshes,offset){return meshes.map(mesh=>({...mesh,triangles:mesh.triangles.map(face=>face.map(point=>point.map((n,k)=>n+offset[k])))}))}
 export function currentCadPlan(design){
- validateCadPlan(design.cadPlan,design.parts.length);
- return {version:1,bodies:design.cadPlan.bodies.filter(body=>!design.parts[body.partIndex].modelSourceInvalidated)};
+ const plan=validateCadPlan(design.cadPlan,design.parts.length);
+ const bodies=[],indices=new Map();
+ plan.bodies.forEach((body,index)=>{
+  if(design.parts[body.partIndex].modelSourceInvalidated)return;
+  indices.set(index,bodies.length);
+  bodies.push(body);
+ });
+ const active={version:1,bodies};
+ if(plan.motions){
+  active.motions=plan.motions.filter(motion=>{
+   const supports=[motion.actuatorPartIndex,motion.guidePartIndex,motion.controllerPartIndex];
+   return motion.movingBodyIndices.length<bodies.length&&supports.every(index=>!design.parts[index].modelSourceInvalidated)
+    &&motion.movingBodyIndices.every(index=>indices.has(index));
+  }).map(motion=>({...motion,movingBodyIndices:motion.movingBodyIndices.map(index=>indices.get(index))}));
+ }
+ return active;
 }
 export function buildDeclaredAssembly(design,parts,geometry){
  const instances=[],counts=new Map();
@@ -144,7 +158,12 @@ export function buildDeclaredAssembly(design,parts,geometry){
 
 const style=`.cc{border:1px solid #d0dcde;border-radius:17px;overflow:hidden;background:#f9fbfc;color:#283f48}.cc-header{padding:20px 24px;display:flex;gap:20px;align-items:center;justify-content:space-between}.cc-header h3{margin:3px 0;font-size:20px;letter-spacing:-.6px}.cc-eyebrow{font:600 10px ui-monospace,monospace;letter-spacing:1.5px;color:#658692}.cc-size{font:600 15px ui-monospace,monospace;white-space:nowrap;color:#365e70}.cc-stage{position:relative;background:radial-gradient(circle at 1px 1px,#c9d8de .7px,transparent 1px) 0 0/22px 22px,#edf3f5;border-block:1px solid #dae4e8}.cc-stage canvas{width:100%;height:clamp(320px,46vh,510px);display:block;touch-action:none;cursor:grab}.cc-stage canvas:active{cursor:grabbing}.cc-tabs,.cc-camera{position:absolute;display:flex;gap:4px;padding:4px;border:1px solid #cfdee3;border-radius:10px;background:#ffffffed;z-index:1}.cc-tabs{top:14px;left:14px}.cc-camera{right:14px;bottom:14px}.cc button{font:inherit;cursor:pointer}.cc-tabs button,.cc-camera button{border:0;border-radius:7px;padding:7px 12px;background:transparent;color:#536d78;font-size:12px}.cc-tabs button[aria-pressed=true]{background:#2b596f;color:white}.cc-hint{position:absolute;left:17px;bottom:18px;color:#718b97;font-size:11px;pointer-events:none}.cc-footer{padding:17px 23px;display:grid;gap:12px;font-size:12px}.cc-footer p{margin:0;color:#647c88;line-height:1.7}.cc-status{color:#365c6b!important}.cc-sources{border-top:1px solid #dce6e9;padding-top:11px}.cc-sources summary{cursor:pointer;font-weight:600;color:#476b7a}.cc-source-list{display:grid;gap:9px;margin-top:13px}.cc-source{display:grid;grid-template-columns:minmax(100px,1.1fr) minmax(0,2fr);gap:12px;padding:10px 12px;background:#eef4f6;border-radius:7px}.cc-source strong{display:block;font-size:12px}.cc-source small{display:block;font-size:10px;color:#708995;margin-top:3px;overflow-wrap:anywhere}.cc-source a{color:#376f88}.cc-downloads{display:flex;gap:8px;flex-wrap:wrap}.cc-downloads button{border:1px solid #bfd1da;background:white;color:#426778;border-radius:7px;padding:8px 12px;font-size:11px}.cc button:disabled{opacity:.5;cursor:default}.cc button:focus-visible,.cc canvas:focus-visible{outline:3px solid #87b4cb;outline-offset:2px}@media(max-width:650px){.cc-header{padding:16px;align-items:flex-start;flex-direction:column;gap:6px}.cc-header h3{font-size:18px}.cc-footer{padding:14px 16px}.cc-source{grid-template-columns:1fr;gap:4px}.cc-tabs{left:10px;top:10px}.cc-tabs button{padding:6px 9px}.cc-hint{display:none}.cc-stage canvas{height:330px}}`;
 
-export function declaredHomeCamera(concept){
+export function declaredHomeCamera(concept,motions=[]){
+ // Frame the approaching face and enough of its path to see the stroke.
+ // A panel connector can sit on the back of the device.
+ const externalMotion=motions.find(motion=>Math.hypot(motion.axis[0],motion.axis[1])>.1
+  &&concept.instances.some(item=>item.placed&&item.role!=='internal'&&motion.movingBodyIndices.includes(item.bodyIndex)));
+ if(externalMotion)return {yaw:Math.atan2(externalMotion.axis[0],externalMotion.axis[1])+.69,pitch:.37};
  const panels=concept.instances.filter(item=>item.placed&&item.role==='panel');
  if(!panels.length)return {yaw:-.64,pitch:.4};
  const center=concept.bounds.min.map((n,k)=>(n+concept.bounds.max[k])/2),target=[0,0,0];
@@ -162,34 +181,87 @@ export function declaredExplosionOffset(item,concept){
  return [0,0,0].map((_,k)=>k===axis?Math.sign(delta[k])*length:0);
 }
 
+export function visibleAssemblyInstances(concept,mode){
+ return concept.instances.filter(item=>{
+  if(mode==='references')return !item.placed;
+  if(!item.placed)return false;
+  if(mode==='inside')return item.role==='internal'||(item.kind==='reference'&&item.role==='panel');
+  if(mode==='closed')return item.role!=='internal';
+  return true;
+ });
+}
+
+// Design coordinates describe the retracted state. Only declared moving bodies
+// translate, and the mechanism controls are independent of the exploded view.
+export function bodyPose(item,motions,progress){
+ const position=[...item.positionMm];
+ for(const [index,motion] of motions.entries()){
+  if(!motion.movingBodyIndices.includes(item.bodyIndex))continue;
+  const travel=motion.travelMm*Math.max(0,Math.min(1,progress[index]||0));
+  for(let axis=0;axis<3;axis++)position[axis]+=motion.axis[axis]*travel;
+ }
+ return position;
+}
+
+const controlStyle=`
+.cc-motion{display:grid;gap:8px}
+.cc-motion label{display:grid;grid-template-columns:auto minmax(100px,1fr) auto;gap:12px;align-items:center;color:#365c6b}
+.cc-motion input{width:100%;accent-color:#2b596f}
+.cc-motion output{min-width:88px;text-align:right;font-variant-numeric:tabular-nums}
+.cc-context:empty,.cc-motion:empty,.cc-files[hidden]{display:none}
+.cc-files[open] .cc-downloads{margin-top:9px}
+.cc-empty{position:absolute;inset:24% 10%;display:grid;place-content:center;text-align:center;color:#506b78;pointer-events:none}
+.cc-empty[hidden],.cc-tabs button[hidden],.cc-motion label[hidden]{display:none}
+@media(max-width:650px){.cc-motion label{grid-template-columns:1fr auto}.cc-motion input{grid-row:2;grid-column:1/-1}}
+`;
+
 export function mountConsumerCad(container,design,options={}){
  if(!container)return ()=>{};
  const allowDownloads=options.downloads!==false,declared=!!design.cadPlan?.bodies?.length;
- container.innerHTML=`<style>${style}</style><section class="cc"><header class="cc-header"><div><span class="cc-eyebrow" data-cc-engine>FORM / CONCEPT</span><h3>${esc(design?.name||'整机概念')}</h3></div><span class="cc-size" data-cc-size>正在整理尺寸…</span></header><div class="cc-stage"><canvas tabindex="0" aria-label="整机概念：拖动或方向键旋转，滚轮或加减键缩放"></canvas><div class="cc-tabs" aria-label="整机视图"><button type="button" data-cc-mode="closed">外观</button><button type="button" data-cc-mode="open">${declared?'分解':'开盖'}</button><button type="button" data-cc-mode="inside">内部布局</button></div><div class="cc-camera"><button type="button" data-cc-camera="out" aria-label="缩小">−</button><button type="button" data-cc-camera="in" aria-label="放大">＋</button><button type="button" data-cc-camera="home">归位</button></div><span class="cc-hint">拖动旋转 · 滚轮缩放 · 同一毫米比例</span></div><div class="cc-footer"><p class="cc-status" data-cc-status role="status">根据部件尺寸整理形体与布局…</p><p data-cc-note>${declared?'AI 声明式结构表达设计意图；材料、壁厚、装配间隙和强度仍需验证。':'这是尺寸驱动的整机概念。壳体开孔、固定结构和电气连接尚未设计；顶面件仅示意交互位置。'}</p>${allowDownloads?'<div class="cc-downloads" data-cc-downloads></div>':''}<details class="cc-sources"><summary>尺寸、形体与安装位置依据</summary><div class="cc-source-list" data-cc-sources>正在读取…</div></details></div></section>`;
+ container.innerHTML=`<style>${style}${controlStyle}</style><section class="cc"><header class="cc-header"><div><span class="cc-eyebrow" data-cc-engine>FORM / CONCEPT</span><h3>${esc(design?.name||'整机概念')}</h3></div><span class="cc-size" data-cc-size>正在整理尺寸…</span></header><div class="cc-stage"><canvas tabindex="0" aria-label="整机概念：拖动或方向键旋转，滚轮或加减键缩放"></canvas><div class="cc-tabs" aria-label="整机视图"><button type="button" data-cc-mode="closed">外观</button><button type="button" data-cc-mode="open">${declared?'分解':'开盖'}</button><button type="button" data-cc-mode="inside">内部布局</button><button type="button" data-cc-mode="references" hidden>未定位件</button></div><span class="cc-empty" data-cc-empty hidden></span><div class="cc-camera"><button type="button" data-cc-camera="out" aria-label="缩小">−</button><button type="button" data-cc-camera="in" aria-label="放大">＋</button><button type="button" data-cc-camera="home">归位</button></div><span class="cc-hint">拖动旋转 · 滚轮缩放 · 同一毫米比例</span></div><div class="cc-footer"><div class="cc-motion" data-cc-motion></div><p class="cc-context" data-cc-context></p><p class="cc-status" data-cc-status role="status">根据部件尺寸整理形体与布局…</p><p data-cc-note>${declared?'AI 声明式结构表达设计意图；材料、壁厚、装配间隙和强度仍需验证。':'这是尺寸驱动的整机概念。壳体开孔、固定结构和电气连接尚未设计；顶面件仅示意交互位置。'}</p>${allowDownloads?'<details class="cc-sources cc-files" data-cc-files hidden><summary>零件 CAD 文件</summary><div class="cc-downloads" data-cc-downloads></div></details>':''}<details class="cc-sources"><summary>尺寸、形体与安装位置依据</summary><div class="cc-source-list" data-cc-sources>正在读取…</div></details></div></section>`;
  const root=container.querySelector('.cc'),canvas=root.querySelector('canvas'),status=root.querySelector('[data-cc-status]'),raster=createRaster(canvas),aborter=new AbortController();
- let disposed=false,concept=null,parts=[],scene=[],shellMeshes=null,geometry=null,activePlan=null,mode=declared?'closed':'open',yaw=-.64,pitch=.56,zoom=1,drag=null,frame=0,pendingPhase='ready',homePose={yaw,pitch},buildState=declared?'compiling':'legacy';
+ let disposed=false,concept=null,parts=[],scene=[],backdrop=[],frameScene=[],motionProgress=[],shellMeshes=null,geometry=null,activePlan=null,mode=declared?'closed':'open',yaw=-.64,pitch=.56,zoom=1,drag=null,frame=0,pendingPhase='ready',homePose={yaw,pitch},buildState=declared?'compiling':'legacy';
  function emit(phase,message){try{options.onStatus?.({phase,mode,message,exact:geometry?.exact??false,engine:geometry?.engine??null,instances:concept?.instances.length??0})}catch{}}
  function paint(){
   frame=0;if(disposed||!root.isConnected||!scene.length)return;
   const box=canvas.getBoundingClientRect();if(!box.width||!box.height)return;
-  const camera=fitCamera(scene,yaw,pitch,{x:box.width*.09,y:box.height*.16,width:box.width*.82,height:box.height*.68});camera.scale*=zoom;raster.draw(scene,camera);
+  const camera=fitCamera(frameScene.length?frameScene:scene,yaw,pitch,{x:box.width*.09,y:box.height*.16,width:box.width*.82,height:box.height*.68});camera.scale*=zoom;raster.draw(scene,camera,backdrop);
   if(pendingPhase){emit(pendingPhase,status.textContent);pendingPhase=null}
  }
  function schedule(){if(!frame)frame=requestAnimationFrame(paint)}
  function updateScene(phase='view'){
-  if(!concept)return;scene=[];pendingPhase=declared&&buildState==='compiling'?'enclosure':declared&&buildState==='fallback'?'error':phase;
+  if(!concept)return;scene=[];backdrop=[];frameScene=[];pendingPhase=declared&&buildState==='compiling'?'enclosure':declared&&buildState==='fallback'?'error':phase;
   if(concept.declared){
-   for(const item of concept.instances){
-    if(mode==='closed'&&(item.role==='internal'||!item.placed))continue;
-    if(mode==='inside'&&item.kind==='printed'&&item.role!=='internal')continue;
-    const shift=mode==='open'?declaredExplosionOffset(item,concept):[0,0,0];
-    for(const mesh of item.prepared)scene.push({id:'body-'+item.bodyIndex+'-'+item.partIndex+'-'+item.copy,mesh,offset:item.positionMm.map((n,k)=>n+shift[k])});
+   const items=visibleAssemblyInstances(concept,mode);
+   const motions=(mode==='inside'||mode==='closed')?activePlan.motions||[]:[];
+   const shell=mode==='inside'&&items.length?concept.instances.filter(item=>item.placed&&item.kind==='printed'&&item.role!=='internal'):[];
+   function place(item,layer){
+    const offset=mode==='open'?declaredExplosionOffset(item,concept).map((v,k)=>item.positionMm[k]+v):bodyPose(item,motions,motionProgress);
+    const range=motions.find(motion=>motion.movingBodyIndices.includes(item.bodyIndex));
+    for(const mesh of item.prepared){
+     const instance={id:'body-'+item.bodyIndex+'-'+item.partIndex+'-'+item.copy,mesh,offset};
+     layer.push(instance);
+     if(range){
+      frameScene.push({mesh,offset:item.positionMm},{mesh,offset:item.positionMm.map((v,k)=>v+range.axis[k]*range.travelMm)});
+     }else frameScene.push(instance);
+    }
    }
+   shell.forEach(item=>place(item,backdrop));
+   items.forEach(item=>place(item,scene));
+   const context=root.querySelector('[data-cc-context]');
+   const interiorLabel=backdrop.length?'外部结构已淡化，内部按安装坐标显示 ':'按安装坐标显示 ';
+   context.textContent=mode==='inside'&&items.length?interiorLabel+[...new Set(items.map(item=>item.name))].join('、')+'。':mode==='references'?'这些零件按尺寸独立展示，尚未确定安装位置。':'';
+   root.querySelectorAll('[data-cc-motion] label').forEach((label,index)=>{
+    label.hidden=!motions[index]||![...shell,...items].some(item=>motions[index].movingBodyIndices.includes(item.bodyIndex));
+   });
   }else if(concept.shell){
    const shell=concept.shell,lift=mode==='open'?Math.max(22,shell.baseHeight*.55):0;
    if(mode!=='inside'){scene.push({id:'case',mesh:shellMeshes.base});scene.push({id:'lid',mesh:shellMeshes.lid,offset:[0,0,shell.baseHeight+lift]})}
    for(const instance of concept.instances){if(mode==='closed'&&instance.role==='internal')continue;for(const mesh of instance.prepared)scene.push({id:'part-'+instance.partIndex+'-'+instance.copy,mesh,offset:[...instance.positionMm.slice(0,2),instance.positionMm[2]+(instance.role==='panel'?lift:0)]})}
   }
+  const empty=root.querySelector('[data-cc-empty]');
+  empty.hidden=!!scene.length;
+  if(!scene.length)empty.textContent=mode==='inside'?'尚无已确定安装位置的内部硬件。':'当前视图没有可显示的部件。';
   root.querySelectorAll('[data-cc-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.ccMode===mode)));
   if(!scene.length){const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);emit(['enclosure','error'].includes(pendingPhase)?pendingPhase:phase==='view'?'view':'empty',status.textContent+' 当前视图没有可显示的部件。');pendingPhase=null}else schedule();
  }
@@ -197,7 +269,7 @@ export function mountConsumerCad(container,design,options={}){
   root.querySelector('[data-cc-sources]').innerHTML=parts.map(part=>{
    const bodies=geometry?.bodies.filter(body=>body.partIndex===part.index)||[],href=safeUrl(part.metadata?.sourceUrl||part.dimensionSourceUrl||part.sourceUrl),usedCatalog=concept.instances.some(item=>item.partIndex===part.index&&item.source==='catalog');
    const note=bodies.length?(usedCatalog?part.geometryNote:geometry.exact?'AI 声明式形体，经 '+geometry.engine+' 计算实体；不代表原厂 CAD':'AI 声明式形体预览；实体布尔计算尚未完成'):part.geometryNote;
-   const placement=declared?(bodies.length?'安装位置来自 AI 声明式方案。':concept.instances.some(item=>item.partIndex===part.index&&!item.placed)?'未指定安装位置，放在独立参考排布区。':'柔性线材／附件仅在清单记录。'):'';
+   const placement=declared?(bodies.length?'安装位置来自 AI 声明式方案。':concept.instances.some(item=>item.partIndex===part.index&&!item.placed)?'尚未指定安装位置，可在「未定位件」中查看。':'柔性线材／附件仅在清单记录。'):'';
    return `<div class="cc-source"><div><strong>${esc(part.name)} × ${part.qty}</strong><small>${esc(roleText[part.role])} · ${sizeText(part.sizeMm)}</small></div><div>${esc(part.model||part.metadata?.label||dataText[part.dimensionSource])}<small>${esc(note)}</small>${placement?`<small>${esc(placement)}</small>`:''}${part.dimensionNote?`<small>${esc(part.dimensionNote)}</small>`:''}${part.metadata?.description?`<small>${esc(part.metadata.description)}</small>`:''}${part.metadata?.license?`<small>许可：${esc(part.metadata.license)}</small>`:''}${href?`<small><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${part.metadata?.modelType==='manufacturer-cad'?'CAD 来源':'尺寸／形体参考资料'}</a></small>`:''}</div></div>`;
   }).join('');
  }
@@ -205,9 +277,18 @@ export function mountConsumerCad(container,design,options={}){
   const target=root.querySelector('[data-cc-downloads]');if(!target)return;
   if(concept.declared){target.innerHTML=geometry.bodies.map((body,index)=>`<span>${body.exact?`<button type="button" data-cc-body-stl="${index}">${esc(body.name)} · ${body.role==='printed'?'结构件':'装配参考'} STL</button>`:''}<button type="button" data-cc-body-forge="${index}">${esc(body.name)} · ForgeCAD 源文件</button></span>`).join('')}
   else target.innerHTML=concept.shell?'<button type="button" data-cc-download="base">下载概念底壳 STL</button><button type="button" data-cc-download="lid">下载概念上盖 STL</button>':'';
+  target.parentElement.hidden=!target.childElementCount;
  }
  function prepareConcept(resetCamera=false){
-  if(declared){concept=buildDeclaredAssembly(design,parts,geometry);for(const item of concept.instances)item.prepared=item.meshes.map(mesh=>prepareMesh(mesh.triangles,mesh.color||colors[item.partIndex%colors.length]));if(resetCamera){homePose=declaredHomeCamera(concept);yaw=homePose.yaw;pitch=homePose.pitch}}
+  if(declared){
+   concept=buildDeclaredAssembly(design,parts,geometry);
+   for(const item of concept.instances)item.prepared=item.meshes.map(mesh=>prepareMesh(mesh.triangles,mesh.color||colors[item.partIndex%colors.length]));
+   if(resetCamera){
+    homePose=declaredHomeCamera(concept,activePlan.motions);yaw=homePose.yaw;pitch=homePose.pitch;
+    if(mode==='closed'&&!visibleAssemblyInstances(concept,mode).length)mode=visibleAssemblyInstances(concept,'inside').length?'inside':'references';
+    if(mode==='references'&&!concept.unplacedCount)mode='open';
+   }
+  }
   else{
    concept=buildConsumerConcept({...design,parts});
    if(concept.shell)shellMeshes={base:prepareMesh(concept.shell.base,[143,170,183]),lid:prepareMesh(concept.shell.lid,[191,208,215])};
@@ -215,10 +296,27 @@ export function mountConsumerCad(container,design,options={}){
   }
   const size=concept.declared?concept.sizeMm:concept.shell?.sizeMm;root.querySelector('[data-cc-size]').textContent=size?sizeText(size):'暂无壳内零件';
   root.querySelector('[data-cc-engine]').textContent=geometry?.exact?'SOLID / '+geometry.engine:declared?'FORM / PREVIEW':'FORM / CONCEPT';
+  root.querySelector('[data-cc-mode=references]').hidden=!concept.unplacedCount;
+  if(concept.declared){
+   const motions=activePlan.motions||[];
+   const panel=root.querySelector('[data-cc-motion]');
+   panel.innerHTML=motions.map((motion,index)=>{
+    const value=motionProgress[index]||0;
+    return `<label><span>${esc(motion.name)}</span><input type="range" min="0" max="100" value="${Math.round(value*100)}" data-cc-travel="${index}" aria-label="${esc(motion.name)}行程"><output></output></label>`;
+   }).join('');
+   motions.forEach((_,index)=>updateTravelLabel(index));
+  }
   renderSources();renderDownloads();
  }
+ function updateTravelLabel(index){
+  const input=root.querySelector(`[data-cc-travel="${index}"]`),motion=activePlan.motions[index],value=motionProgress[index]||0;
+  const state=value===0?'已缩回':value===1?'已伸出':'伸出';
+  const text=state+' '+Number((motion.travelMm*value).toFixed(2))+' / '+motion.travelMm+' mm';
+  input.setAttribute('aria-valuetext',text);
+  input.parentElement.querySelector('output').textContent=text;
+ }
  function assemblyMessage(){
-  if(concept.declared){const invalid=design.cadPlan.bodies.length-activePlan.bodies.length;return `${geometry.notice} ${invalid?`${invalid} 个旧形体因型号或尺寸变动已撤下，请重新生成；`:''}${concept.unplacedCount?`${concept.unplacedCount} 个未定位零件在「分解／内部布局」中独立排布；`:''}${concept.omittedCount?`${concept.omittedCount} 个线材或附件仅在清单记录。`:''}`}
+  if(concept.declared){const invalid=design.cadPlan.bodies.length-activePlan.bodies.length;return `${geometry.notice} ${invalid?`${invalid} 个旧形体因型号或尺寸变动已撤下，请重新生成。`:''}${concept.unplacedCount?`${concept.unplacedCount} 个零件可在「未定位件」中查看。`:''}${concept.omittedCount?`${concept.omittedCount} 个线材或附件仅在清单记录。`:''}`}
   return concept.shell?`${concept.instances.length} 个内部／顶面实例已自动排布${concept.external.length?`；${concept.external.reduce((n,part)=>n+part.qty,0)} 个外接附件不计入外壳`:'。'} 默认壁厚 ${concept.defaults.wall} mm，部件间距 ${concept.defaults.gap} mm。`:'当前清单为外接附件，尚无需要包裹的部件。';
  }
  async function load(){
@@ -228,13 +326,13 @@ export function mountConsumerCad(container,design,options={}){
    if(declared){
     activePlan=currentCadPlan(design);
     geometry=previewCadPlan(activePlan,parts.length);
-    if(!activePlan.bodies.length){buildState='fallback';mode='inside';geometry.notice='当前仅显示修改后的尺寸包络。'}
+    if(!activePlan.bodies.length){buildState='fallback';mode='references';geometry.notice='当前仅显示修改后的尺寸包络。'}
    }
    prepareConcept(true);status.textContent=assemblyMessage();updateScene('ready');
    if(declared&&activePlan.bodies.length){
-    emit('enclosure','正在通过 Manifold 内核计算实体与切削特征。');
+    emit('enclosure','正在生成内外部件的实体与切削特征。');
     try{
-     const exact=await compileCadPlan(activePlan,{partCount:parts.length,baseUrl:options.baseUrl,fetcher:options.fetcher,WorkerClass:options.WorkerClass,signal:aborter.signal});
+     const exact=await compileCadPlan(activePlan,{partCount:parts.length,engine:options.engine,exampleAsset:options.exampleAsset,baseUrl:options.baseUrl,fetcher:options.fetcher,WorkerClass:options.WorkerClass,signal:aborter.signal});
      if(disposed||!root.isConnected)return;geometry=exact;buildState='exact';prepareConcept();status.textContent=assemblyMessage();updateScene('ready');
     }catch(error){if(disposed||!root.isConnected)return;buildState='fallback';geometry.notice=String(error.message||error)+' 当前显示近似形体，未完成实体布尔，不能导出实体 STL。';status.textContent=assemblyMessage();renderSources();updateScene('error')}
    }
@@ -251,10 +349,17 @@ export function mountConsumerCad(container,design,options={}){
   if(button.dataset.ccBodyStl!==undefined){const body=geometry?.bodies[Number(button.dataset.ccBodyStl)];if(body?.exact&&body.stlBytes)download(body.stlBytes,cadDownloadName(body.name),'model/stl')}
   if(button.dataset.ccBodyForge!==undefined){const body=activePlan?.bodies[Number(button.dataset.ccBodyForge)];if(body)download(cadBodyToForgeScript(body),cadDownloadName(body.name,'forge.js'),'text/javascript')}
  };
+ root.oninput=e=>{
+  if(e.target.dataset.ccTravel===undefined)return;
+  const index=Number(e.target.dataset.ccTravel);
+  motionProgress[index]=Number(e.target.value)/100;
+  updateTravelLabel(index);
+  updateScene();
+ };
  canvas.onpointerdown=e=>{drag=[e.clientX,e.clientY,yaw,pitch];canvas.setPointerCapture(e.pointerId)};
  canvas.onpointermove=e=>{if(!drag)return;yaw=drag[2]+(e.clientX-drag[0])*.012;pitch=Math.max(-1.5,Math.min(1.5,drag[3]+(e.clientY-drag[1])*.012));schedule()};canvas.onpointerup=canvas.onpointercancel=()=>{drag=null};
  const wheel=e=>{e.preventDefault();scale(Math.exp(-e.deltaY*.0018))};canvas.addEventListener('wheel',wheel,{passive:false});
  canvas.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','=','-','0'].includes(e.key))return;e.preventDefault();if(e.key==='ArrowLeft')yaw-=.12;if(e.key==='ArrowRight')yaw+=.12;if(e.key==='ArrowUp')pitch=Math.min(1.5,pitch+.12);if(e.key==='ArrowDown')pitch=Math.max(-1.5,pitch-.12);if(e.key==='+'||e.key==='=')scale(1.2);if(e.key==='-')scale(1/1.2);if(e.key==='0')home();schedule()};
  const observer=new ResizeObserver(schedule);observer.observe(canvas);load();
- return ()=>{disposed=true;aborter.abort();observer.disconnect();cancelAnimationFrame(frame);canvas.removeEventListener('wheel',wheel);root.onclick=null;canvas.onpointerdown=canvas.onpointermove=canvas.onpointerup=canvas.onpointercancel=canvas.onkeydown=null;scene=[]};
+ return ()=>{disposed=true;aborter.abort();observer.disconnect();cancelAnimationFrame(frame);canvas.removeEventListener('wheel',wheel);root.oninput=root.onclick=null;canvas.onpointerdown=canvas.onpointermove=canvas.onpointerup=canvas.onpointercancel=canvas.onkeydown=null;scene=[]};
 }

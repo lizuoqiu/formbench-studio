@@ -18,21 +18,67 @@ test('prompt, immutable regeneration, truthful backend model receipts, old proje
  try{
   b=await chromium.launch({channel:process.env.BROWSER_CHANNEL||'chrome',headless:true});
   const p=await b.newPage({reducedMotion:'reduce'});const errors=[];p.on('pageerror',e=>errors.push(e.message));p.setDefaultTimeout(10000);
-  let release,received,expected;const gate=()=>{received=new Promise(r=>expected=r);return new Promise(r=>release=r)};
-  let wait=gate(),failure=false,answer={...fixture,generation:{provider:'local-codex',modelId:'model-config',modelSource:'configured'}};
-  await p.route('**/api/**',async r=>{const key=new URL(r.request().url()).pathname;if(key==='/api/design'){expected();await wait;return failure?r.fulfill({status:502,json:{error:'设计服务暂时不可用。'}}):r.fulfill({json:{design:answer}})}return r.fulfill({json:key==='/api/capabilities'?{ai:true,aiModel:'model-config',aiProvider:'local-codex'}:key==='/api/catalog'?{candidates:[]}:{configured:false,authenticated:false}})});
-  await p.goto(url);await p.locator('#selected-model:not([hidden])').waitFor();assert.match(await p.locator('#selected-model').innerText(),/请求模型：model-config/);await p.locator('#wish').fill('能提醒我休息的桌上装置');await p.locator('#generate').click();await received;assert(await p.locator('#entry-progress').isVisible());assert.equal(await p.locator('#entry-progress').getAttribute('data-phase'),'request');assert.equal(await p.locator('#generate').isDisabled(),true);release();
+  const prompt='能提醒我休息的桌上装置',question='你更希望怎样收到提醒？';
+  let first=true,release,failDiscussion=false;
+  const gate=new Promise(resolve=>release=resolve),requests=[];
+  await p.route('**/api/**',async route=>{
+    const key=new URL(route.request().url()).pathname;
+    if(key!=='/api/design'){
+      const json=key==='/api/capabilities'?{ai:true,aiModel:'model-config',aiProvider:'local-codex'}:key==='/api/catalog'?{candidates:[]}:{configured:false,authenticated:false};
+      return route.fulfill({json});
+    }
+    const req=route.request().postDataJSON();requests.push(req);
+    if(req.action==='discuss'){
+      if(failDiscussion)return route.fulfill({status:502,json:{error:'设计服务暂时不可用。'}});
+      if(first){first=false;await gate;return route.fulfill({json:{decision:'ask',question,options:['光提醒','振动提醒']}})}
+      return route.fulfill({json:{decision:'ready',options:[],question:''}});
+    }
+    const answer=req.baseDesign?{...fixture,name:'第二个版本',generation:{provider:'openai-api',modelId:'model-returned',modelSource:'response'}}:{...fixture,generation:{provider:'local-codex',modelId:'model-config',modelSource:'configured'}};
+    return route.fulfill({json:{design:answer}});
+  });
+  await p.goto(url);await p.locator('#selected-model:not([hidden])').waitFor();
+  assert.match(await p.locator('#selected-model').innerText(),/请求模型：model-config/);
+  await p.locator('#wish').fill(prompt);await p.locator('#generate').click();
+  assert(await p.locator('#entry-progress').isVisible());assert.equal(await p.locator('#entry-progress').getAttribute('data-phase'),'discuss');assert(await p.locator('#generate').isDisabled());release();
+  await p.getByRole('heading',{name:question}).waitFor();await p.getByRole('button',{name:'光提醒',exact:true}).click();
   await p.locator('#project:not([hidden])').waitFor();
   assert.match(await p.locator('.model-stamp').innerText(),/本机 Codex.*请求指定模型：model-config.*未披露/);
-
-  await p.locator('#revise-design').click();assert.equal(await p.locator('#wish').inputValue(),'能提醒我休息的桌上装置');
-  wait=gate();answer={...fixture,name:'第二个版本',generation:{provider:'openai-api',modelId:'model-returned',modelSource:'response'}};
-  await p.locator('#generate').click();await received;release();await p.getByRole('heading',{name:'第二个版本',exact:true}).first().waitFor();assert.match(await p.locator('.model-stamp').innerText(),/响应模型：model-returned/);await p.waitForFunction(()=>JSON.parse(localStorage.getItem('formbench.consumer.guest.v1')||'[]').length===2);
-  await p.evaluate(()=>{const a=JSON.parse(localStorage.getItem('formbench.consumer.guest.v1'));delete a[0].design.generation;a[0].design.parts[0].sizeMm=null;localStorage.setItem('formbench.consumer.guest.v1',JSON.stringify(a))});
-  await p.locator('#back').click();await p.getByRole('button',{name:'我的项目'}).click();await p.locator('dialog button').filter({hasText:'第二个版本'}).click();assert.match(await p.locator('.model-stamp').innerText(),/未记录/);await p.locator('[data-cc-status]').getByText(/尺寸|需要/).waitFor();await p.locator('#revise-design').click();
-  wait=gate();failure=true;await p.locator('#generate').click();await received;release();await p.locator('#entry-notice').getByText('设计服务暂时不可用。').waitFor();assert(await p.locator('#entry-progress').isHidden());assert(!(await p.locator('#generate').isDisabled()));
+  assert.deepEqual(requests.map(r=>r.action),['discuss','discuss','generate']);
+  assert.equal(requests.at(-1).conversation.at(-1).text,'光提醒');
+  await p.locator('#revision-prompt').fill('灯光减弱一半');await p.locator('#revise-design').click();
+  await p.getByRole('heading',{name:'第二个版本',exact:true}).first().waitFor();
+  assert.match(await p.locator('.model-stamp').innerText(),/响应模型：model-returned/);
+  const revision=requests.at(-1);assert.equal(revision.action,'generate');assert.equal(revision.prompt,prompt);
+  assert.equal(revision.baseDesign.parts[0].name,'控制板');assert.equal(revision.discussionStart,2);assert.equal(revision.conversation.at(-1).text,'灯光减弱一半');
+  await p.waitForFunction(()=>JSON.parse(localStorage.getItem('formbench.consumer.guest.v1')||'[]').length===2);
+  await p.locator('#previous-version').click();await p.getByRole('heading',{name:'触摸盒',exact:true}).first().waitFor();
+  await p.evaluate(()=>{const a=JSON.parse(localStorage.getItem('formbench.consumer.guest.v1'));delete a[0].design.generation;delete a[0].iteration;a[0].design.parts[0].sizeMm=null;localStorage.setItem('formbench.consumer.guest.v1',JSON.stringify(a))});
+  await p.locator('#back').click();await p.getByRole('button',{name:'我的项目'}).click();await p.locator('dialog button').filter({hasText:'第二个版本'}).click();
+  assert.match(await p.locator('.model-stamp').innerText(),/未记录/);await p.locator('[data-cc-status]').getByText(/尺寸|需要/).waitFor();
+  failDiscussion=true;await p.locator('#revision-prompt').fill('声音轻一点');await p.locator('#revise-design').click();
+  await p.getByRole('alert').filter({hasText:'设计服务暂时不可用。'}).waitFor();
+  await p.locator('#cancel-discussion').click();assert(!(await p.locator('#revise-design').isDisabled()));
+  assert.equal(await p.locator('#revision-prompt').inputValue(),'声音轻一点');await p.locator('#back').click();
   await p.getByRole('button',{name:'状态灯示例'}).click();await p.locator('#geometry-state[data-phase=ready]').waitFor();
   await p.locator('[data-cc-mode=inside]').click();await p.waitForFunction(()=>document.querySelector('#geometry-state')?.textContent.includes('内部'));assert.equal(await p.locator('[data-cc-mode=inside]').getAttribute('aria-pressed'),'true');
   await p.getByRole('button',{name:'我的项目'}).click();await p.locator('dialog button').filter({hasText:'第二个版本'}).click();await p.locator('#geometry-state[data-phase=error]').waitFor();assert.deepEqual(errors,[]);
+  const handoff=await b.newContext({reducedMotion:'reduce'}),designRequests=[];
+  await handoff.route(/https:\/\/formwork-ui-test\.github\.io\/|http:\/\/127\.0\.0\.1:4173\//,async route=>{
+    const pathname=new URL(route.request().url()).pathname;
+    if(pathname.startsWith('/api/')){
+      if(pathname==='/api/design')designRequests.push(route.request().url());
+      return route.fulfill({json:pathname==='/api/capabilities'?{ai:true,aiProvider:'openai-api'}:pathname==='/api/catalog'?{candidates:[]}:{configured:false,authenticated:false}});
+    }
+    const response=await fetch(url+pathname);
+    await route.fulfill({status:response.status,contentType:response.headers.get('content-type'),body:Buffer.from(await response.arrayBuffer())});
+  });
+  const publicPage=await handoff.newPage();await publicPage.goto('https://formwork-ui-test.github.io/?example=fist');
+  const transfer=publicPage.getByRole('button',{name:'在本机继续修改'});
+  await transfer.waitFor();await publicPage.locator('#revision-prompt').fill('行程缩短至 12 mm，保留拳面');
+  const opened=handoff.waitForEvent('page');await transfer.click();const localPage=await opened;
+  await localPage.waitForFunction(()=>document.querySelector('#revision-prompt')?.value==='行程缩短至 12 mm，保留拳面');
+  assert.equal(localPage.url(),'http://127.0.0.1:4173/?example=fist');
+  assert.equal(await localPage.locator('#version-label').innerText(),'第 1 版');
+  assert.deepEqual(designRequests,[]);await handoff.close();
  }finally{await b?.close();await new Promise(r=>server.close(r))}
 });

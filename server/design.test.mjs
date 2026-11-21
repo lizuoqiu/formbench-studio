@@ -5,3 +5,27 @@ test('catalog geometry overrides invented dimensions only for matched packages; 
 test('specified size must be supported by explicit component and dimensions in original prompt',()=>{const s='壳体为 40×30×20 mm';const r={...row,name:'壳体',role:'enclosure',modelId:'',sizeMm:[40,30,20],dimensionSource:'specified',dimensionQuote:s};assert.equal(normalizeDesign(raw(r),s).parts[0].dimensionSource,'specified');assert.equal(normalizeDesign(raw(r),'做个小盒子').parts[0].dimensionSource,'estimated');});
 test('model dispatch uses strict structured output and refuses incomplete responses',async()=>{const req=()=>new Request('https://workbench.invalid/api/design',{method:'POST',body:JSON.stringify({prompt:'制作湿度报警器'})});const env={OPENAI_API_KEY:'fixture',OPENAI_MODEL:'fixture'};let called=false;const r=await design(req(),env,async(_,options)=>{const b=JSON.parse(options.body);called=true;assert.equal(b.text.format.strict,true);assert.equal(b.store,false);return Response.json({status:'completed',model:'response-model-snapshot',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(raw(row))}]}]});});assert.ok(called);assert.equal(r.status,200);const d=(await r.json()).design;assert.equal(d.parts[0].dimensionSource,'catalog');assert.equal(d.generation.modelId,'response-model-snapshot');assert.equal(d.generation.modelSource,'response');assert.ok(d.generation.skill.revision);assert.equal((await design(req(),env,async()=>Response.json({status:'incomplete'}))).status,502);});
 test('XIAO ESP32C3 catalog identity uses the cited board reference; the model envelope is not a verified manufacturer solid',()=>{const p=normalizeDesign(raw({...row,name:'Seeed Studio XIAO ESP32C3',spec:'无排针版，USB-C',model:'Seeed Studio XIAO ESP32C3',modelId:'xiao-esp32c3'}),'').parts[0];assert.equal(p.dimensionSource,'catalog');assert.deepEqual(p.sizeMm,[22.463,17.78,4.7]);assert.match(p.dimensionSourceUrl,/seeedstudio\.com.*KiCad/);assert.match(p.dimensionNote,/近似|独立绘制/);});
+
+test('powered translation cannot be published with a static assembly; passive requests remain valid',()=>{
+ const stationary={...raw(row),deviceMotion:'stationary'};
+ for(const prompt of ['AI 主动伸出然后收回','The device should slowly extend its arm.','装置自行伸出']){
+  assert.throws(()=>normalizeDesign(stationary,prompt),/主动伸缩/);
+ }
+ for(const prompt of ['我主动伸出手碰固定表面','当用户向设备伸出手时，指示灯亮起','装置不要主动伸出，只在按压时振动','The device should not extend.','我只需要碰一个静止的感应面']){
+  assert.doesNotThrow(()=>normalizeDesign(stationary,prompt));
+ }
+ assert.throws(()=>normalizeDesign({...stationary,deviceMotion:'powered-linear'},'桌面互动'),/主动伸缩/);
+ assert.throws(()=>normalizeDesign({...stationary,summary:'设备主动伸出面板'},'桌面互动'),/主动伸缩/);
+ assert.throws(()=>normalizeDesign(raw({...row,placement:'mounted'}),''),/缺少已安装零件的位置/);
+ assert.doesNotThrow(()=>normalizeDesign(raw({...row,placement:'loose'}),''));
+});
+
+test('API returns a useful assembly diagnostic or timeout while withholding incomplete designs',async()=>{
+ const env={OPENAI_API_KEY:'fixture',OPENAI_MODEL:'unit'}, req=()=>new Request('https://test.invalid/api/design',{method:'POST',body:JSON.stringify({prompt:'动态组件'})});
+ const missing={...raw(row),deviceMotion:'powered-linear'};
+ const result=await design(req(),env,async()=>Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(missing)}]}]}));
+ assert.equal(result.status,502);
+ const error=await result.json();assert.match(error.error,/主动伸缩/);assert.equal(error.design,undefined);
+ const timeout=await design(req(),env,async()=>{throw new DOMException('timeout','TimeoutError');});
+ assert.equal(timeout.status,504);assert.match((await timeout.json()).error,/5 分钟/);
+});
