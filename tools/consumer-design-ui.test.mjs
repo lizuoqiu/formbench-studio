@@ -42,11 +42,13 @@ test('prompt, immutable regeneration, truthful backend model receipts, old proje
   assert(await p.locator('#entry-progress').isVisible());assert.equal(await p.locator('#entry-progress').getAttribute('data-phase'),'discuss');assert(await p.locator('#generate').isDisabled());release();
   await p.getByRole('heading',{name:question}).waitFor();await p.getByRole('button',{name:'光提醒',exact:true}).click();
   await p.locator('#project:not([hidden])').waitFor();
+  await p.locator('.project-origin > summary').click();
   assert.match(await p.locator('.model-stamp').innerText(),/本机 Codex.*请求指定模型：model-config.*未披露/);
   assert.deepEqual(requests.map(r=>r.action),['discuss','discuss','generate']);
   assert.equal(requests.at(-1).conversation.at(-1).text,'光提醒');
   await p.locator('#revision-prompt').fill('灯光减弱一半');await p.locator('#revise-design').click();
   await p.getByRole('heading',{name:'第二个版本',exact:true}).first().waitFor();
+  await p.locator('.project-origin > summary').click();
   assert.match(await p.locator('.model-stamp').innerText(),/响应模型：model-returned/);
   const revision=requests.at(-1);assert.equal(revision.action,'generate');assert.equal(revision.prompt,prompt);
   assert.equal(revision.baseDesign.parts[0].name,'控制板');assert.equal(revision.discussionStart,2);assert.equal(revision.conversation.at(-1).text,'灯光减弱一半');
@@ -54,6 +56,7 @@ test('prompt, immutable regeneration, truthful backend model receipts, old proje
   await p.locator('#previous-version').click();await p.getByRole('heading',{name:'触摸盒',exact:true}).first().waitFor();
   await p.evaluate(()=>{const a=JSON.parse(localStorage.getItem('formbench.consumer.guest.v1'));delete a[0].design.generation;delete a[0].iteration;a[0].design.parts[0].sizeMm=null;localStorage.setItem('formbench.consumer.guest.v1',JSON.stringify(a))});
   await p.locator('#back').click();await p.getByRole('button',{name:'我的项目'}).click();await p.locator('dialog button').filter({hasText:'第二个版本'}).click();
+  await p.locator('.project-origin > summary').click();
   assert.match(await p.locator('.model-stamp').innerText(),/未记录/);await p.locator('[data-cc-status]').getByText(/尺寸|需要/).waitFor();
   failDiscussion=true;await p.locator('#revision-prompt').fill('声音轻一点');await p.locator('#revise-design').click();
   await p.getByRole('alert').filter({hasText:'设计服务暂时不可用。'}).waitFor();
@@ -61,6 +64,36 @@ test('prompt, immutable regeneration, truthful backend model receipts, old proje
   assert.equal(await p.locator('#revision-prompt').inputValue(),'声音轻一点');await p.locator('#back').click();
   await p.getByRole('button',{name:'状态灯示例'}).click();await p.locator('#geometry-state[data-phase=ready]').waitFor();
   await p.locator('[data-cc-mode=inside]').click();await p.waitForFunction(()=>document.querySelector('#geometry-state')?.textContent.includes('内部'));assert.equal(await p.locator('[data-cc-mode=inside]').getAttribute('aria-pressed'),'true');
+  await p.locator('#view-parts').click();
+  assert.equal(await p.locator('#view-parts').getAttribute('aria-pressed'),'true');
+  const search=p.locator('#part-search'),listed=p.locator('#items .part:visible');
+  const allNames=await listed.locator('.part-name h3').allTextContents();
+  assert.ok(allNames.includes('绿色 LED')&&allNames.includes('红色 LED'));
+  await search.fill('绿色');
+  assert.deepEqual(await listed.locator('.part-name h3').allTextContents(),['绿色 LED']);
+  await listed.getByRole('checkbox').uncheck();
+  await search.fill('');
+  assert.deepEqual(await listed.locator('.part-name h3').allTextContents(),allNames);
+  const unchecked=listed.filter({has:p.locator('input.include:not(:checked)')});
+  assert.deepEqual(await unchecked.locator('.part-name h3').allTextContents(),['绿色 LED']);
+  for(const [viewport,usesDetailsTab] of [[{width:1280,height:800},false],[{width:390,height:844},true]]){
+    await p.setViewportSize(viewport);
+    const detailsTab=p.locator('#view-details');
+    if(usesDetailsTab){
+      await detailsTab.click();
+      assert.equal(await detailsTab.getAttribute('aria-pressed'),'true');
+    }else assert.equal(await detailsTab.isVisible(),false);
+    const revisionField=p.locator('#revision-prompt'),note=usesDetailsTab?'把绿色灯调暗':'增加红灯亮度';
+    assert(await revisionField.isVisible()&&await revisionField.isEditable());
+    await revisionField.fill(note);
+    assert.equal(await revisionField.inputValue(),note);
+    await p.locator('#view-model').click();
+    assert(await p.locator('#cad-panel').isVisible());
+    assert.equal(await p.locator('[data-cc-mode=inside]').getAttribute('aria-pressed'),'true');
+    if(usesDetailsTab)await detailsTab.click();
+    assert.equal(await revisionField.inputValue(),note);
+  }
+  await p.setViewportSize({width:1280,height:800});
   await p.getByRole('button',{name:'我的项目'}).click();await p.locator('dialog button').filter({hasText:'第二个版本'}).click();await p.locator('#geometry-state[data-phase=error]').waitFor();assert.deepEqual(errors,[]);
   const handoff=await b.newContext({reducedMotion:'reduce'}),designRequests=[];
   await handoff.route(/https:\/\/formwork-ui-test\.github\.io\/|http:\/\/127\.0\.0\.1:4173\//,async route=>{

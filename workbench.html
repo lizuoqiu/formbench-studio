@@ -1,14 +1,16 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#6babf5"><title>Formwork · 硬件工坊</title><link rel="stylesheet" href="./style.css"><link rel="stylesheet" href="./mechanical.css"><link rel="stylesheet" href="./hardware-library.css"><link rel="stylesheet" href="./wiring.css"><link rel="stylesheet" href="./frame.css"><link rel="stylesheet" href="./studio-entry.css"></head><body>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#6babf5"><title>Formwork · 硬件工坊</title><link rel="stylesheet" href="./style.css"><link rel="stylesheet" href="./mechanical.css"><link rel="stylesheet" href="./hardware-library.css"><link rel="stylesheet" href="./wiring.css"><link rel="stylesheet" href="./frame.css"><link rel="stylesheet" href="./studio-entry.css"><link rel="stylesheet" href="./workbench-ui.css"></head><body>
 <svg aria-hidden="true" class="icons" xmlns="http://www.w3.org/2000/svg"><defs><symbol id="cube" viewBox="0 0 24 24"><path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5m-9 5v10"/></symbol><symbol id="wire" viewBox="0 0 24 24"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 6h5v12h5"/></symbol><symbol id="parts" viewBox="0 0 24 24"><path d="M8 5h12M8 12h12M8 19h12M3 5h1M3 12h1M3 19h1"/></symbol><symbol id="cart" viewBox="0 0 24 24"><path d="M2 4h3l3 12h11l3-9H6"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></symbol><symbol id="grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol></defs></svg>
 <header class="top">
-  <div class="top-inner">
-    <div class="top-identity">
-      <a class="brand-home" href="#studio" aria-label="Formwork 设计工作室">
+  <div class="site-band"><div class="site-inner">
+    <a class="brand-home" href="#studio" aria-label="Formwork 设计工作室">
         <svg class="fw-mark" aria-hidden="true" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m5 10 11-5 11 5-11 5zM5 16l11 5 11-5M5 22l11 5 11-5"/></svg>
         <b class="studio-wordmark">Formwork</b>
       </a>
-      <span id="project-title" class="top-project">Pico 桌面指示器</span>
-    </div>
+    <span id="compact-project-title" class="compact-project-title">Pico 桌面指示器</span>
+    <a id="surface-link" href="#overview">打开项目</a>
+  </div></div>
+  <div class="project-band"><div class="project-inner">
+    <span id="project-title" class="top-project">Pico 桌面指示器</span>
     <nav class="project-tabs" aria-label="项目视图">
       <button type="button" data-view="overview" aria-label="设计总览"><svg aria-hidden="true"><use href="#grid"/></svg>总览</button>
       <button type="button" data-view="bom" aria-label="零件清单"><svg aria-hidden="true"><use href="#parts"/></svg>零件</button>
@@ -16,14 +18,18 @@
       <button type="button" data-view="mechanical" aria-label="机械结构"><svg aria-hidden="true"><use href="#cube"/></svg>结构</button>
       <button type="button" data-view="procurement" aria-label="采购与交付"><svg aria-hidden="true"><use href="#cart"/></svg>采购</button>
     </nav>
-    <div class="bar-actions">
-      <button class="bar-export" type="button" data-action="export" aria-label="导出装配项目包" title="导出装配项目包"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg></button>
-      <a id="surface-link" href="#overview">项目工作台</a>
-    </div>
-  </div>
+    <details class="project-files">
+        <summary>文件 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></summary>
+        <div class="file-actions">
+          <button type="button" data-action="project-import">导入项目包…</button>
+          <button type="button" data-action="export">导出装配项目包</button>
+          <button type="button" data-action="csv">导出零件清单 CSV</button>
+        </div>
+      </details>
+  </div></div>
 </header>
 <main id="studio" hidden><div id="studio-screen"></div></main>
 <div class="shell">
 <main class="workspace"><h1 id="view-title" class="workspace-title">设计总览</h1>
 <div id="app" aria-live="polite"></div><noscript>请启用 JavaScript 以查看和编辑项目。</noscript></main>
-<aside class="delivery"><h2>交付状态</h2><div class="summary-card"><div class="status-top"><i></i><strong id="ready-status">待核对</strong></div><p id="next-action">核对采购、报价与组装安排后再下单。</p><div class="divider"></div><div class="srow"><span>标准件入车</span><b id="cart-progress">待核对</b></div><div class="srow"><span>外壳加工</span><b id="quote-progress">待报价</b></div><button data-view="procurement" class="btn btn-dark">查看采购清单 <span>↗</span></button></div></aside></div><script type="module" src="./app.js"></script><script type="module" src="./studio.js"></script></body></html>
+<aside class="delivery"><h2>交付状态</h2><div class="summary-card"><div class="status-top"><i></i><strong id="ready-status">待核对</strong></div><p id="next-action">核对采购、报价与组装安排后再下单。</p><div class="divider"></div><div class="srow"><span>已核对购物车</span><b id="cart-progress">待核对</b></div><div class="srow"><span>外壳加工</span><b id="quote-progress">待报价</b></div><button data-view="procurement" class="btn btn-dark">查看采购清单 <span aria-hidden="true">→</span></button></div></aside></div><script type="module" src="./app.js"></script><script type="module" src="./studio.js"></script></body></html>

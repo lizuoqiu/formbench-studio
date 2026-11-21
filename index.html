@@ -1,6 +1,67 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#dceafb"><title>Formwork · 硬件设计</title><link rel="stylesheet" href="./consumer.css"><link rel="stylesheet" href="./consumer-account.css"></head>
-<body><header class="header"><div class="mast"><a class="wordmark" href="./" aria-label="Formwork 首页"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="m5 10 11-6 11 6-11 6zM5 16l11 6 11-6M5 22l11 6 11-6"/></svg>Formwork</a><button type="button" id="back" class="quiet" hidden>新建设计 <span aria-hidden="true">＋</span></button><div id="consumer-account"></div></div></header>
-<main id="main"><section id="entry" class="entry"><div class="draft-art" aria-hidden="true"><svg viewBox="0 0 660 660" fill="none" xmlns="http://www.w3.org/2000/svg"><g stroke="currentColor" stroke-linejoin="round"><g stroke-width="2.6"><path d="m101 333 198-110 224 95-199 125z m0 0v30l223 111 199-128v-28m-199 125v31"/><path d="m121 333 179-97 199 84-176 109z m13 12 165-89 181 76"/><path d="m128 261 167-91 197 83-173 103z m0 0v9l191 94 173-104v-7m-173 103v8"/><ellipse cx="170" cy="261" rx="10" ry="5"/><ellipse cx="293" cy="189" rx="10" ry="5"/><ellipse cx="447" cy="255" rx="10" ry="5"/><ellipse cx="322" cy="337" rx="10" ry="5"/><path d="m232 263 70-39 73 31-70 42z m0 0v8l73 34 70-42v-8m-70 42v8"/><path d="m97 170 200-108 227 93-200 124z m0 0v21l227 111 200-125v-22m-200 124v23"/><ellipse cx="297" cy="170" rx="46" ry="23" transform="rotate(-6 297 170)"/><ellipse cx="374" cy="151" rx="12" ry="6"/></g><g stroke-dasharray="5 8" stroke-width="1.5"><path d="M99 194v134m224-23v132m200-253v130M299 70V37"/></g><g stroke-width="1.3"><path d="m110 376-24 23m233 83-20 24M97 398l205 100m-197-105-9 13m203 84-9 13m242-167 26 12m-203 121 26 12m-4-5 180-123m-178 116 7 13m162-131 7 10M370 141l47-72h108m-271 205-81 87H35"/></g></g></svg></div>
-<div class="entry-content"><h1>今天，想做什么硬件？</h1><p class="subtitle">用一句话描述想法，生成可旋转的 CAD 方案，找到制作所需的零件。</p><form id="intent" novalidate><label for="wish" class="sr">描述你的硬件需求</label><textarea id="wish" name="prompt" rows="3" maxlength="1800" required placeholder="例如：我想做一盏桌面状态灯，按一下按钮就能切换红绿灯。"></textarea><div class="composer-foot"><span id="selected-model" hidden></span><button id="generate" type="submit" class="primary">生成设计 <span aria-hidden="true">→</span></button></div></form><div class="entry-bottom"><span>先看看设计结果？</span><button id="sample" class="example" type="button">状态灯示例 <span aria-hidden="true">↗</span></button><button id="fist-example" class="example" type="button">碰拳装置示例 <span aria-hidden="true">↗</span></button></div><div id="entry-progress" hidden><div class="build-glyph" aria-hidden="true"><i></i><i></i><i></i></div><div role="status" aria-live="polite"><b id="build-title"></b><p id="build-hint"></p></div></div><div id="entry-conversation" aria-live="polite"></div><div id="entry-notice" role="status" aria-live="polite"></div></div></section>
-<section id="project" hidden aria-label="设计结果"></section></main><noscript>请启用 JavaScript 以查看三维设计和零件清单。</noscript><script type="module" src="./consumer.js"></script></body></html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#fafbfd">
+  <title>Formwork · 硬件设计</title>
+  <link rel="stylesheet" href="./consumer.css">
+  <link rel="stylesheet" href="./consumer-account.css">
+  <link rel="stylesheet" href="./consumer-entry.css">
+  <link rel="stylesheet" href="./consumer-workspace.css">
+  <link rel="stylesheet" href="./consumer-viewer.css">
+</head>
+<body>
+  <header class="header">
+    <div class="mast">
+      <a class="wordmark" href="./" aria-label="Formwork 首页">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="m5 10 11-6 11 6-11 6zM5 16l11 6 11-6M5 22l11 6 11-6"/></svg>
+        Formwork
+      </a>
+      <nav class="site-nav" aria-label="工作区导航">
+        <a class="new-entry" href="#wish" aria-label="新建设计">新建<span class="nav-long">设计</span></a>
+        <button type="button" id="back" class="quiet" aria-label="新建设计" hidden>新建<span class="nav-long">设计</span></button>
+        <a class="engineering-entry" href="./workbench.html#overview" aria-label="工程工作台">工程<span class="nav-medium">工作</span>台</a>
+      </nav>
+      <div id="consumer-account"></div>
+    </div>
+  </header>
+  <main id="main">
+    <section id="entry" class="entry" aria-labelledby="entry-title">
+      <div class="entry-hero"><div class="entry-content">
+        <h1 id="entry-title">你想做什么硬件？</h1>
+        <form id="intent" novalidate>
+          <label for="wish" class="sr">描述你的硬件需求</label>
+          <textarea id="wish" name="prompt" rows="3" maxlength="1800" required placeholder="描述你的想法，例如：做一盏按一下就能切换红绿状态的桌灯。"></textarea>
+          <div class="composer-foot">
+            <span id="selected-model" hidden></span>
+            <button id="generate" type="submit" class="primary">生成设计</button>
+          </div>
+        </form>
+        <div id="entry-progress" hidden>
+          <div class="build-glyph" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div role="status" aria-live="polite"><b id="build-title"></b><p id="build-hint"></p></div>
+        </div>
+        <div id="entry-conversation" aria-live="polite"></div>
+        <div id="entry-notice" role="status" aria-live="polite"></div>
+      </div></div>
+      <section class="entry-examples" aria-labelledby="examples-heading">
+          <h2 id="examples-heading">示例项目</h2>
+          <div class="example-grid">
+            <button id="fist-example" type="button" class="example-card" aria-label="碰拳装置示例">
+              <span class="example-cover fist-cover"><img src="./assets/ui/fist.webp" alt="" width="960" height="600"></span>
+              <span class="example-caption"><span><strong>桌面碰拳装置</strong><small>可伸缩软拳面</small></span><span aria-hidden="true" class="card-arrow">↗</span></span>
+            </button>
+            <button id="sample" type="button" class="example-card" aria-label="状态灯示例">
+              <span class="example-cover status-cover"><img src="./assets/ui/status.webp" alt="" width="960" height="600"></span>
+              <span class="example-caption"><span><strong>桌面专注状态灯</strong><small>一键切换红绿灯</small></span><span aria-hidden="true" class="card-arrow">↗</span></span>
+            </button>
+          </div>
+      </section>
+    </section>
+    <section id="project" hidden aria-label="设计结果"></section>
+  </main>
+  <noscript>请启用 JavaScript 以查看三维设计和零件清单。</noscript>
+  <script type="module" src="./consumer.js"></script>
+</body>
+</html>

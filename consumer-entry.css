@@ -1,0 +1,82 @@
+/* Shared app navigation */
+.header{background:#fff;border-bottom:1px solid #e1e5ed}
+.mast{height:60px;max-width:none;padding:0 clamp(16px,3vw,48px);gap:clamp(18px,3vw,42px);flex-wrap:nowrap}
+.mast .wordmark{display:inline-flex;flex:none;align-items:center;gap:9px;color:#162031;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:23px;font-weight:690;letter-spacing:-1.3px}
+.mast .wordmark svg{width:29px;height:29px;stroke:#294f96;stroke-width:1.65;stroke-linecap:round;background:#e8effd;border-radius:7px}
+.site-nav{display:flex;align-items:center;gap:4px}
+.site-nav a,.site-nav .quiet{border:0;background:transparent;border-radius:6px;padding:7px 10px;color:#556075;text-decoration:none;font-size:13px;line-height:1.45;font-weight:550;white-space:nowrap}
+.site-nav .quiet{margin:0}
+.site-nav a:hover,.site-nav .quiet:hover{background:#f0f3f8;color:#212e44}
+.site-nav .new-entry{color:#274f8e;background:#edf2fb}
+.site-nav:has(#back:not([hidden])) .new-entry{display:none}
+.mast #consumer-account{margin-left:auto;flex-shrink:0}
+#consumer-account button{font-size:13px;line-height:1.45;padding:7px 11px}
+#consumer-account .fb-account-projects{font-weight:600;color:#37465e}
+#consumer-account .fb-account-login{border-color:#d1d8e1;border-radius:7px;color:#34445b}
+#consumer-account button:hover{background:#f1f4f8}
+
+/* Prompt and built-in projects */
+.entry{
+  min-height:calc(100svh - 60px);padding:0 0 56px;
+  background:#fafbfd;overflow:visible;align-content:start;justify-items:center;
+}
+.entry-hero{
+  position:relative;isolation:isolate;overflow:hidden;width:100%;padding:clamp(58px,10vh,100px) 24px clamp(52px,8vh,82px);
+  background-color:#548dce;
+  background-image:linear-gradient(#fff2 1px,transparent 1px),linear-gradient(90deg,#fff2 1px,transparent 1px);
+  background-size:36px 36px;background-position:center center;
+}
+.entry-content{width:min(100%,768px);margin:0 auto}
+@media(min-width:1200px){
+  /* Linework rendered from the same Formwork assembly as the working fist example. */
+  .entry-hero::after{
+    content:"";position:absolute;z-index:-1;pointer-events:none;top:4%;bottom:0;
+    right:clamp(-100px,-4vw,-40px);width:clamp(260px,29vw,500px);
+    background:url("./assets/ui/fist-linework.webp") center right/contain no-repeat;
+  }
+}
+.entry h1{margin:0 0 26px;text-align:center;color:#fff;font-size:clamp(31px,3.9vw,49px);line-height:1.22;letter-spacing:-.055em;font-weight:675}
+.entry #intent{padding:0;overflow:hidden;background:#fff;border:1px solid #dbe0e9;border-radius:12px;box-shadow:0 7px 20px #12376612;transition:border-color .18s,box-shadow .18s}
+.entry #intent:focus-within{border-color:#3e70ab;box-shadow:0 0 0 3px #fff5}
+.entry #wish{min-height:70px;height:76px;max-height:40vh;padding:14px 16px 8px;color:#1b2a3c;line-height:1.6;font-size:16px;resize:none}
+.entry #wish::placeholder{color:#788493}
+.entry .composer-foot{min-height:44px;gap:10px;padding:7px 10px 7px 16px;border-top:1px solid #e5e9ef}
+.entry #selected-model{font-size:12px;letter-spacing:0;color:#637084}
+.entry #generate{padding:8px 15px;border:0;border-radius:8px;background:#2068c6;color:#fff;box-shadow:none;font-size:13px;line-height:1.5}
+.entry #generate:not(:disabled):hover{background:#1657af}
+.entry #entry-notice .notice{width:fit-content;margin:12px 0 0;padding:5px 9px;color:#1d426d;background:#f5f9ffed;border:0;font-size:12px}
+.entry-examples{width:min(calc(100% - 48px),880px);margin:clamp(24px,4.5vh,46px) auto 0}
+.entry-hero>.entry-content>.discussion-controls,.entry-hero #entry-conversation>.discussion-controls{padding:0 5px}.entry-hero #entry-conversation>.discussion-controls .discussion-link{color:#173559;background:#f6faff;padding:4px 9px;border-radius:5px}
+.entry-examples h2{margin:0 0 13px;font-size:17px;font-weight:650;letter-spacing:-.035em;color:#25364a}
+.example-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.example-card{display:block;padding:0;min-width:0;overflow:hidden;text-align:left;color:#1d2c40;background:white;border:1px solid #dce3eb;border-radius:11px;transition:border-color .18s,box-shadow .18s}
+.example-card:hover{border-color:#9eafc3;box-shadow:0 3px 12px #24395c0e}
+.example-cover{display:block;aspect-ratio:1.75;overflow:hidden;background:#f0f4f8;border-bottom:1px solid #e1e7ee}
+.example-cover img{display:block;width:100%;height:100%;object-fit:contain}
+.example-caption{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px}
+.example-caption strong,.example-caption small{display:block}
+.example-caption strong{font-size:14px;font-weight:650}
+.example-caption small{margin-top:2px;font-size:12px;color:#687789}
+.card-arrow{font-size:16px;line-height:1;color:#5d7491}
+@media(max-width:700px){
+  .mast{height:54px;min-height:54px;padding-inline:12px;gap:10px}
+  .mast .wordmark{font-size:19px;gap:6px}.mast .wordmark svg{width:25px;height:25px}
+  .site-nav{gap:0}.site-nav a,.site-nav .quiet,#consumer-account button{font-size:12px;padding:6px}
+  .mast #consumer-account{gap:2px}
+  .entry{min-height:calc(100svh - 54px);padding:0 0 36px}.entry-hero{padding:52px 16px 44px;background-size:28px 28px}
+  .entry h1{margin-bottom:20px}.entry #intent{padding:0;border-radius:10px}
+  .entry #wish{min-height:66px;font-size:15px}.entry-examples{width:calc(100% - 32px);margin-top:26px}
+  .example-grid{gap:10px}.example-caption{padding:9px 10px;gap:4px}
+  .example-cover{aspect-ratio:1.7}.example-caption strong{font-size:13px}
+}
+@media(max-width:490px){
+  .mast{gap:5px}
+  .site-nav .nav-long{display:none}
+  .example-cover img{object-fit:contain}
+}
+@media(max-width:360px){
+  .site-nav .nav-medium{display:none}
+  .mast .wordmark{font-size:17px}.mast .wordmark svg{width:21px;height:21px}
+  .site-nav a,.site-nav .quiet,#consumer-account button{font-size:11px;padding:5px}
+}
+@media(prefers-reduced-motion:reduce){.entry #intent,.example-card{transition:none}}

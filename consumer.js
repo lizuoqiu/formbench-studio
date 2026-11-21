@@ -23,9 +23,9 @@ function readIteration(record){
 }
 function revisionHistory(){
   if(!projectPrompt&&!iteration.conversation.length)return '';
-  const original=projectPrompt?`<li><b>最初需求</b><span>${esc(projectPrompt)}</span></li>`:'';
+  const original=projectPrompt?`<li><b>原始需求</b><span>${esc(projectPrompt)}</span></li>`:'';
   const turns=iteration.conversation.map(t=>`<li><b>${t.role==='assistant'?'AI':'你'}</b><span>${esc(t.text)}</span></li>`).join('');
-  return `<details class="iteration-history"><summary>需求与修改记录</summary><ol>${original}${turns}</ol></details>`;
+  return `<details class="iteration-history"><summary>设计记录</summary><ol>${original}${turns}</ol></details>`;
 }
 function remember(){
   if(!design||!projectId)return;
@@ -45,27 +45,20 @@ if(['127.0.0.1','localhost','[::1]'].includes(location.hostname)
   }
 }
 localPrompt();
-function capabilityHint(){if(!$('#entry-progress').hidden)return;const href=localUrl(caps.localUrl);if(caps.ai===false&&href){$('#generate').textContent='在本机生成 →';notice('#entry-notice','此页面可直接查看示例。生成新方案将在已启动的本机工作室继续。')}else if(caps.ai===false){notice('#entry-notice','OpenAI API 尚未连接，可以先查看示例。');$('#generate').disabled=true}}
+function capabilityHint(){if(!$('#entry-progress').hidden)return;const href=localUrl(caps.localUrl);if(caps.ai===false&&href){$('#generate').textContent='在本机生成';notice('#entry-notice','此页面可直接查看示例。生成新方案将在已启动的本机工作室继续。')}else if(caps.ai===false){notice('#entry-notice','OpenAI API 尚未连接，可以先查看示例。');$('#generate').disabled=true}}
 function generationLabel(){
  const who={'local-codex':'本机 Codex','openai-api':'OpenAI API'}[caps.aiProvider]||'设计服务';
  return caps.aiModel?`${who} · 请求模型：${caps.aiModel}`:`${who} · 当前未公开模型名`;
 }
 const capabilitiesReady=serviceCapabilities().then(v=>{caps=v||{};const model=$('#selected-model');model.hidden=!caps.ai;model.textContent=caps.ai?generationLabel():'';if(!entry.hidden)capabilityHint();else if($('#buy')){rows.forEach((_,i)=>refreshRow(i));syncCart()}}).catch(()=>{});
-function showEntry(){stopDraft();progress();projectId=null;projectPrompt='';design=null;generation++;cartVersion++;cartBusy=false;cadDispose?.();cadDispose=null;entry.hidden=false;project.hidden=true;project.replaceChildren();$('#back').hidden=true;$('#generate').disabled=false;$('#generate').textContent='生成设计 →';$('#sample').disabled=false;notice('#entry-notice');capabilityHint();window.scrollTo(0,0);$('#wish').focus()}
+function showEntry(){stopDraft();progress();projectId=null;projectPrompt='';design=null;generation++;cartVersion++;cartBusy=false;cadDispose?.();cadDispose=null;entry.hidden=false;project.hidden=true;project.replaceChildren();$('#back').hidden=true;$('#generate').disabled=false;$('#generate').textContent='生成设计';$('#sample').disabled=false;notice('#entry-notice');capabilityHint();window.scrollTo(0,0);$('#wish').focus()}
 $('#back').onclick=()=>{showEntry();$('#wish').value=''};
 function progress(phase){
   const node=$('#entry-progress');node.hidden=!phase;$('#intent').setAttribute('aria-busy',String(!!phase));
   if(!phase)return;
   node.dataset.phase=phase;
-  const labels={request:[caps.aiProvider==='local-codex'?'本机 Codex 正在生成方案':caps.aiProvider==='openai-api'?'正在请求 OpenAI 设计方案':'正在请求设计方案',(caps.aiModel?'请求模型：'+caps.aiModel+'。':'')+'等待返回零件与结构方案。'],response:['已收到设计方案','正在读取零件数据和几何计划。']};
+  const labels={request:['正在生成设计','正在准备零件清单和模型。'],response:['设计已生成','正在加载模型。']};
   const info=labels[phase];if(info){$('#build-title').textContent=info[0];$('#build-hint').textContent=info[1]}
-}
-function planOrigin(d){
- if(Array.isArray(d.cadPlan?.bodies)){
-   const n=d.cadPlan.bodies.length;
-   return n?`本次形体计划 · ${n} 个实体描述`:'本次计划未包含自制形体';
- }
- return d.generation?.provider==='sample'?'示例参考布局':'没有记录专属形体计划';
 }
 function provenance(d){
   const g=d.generation||{};
@@ -76,7 +69,7 @@ function provenance(d){
   const url=safeUrl(g.skill?.sourceUrl);
   const label=g.skill?.name?esc(g.skill.name):'';
   const skill=label?(url?` · <a href="${esc(url.href)}" target="_blank" rel="noopener noreferrer" title="${esc(g.skill.revision||'建模指导来源')}">${label}</a>`:` · ${label}`):'';
-  return `<span class="model-stamp">${esc(path)} · ${esc(evidence)}${skill}</span>${g.reviewNote?`<details class="review-note"><summary>示例的几何复核记录</summary><p>${esc(g.reviewNote)}</p></details>`:''}`;
+  return `<span class="model-stamp">${esc(path)} · ${esc(evidence)}${skill}</span>${g.reviewNote?`<details class="review-note"><summary>几何复核</summary><p>${esc(g.reviewNote)}</p></details>`:''}`;
 }
 function setDraftBusy(state,phase=''){
   const initial=state.mode==='new';
@@ -87,10 +80,10 @@ function setDraftBusy(state,phase=''){
   if(initial){
     progress(phase);
     if(phase==='discuss'){
-      $('#build-title').textContent='正在理解你的需求';
-      $('#build-hint').textContent='AI 正在判断是否需要确认交互方式。';
+      $('#build-title').textContent='正在读取需求';
+      $('#build-hint').textContent='';
     }
-    if(submit)submit.textContent=phase?'处理中…':'生成设计 →';
+    if(submit)submit.textContent=phase?'处理中…':'生成设计';
   }else if($('#revision-status')){
     $('#revision-status').textContent={discuss:'正在阅读你的修改意见…',request:'正在更新零件与 CAD 方案…',response:'已收到新版方案。'}[phase]||'';
   }
@@ -110,7 +103,7 @@ function renderDiscussion(state,error=''){
     return;
   }
   const ask=state.question;
-  panel.innerHTML=`<div class="discussion-card">${error?`<p role="alert" class="discussion-error">${esc(error)}</p>`:''}${ask?`<h3 id="discussion-question">${esc(ask.question)}</h3><div class="answer-options">${ask.options.map((label,i)=>`<button type="button" data-answer-index="${i}" class="small-button">${esc(label)}</button>`).join('')}</div><form class="answer-form"><label for="discussion-answer">也可以用自己的话回答</label><div><input id="discussion-answer" maxlength="1800" autocomplete="off"><button type="submit" id="send-answer" class="small-button">回复</button></div></form>`:''}<div class="discussion-controls">${error?'<button type="button" class="small-button" id="retry-discussion">重试</button>':''}<button type="button" id="skip-discussion" class="discussion-link">按当前想法直接生成</button>${cancel}</div></div>`;
+  panel.innerHTML=`<div class="discussion-card">${error?`<p role="alert" class="discussion-error">${esc(error)}</p>`:''}${ask?`<h3 id="discussion-question">${esc(ask.question)}</h3><div class="answer-options">${ask.options.map((label,i)=>`<button type="button" data-answer-index="${i}" class="small-button">${esc(label)}</button>`).join('')}</div><form class="answer-form"><label for="discussion-answer">其他想法</label><div><input id="discussion-answer" maxlength="1800" autocomplete="off"><button type="submit" id="send-answer" class="small-button">回复</button></div></form>`:''}<div class="discussion-controls">${error?'<button type="button" class="small-button" id="retry-discussion">重试</button>':''}<button type="button" id="skip-discussion" class="discussion-link">直接生成</button>${cancel}</div></div>`;
   const answer=value=>{
     if(!value.trim()||state.busy)return;
     state.conversation.push({role:'user',text:value.trim()});state.question=null;
@@ -202,7 +195,7 @@ function mount(){
     if(!active||!badge?.isConnected)return;
     const names={closed:'外观',open:'开盖',inside:'内部布局',references:'未定位件'};
     const messages={parts:'正在加载零件几何',enclosure:'正在构建内外结构',ready:declared?(exact?'实体几何已完成'+(engine?' · '+engine:''):'近似形体已显示，尚未确认实体几何'):'参考布局已显示',error:declared?'实体建模未完成':'未能生成三维预览',empty:'没有可预览的结构',view:'已切换到'+(names[mode]||'当前视图')};
-    badge.dataset.phase=phase;badge.textContent=[messages[phase]||'正在准备三维预览',message].filter(Boolean).join(' · ');
+    badge.dataset.phase=phase;badge.dataset.approximate=String(phase==='ready'&&declared&&!exact);badge.textContent=[messages[phase]||'正在准备三维预览',message].filter(Boolean).join(' · ');
     target.setAttribute('aria-busy',String(['parts','enclosure'].includes(phase)));
   };
   const sourceButton=$('#download-forge');
@@ -221,19 +214,125 @@ function mount(){
       }
     }catch{sourceButton.hidden=true}
   }
-  try{onStatus({phase:'parts'});const cleanup=mountConsumerCad(target,design,{onStatus,engine:caps.cadEngine,exampleAsset:exampleAsset==='fist-bump'?exampleAsset:null});cadDispose=()=>{active=false;cleanup?.()}}
+  try{onStatus({phase:'parts'});const cleanup=mountConsumerCad(target,design,{onStatus,engine:caps.cadEngine,partsPanel:$('#model-components'),exampleAsset:exampleAsset==='fist-bump'?exampleAsset:null});cadDispose=()=>{active=false;cleanup?.()}}
   catch(error){onStatus({phase:'error',message:error?.message||'当前设备暂时无法显示三维预览。'});target.replaceChildren()}
 }
-async function showProject(d,isSample,record={}){if(!d||!Array.isArray(d.parts)||!d.parts.length)throw Error('没有收到可用的零件方案，请换个描述再试。');stopDraft();iteration=readIteration(record);generation++;const run=generation;cartVersion++;cartBusy=false;design=structuredClone(d);exampleAsset=(isSample||d.generation?.provider==='sample')&&['fist-bump','status-light'].includes(record.exampleAsset)?record.exampleAsset:null;progress();sample=isSample||d.generation?.provider==='sample';projectId=record.id||crypto.randomUUID();projectPrompt=typeof record.prompt==='string'?record.prompt:'';rows=design.parts.map((p,i)=>{const prev=record.selected?.[i],c=prev?.candidate&&productUrl(prev.candidate.url)?prev.candidate:null;return {candidates:c?[c]:[],choice:c?0:-1,manual:c,searchUrl:defaultSearch(p),searching:!c,serial:0,holdKey:prev?.holdKey||'',holdStatus:prev?.holdStatus||'',included:prev?.included!==false}});entry.hidden=true;project.hidden=false;$('#back').hidden=false;project.innerHTML=`<div class="result-head"><div>${sample?'<p class="kicker">示例设计</p>':''}<h1>${esc(design.name)}</h1><p>${esc(design.summary)}</p><div class="result-provenance">${provenance(design)}<span id="version-label">第 ${iteration.version} 版</span>${iteration.previousId?'<button id="previous-version" type="button" class="discussion-link">查看上一版</button>':''}</div><small id="save-status" role="status"></small></div></div><section class="revision-panel" aria-label="继续修改方案"><form id="revision-form"><label for="revision-prompt">继续修改</label><div class="revision-row"><textarea id="revision-prompt" maxlength="1800" rows="2" placeholder="例如：把外壳做矮一点，保留现在的交互方式。"></textarea><button class="primary" type="submit" id="revise-design">更新设计</button></div></form><p id="revision-status" role="status"></p><div id="revision-conversation" aria-live="polite"></div>${revisionHistory()}</section><div class="split"><section class="drawing-pane"><div class="pane-label"><h2>结构预览</h2><span class="geometry-origin">${esc(planOrigin(design))}</span></div><p class="geometry-state" id="geometry-state" role="status" aria-live="polite"></p><div id="cad-panel" aria-label="可旋转的结构预览"></div><button type="button" class="small-button" id="download-forge" hidden>下载 ForgeCAD 整机源文件</button></section><section class="shopping"><div class="pane-label"><h2>零件清单</h2><span>${rows.length} 项</span></div><div id="shopping-cart"><div class="purchase-head"><div><b>淘宝采购</b><small id="buy-summary"></small></div><button type="button" id="buy" class="primary">一键淘宝加购</button></div><div id="cart-feedback" aria-live="polite"></div><details class="cart-helper"><summary>使用自己的淘宝购物车</summary><div id="helper-info"></div></details></div><div id="items"></div></section></div>`;await capabilitiesReady;if(generation!==run)return;
+function projectDescription(text){
+  const summary=String(text||'').trim();
+  if(summary.length<=150)return `<p class="project-summary">${esc(summary)}</p>`;
+  const sentence=summary.slice(36,145).search(/[。！？.!?]\s*/u);
+  const split=sentence>=0?37+sentence:140;
+  return `<p class="project-summary">${esc(summary.slice(0,split))}${sentence<0?'…':''}</p>
+    <details class="description-more"><summary>完整说明</summary><p>${esc(summary)}</p></details>`;
+}
+function projectWorkspace(){
+  const tabs = [
+    ['model','M12 2 21 7v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10','模型'],
+    ['parts','M8 6h13 M8 12h13 M8 18h13 M3 6h1 M3 12h1 M3 18h1','零件清单'],
+    ['details','M4 4h16v13H9l-5 4z M8 9h8 M8 12h5','修改设计']
+  ];
+  const nav=tabs.map(([key,path,label])=>`<button type="button" id="view-${key}" data-project-view="${key}" aria-controls="project-${key}" aria-pressed="${key==='model'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>${label}${key==='parts'?`<span class="parts-count">${rows.length}</span>`:''}</button>`).join('');
+  return `<div class="workspace-heading">
+    <div class="project-heading"><h1>${esc(design.name)}</h1><span class="project-version">${sample?'示例 · ':''}<span id="version-label">第 ${iteration.version} 版</span></span></div>
+    <nav class="project-views" aria-label="项目视图">${nav}</nav>
+    <div class="project-actions">
+      ${iteration.previousId?'<button id="previous-version" type="button" class="small-button">上一版</button>':''}
+      <button type="button" class="file-action" id="download-forge" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg>下载整机 CAD</button>
+    </div>
+  </div>
+  <small id="save-status" role="status"></small>
+  <div class="project-layout">
+    <div class="project-main">
+      <section id="project-model" class="drawing-pane" aria-label="模型">
+        <p class="geometry-state" id="geometry-state" role="status" aria-live="polite"></p>
+        <div id="cad-panel" aria-label="可旋转的结构预览"></div><div id="mobile-components"></div>
+      </section>
+      <section id="project-parts" class="shopping" aria-label="零件清单" hidden>
+        <div id="shopping-cart"><div class="purchase-head"><div><b>淘宝采购</b><small id="buy-summary"></small></div><button type="button" id="buy" class="primary">加入淘宝购物车</button></div>
+        <div id="cart-feedback" aria-live="polite"></div><details class="cart-helper"><summary>购物车连接方式</summary><div id="helper-info"></div></details></div>
+        <label class="parts-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 5 5"/></svg><input type="search" id="part-search" aria-label="查找零件" placeholder="搜索零件或型号"></label>
+        <p id="parts-empty" hidden role="status">没有匹配的零件</p>
+        <div id="items"></div>
+      </section>
+    </div>
+    <aside class="project-inspector" id="project-details" aria-label="项目详情">
+      <div id="desktop-components"><div id="model-components"></div></div>
+      <section class="project-brief"><h2>项目说明</h2>${projectDescription(design.summary)}
+        <details class="project-origin"><summary>模型来源</summary>${provenance(design)}</details>
+      </section>
+      <section class="revision-panel" aria-label="修改设计"><form id="revision-form"><label for="revision-prompt">修改设计</label>
+        <div class="revision-row"><textarea id="revision-prompt" maxlength="1800" rows="3" placeholder="想改哪里？比如把外壳做矮一点。"></textarea><button class="primary" type="submit" id="revise-design">生成新版</button></div>
+        </form><p id="revision-status" role="status"></p><div id="revision-conversation" aria-live="polite"></div>
+      </section>
+      ${revisionHistory()}
+    </aside>
+  </div>`;
+}
+
+function selectProjectView(view){
+  const narrow=window.matchMedia('(max-width: 760px)').matches;
+  if(view==='details'&&!narrow)view='model';
+  project.dataset.view=view;
+  $('#project-model').hidden=view!=='model';
+  $('#project-parts').hidden=view!=='parts';
+  $('#project-details').hidden=narrow&&view!=='details';
+  const target=narrow?$('#mobile-components'):$('#desktop-components');
+  const components=$('#model-components');
+  if(components.parentElement!==target)target.append(components);
+  $('#desktop-components').hidden=narrow||view!=='model';
+  for(const button of project.querySelectorAll('[data-project-view]')){
+    button.setAttribute('aria-pressed',String(button.dataset.projectView===view));
+  }
+  const download=$('#download-forge');
+  download.classList.toggle('off-model',view!=='model');
+}
+project.addEventListener('click',event=>{
+  const button=event.target.closest('[data-project-view]');
+  if(button)selectProjectView(button.dataset.projectView);
+});
+window.matchMedia('(max-width: 760px)').addEventListener('change',()=>{
+  if(!project.hidden&&$('#project-model'))selectProjectView(project.dataset.view);
+});
+
+async function showProject(d,isSample,record={}){if(!d||!Array.isArray(d.parts)||!d.parts.length)throw Error('没有收到可用的零件方案，请换个描述再试。');stopDraft();iteration=readIteration(record);generation++;const run=generation;cartVersion++;cartBusy=false;design=structuredClone(d);exampleAsset=(isSample||d.generation?.provider==='sample')&&['fist-bump','status-light'].includes(record.exampleAsset)?record.exampleAsset:null;progress();sample=isSample||d.generation?.provider==='sample';projectId=record.id||crypto.randomUUID();projectPrompt=typeof record.prompt==='string'?record.prompt:'';rows=design.parts.map((p,i)=>{const prev=record.selected?.[i],c=prev?.candidate&&productUrl(prev.candidate.url)?prev.candidate:null;return {candidates:c?[c]:[],choice:c?0:-1,manual:c,searchUrl:defaultSearch(p),searching:!c,serial:0,holdKey:prev?.holdKey||'',holdStatus:prev?.holdStatus||'',included:prev?.included!==false}});entry.hidden=true;project.hidden=false;$('#back').hidden=false;project.innerHTML=projectWorkspace();selectProjectView(incomingRevision?'details':'model');await capabilitiesReady;if(generation!==run)return;
   const revisionField=$('#revision-prompt');
   if(incomingRevision){revisionField.value=incomingRevision;incomingRevision='';revisionField.focus({preventScroll:true})}
-  if(!caps.ai&&localUrl(caps.localUrl))$('#revise-design').textContent=exampleAsset?'在本机继续修改 ↗':'在本机新建设计 ↗';
+  if(!caps.ai&&localUrl(caps.localUrl))$('#revise-design').textContent=exampleAsset?'在本机继续修改':'在本机新建设计';
   mount();renderList();syncCart();window.scrollTo(0,0);if(!sample&&!record.id)remember();const queue=rows.flatMap((r,i)=>r.searching?[i]:[]);await Promise.all(Array.from({length:Math.min(3,queue.length)},async()=>{while(queue.length&&generation===run){await lookup(queue.shift(),run)}}))}
 async function lookup(i,run){const p=design.parts[i],r=rows[i],serial=++r.serial;r.searching=true;try{const x=await findProducts(p);if(run!==generation||serial!==r.serial)return;r.searchUrl=market(x?.searchUrl)?.href||defaultSearch(p);r.candidates=(x?.candidates||[]).filter(c=>productUrl(c?.url));r.choice=r.candidates.length===1?0:-1}catch{if(run!==generation||serial!==r.serial)return;r.searchUrl=defaultSearch(p)}finally{if(run===generation&&serial===r.serial){r.searching=false;refreshRow(i);syncCart()}}}
-function card(i){const p=design.parts[i],r=rows[i],c=selected(r),dims=measure(p);const status=c&&r.holdKey===skuKey(c)?(r.holdStatus==='added'?'已确认加购':'请核对购物车'):r.searching?'查找中':(!c?r.candidates.length?'待选商品':'待匹配':c.skuId&&!c.requiresSelection&&(c.sku||c.options?.length)?'已选规格':'待核对规格');const edit=`<details class="edit"><summary>尺寸与采购规格</summary><p class="measure">${dims?`${dims.map(esc).join(' × ')} mm · ${sourceText(p.dimensionSource)}`:'暂无尺寸'}${p.dimensionNote?' · '+esc(p.dimensionNote):''}</p><form data-edit="${i}"><label>固定采购型号或规格<input name="spec" maxlength="240" value="${esc(p.spec)}" placeholder="例如：6 × 6 mm 轻触开关"></label><fieldset><legend>外形尺寸（毫米）</legend><div class="dims">${['长','宽','高'].map((a,j)=>`<label>${a}<input type="number" name="dim${j}" step="any" min="0.1" max="2000" value="${esc(dims?.[j]??'')}"></label>`).join('')}</div></fieldset><label>淘宝商品链接（可选）<input type="url" name="url" placeholder="粘贴淘宝或天猫商品详情链接" value="${esc(r.manual?.url||c?.url||'')}"></label><label>详情页商品标题（可选）<input name="listingTitle" maxlength="250" placeholder="可粘贴商品页面的原始标题" value="${esc(knownTitle(r.manual||c))}"></label><label>商品页的规格选项（可选）<input name="skuOptions" maxlength="300" placeholder="按淘宝选项原文填写，多项用分号隔开" value="${esc((r.manual?.options||c?.options||[]).join('；'))}"></label><div class="edit-actions"><small class="edit-note" role="status"></small><button class="small-button" type="submit">保存并更新设计</button></div></form></details>`;
-return `<article class="part" data-i="${i}"><div class="part-top"><div class="part-name"><label class="part-check" title="加入本次采购"><input class="include" type="checkbox" aria-label="采购${esc(p.name)}" ${r.included?'checked':''}></label><h3>${esc(p.name)}</h3></div><span class="qty">× ${esc(p.qty||1)}</span></div><p class="spec">${esc(modelText(p)||'按设计规格选择')}</p><div class="part-links"><span class="tag ${c?.skuId?'matched':''}">${status}</span>${c?shopLink(c.url,'商品详情'):''}${shopLink(r.searchUrl||defaultSearch(p),'淘宝精确搜索')}${caps.cart==='browser'?`<button type="button" class="picker" data-pick="${i}" ${r.picking?'disabled':''}>${r.picking?'等待选择…':'去淘宝选规格'}</button>`:''}</div>${r.pickNote?`<p class="pick-note" role="status">${esc(r.pickNote)}</p>`:''}${r.candidates.length>1?`<label class="product-select">匹配商品<select aria-label="${esc(p.name)}的匹配商品" data-product="${i}"><option value="">选择商品</option>${r.candidates.map((v,j)=>`<option value="${j}" ${j===r.choice?'selected':''}>${esc(v.title||'淘宝商品')}${v.sku?' · '+esc(v.sku):''}</option>`).join('')}</select></label>`:''}${c?`<p class="candidate-title">${esc(knownTitle(c)||c.title||'已绑定商品')}${c.sku?' · '+esc(c.sku):''}${c.selectionNote?' · '+esc(c.selectionNote):''}</p>`:''}${edit}</article>`}
-function renderList(){$('#items').innerHTML=rows.map((_,i)=>card(i)).join('')}
-function refreshRow(i){const old=document.querySelector(`.part[data-i="${i}"]`);if(!old)return;const expanded=old.querySelector('details').open;const before=expanded?old.querySelector('details'):null;const template=document.createElement('template');template.innerHTML=card(i);const next=template.content.firstElementChild;if(before)next.querySelector('details').replaceWith(before);old.replaceWith(next)}
+function card(i){const p=design.parts[i],r=rows[i],c=selected(r),dims=measure(p);const status=c&&r.holdKey===skuKey(c)?(r.holdStatus==='added'?'已确认加购':'请核对购物车'):r.searching?'查找中':(!c?r.candidates.length?'待选商品':'待选商品':c.skuId&&!c.requiresSelection&&(c.sku||c.options?.length)?'已选规格':'待核对规格');const edit=`<details class="edit"><summary>尺寸与规格</summary><p class="measure">${dims?`${dims.map(esc).join(' × ')} mm · ${sourceText(p.dimensionSource)}`:'暂无尺寸'}${p.dimensionNote?' · '+esc(p.dimensionNote):''}</p><form data-edit="${i}"><label>型号或规格<input name="spec" maxlength="240" value="${esc(p.spec)}" placeholder="例如：6 × 6 mm 轻触开关"></label><fieldset><legend>外形尺寸（毫米）</legend><div class="dims">${['长','宽','高'].map((a,j)=>`<label>${a}<input type="number" name="dim${j}" step="any" min="0.1" max="2000" value="${esc(dims?.[j]??'')}"></label>`).join('')}</div></fieldset><label>淘宝商品链接（可选）<input type="url" name="url" placeholder="粘贴淘宝或天猫商品详情链接" value="${esc(r.manual?.url||c?.url||'')}"></label><label>详情页商品标题（可选）<input name="listingTitle" maxlength="250" placeholder="可粘贴商品页面的原始标题" value="${esc(knownTitle(r.manual||c))}"></label><label>商品页的规格选项（可选）<input name="skuOptions" maxlength="300" placeholder="按淘宝选项原文填写，多项用分号隔开" value="${esc((r.manual?.options||c?.options||[]).join('；'))}"></label><div class="edit-actions"><small class="edit-note" role="status"></small><button class="small-button" type="submit">保存修改</button></div></form></details>`;
+return `<article class="part" data-i="${i}"><div class="part-top"><div class="part-name"><label class="part-check" title="加入本次采购"><input class="include" type="checkbox" aria-label="采购${esc(p.name)}" ${r.included?'checked':''}></label><h3>${esc(p.name)}</h3></div><span class="qty">× ${esc(p.qty||1)}</span></div><p class="spec">${esc(modelText(p)||'按设计规格选择')}</p><div class="part-links"><span class="tag ${c?.skuId?'matched':''}">${status}</span>${c?shopLink(c.url,'商品详情'):''}${shopLink(r.searchUrl||defaultSearch(p),'去淘宝搜索')}${caps.cart==='browser'?`<button type="button" class="picker" data-pick="${i}" ${r.picking?'disabled':''}>${r.picking?'等待选择…':'去淘宝选规格'}</button>`:''}</div>${r.pickNote?`<p class="pick-note" role="status">${esc(r.pickNote)}</p>`:''}${r.candidates.length>1?`<label class="product-select">匹配商品<select aria-label="${esc(p.name)}的匹配商品" data-product="${i}"><option value="">选择商品</option>${r.candidates.map((v,j)=>`<option value="${j}" ${j===r.choice?'selected':''}>${esc(v.title||'淘宝商品')}${v.sku?' · '+esc(v.sku):''}</option>`).join('')}</select></label>`:''}${c?`<p class="candidate-title">${esc(knownTitle(c)||c.title||'已绑定商品')}${c.sku?' · '+esc(c.sku):''}${c.selectionNote?' · '+esc(c.selectionNote):''}</p>`:''}${edit}</article>`}
+function filterParts(){
+  const query=$('#part-search').value.trim().toLocaleLowerCase();
+  let count=0;
+  for(const section of project.querySelectorAll('.part-section')){
+    let matches=0;
+    for(const row of section.querySelectorAll('.part')){
+      const part=design.parts[Number(row.dataset.i)];
+      row.hidden=query!==''&&![part.name,part.model,part.spec].some(v=>String(v||'').toLocaleLowerCase().includes(query));
+      if(!row.hidden)matches++;
+    }
+    section.hidden=matches===0;
+    count+=matches;
+  }
+  $('#parts-empty').hidden=count>0;
+}
+project.addEventListener('input',event=>{
+  if(event.target.id==='part-search')filterParts();
+});
+
+function renderList(){
+  const printed=new Set((design.cadPlan?.bodies||[]).filter(body=>body.role==='printed').map(body=>body.partIndex));
+  const parts=rows.map((_,i)=>i);
+  const groups=printed.size?[
+    ['打印件',parts.filter(i=>printed.has(i))],
+    ['其他零件',parts.filter(i=>!printed.has(i))]
+  ]:[['零件',parts]];
+  $('#items').innerHTML=groups.filter(([,indices])=>indices.length).map(([name,indices])=>
+    `<section class="part-section"><h3 class="part-group-title">${name} · ${indices.length}</h3>${indices.map(card).join('')}</section>`
+  ).join('');
+}
+function refreshRow(i){const old=document.querySelector(`.part[data-i="${i}"]`);if(!old)return;const expanded=old.querySelector('details').open;const before=expanded?old.querySelector('details'):null;const template=document.createElement('template');template.innerHTML=card(i);const next=template.content.firstElementChild;if(before)next.querySelector('details').replaceWith(before);next.hidden=old.hidden;old.replaceWith(next);if($('#part-search').value.trim())filterParts()}
 function clearFeedback(){cartVersion++;$('#cart-feedback')?.replaceChildren()}
 const sameItem=(a,b)=>{const x=productUrl(a),y=productUrl(b);return !!x&&!!y&&x.hostname===y.hostname&&x.searchParams.get('id')===y.searchParams.get('id')};
 const knownTitle=c=>c?.listingTitle||((c?.titleSource==='page'||c?.titleSource==='user')?c.title:'')||'';
@@ -278,7 +377,7 @@ function cartSelection(){
 }
 function syncCart(){
   const browser=caps.cart==='browser';const {included,linked,fresh,ready,pending,unmatched}=cartSelection(),loading=rows.some(r=>r.included&&r.searching);
-  $('#buy-summary').textContent=loading?'正在匹配商品…':!included.length?'尚未勾选零件。':[`已勾选 ${included.length} 项`,`${ready.length} 项规格就绪`,...(pending.length?[`${pending.length} 项待选规格`]:[]),...(unmatched?[`${unmatched} 项待匹配`]:[])].join(' · ');
+  $('#buy-summary').textContent=loading?'正在匹配商品…':!included.length?'尚未勾选零件。':[`已勾选 ${included.length} 项`,`${ready.length} 项规格就绪`,...(pending.length?[`${pending.length} 项待选规格`]:[]),...(unmatched?[`${unmatched} 项待选商品`]:[])].join(' · ');
   $('#items').inert=cartBusy;const picking=rows.some(r=>r.picking);project.querySelectorAll('[data-pick]').forEach(b=>b.disabled=picking||cartBusy);const info=$('#helper-info');if(info&&info.dataset.browser!==String(browser)){info.dataset.browser=String(browser);info.innerHTML=browser?'已连接淘宝助手。它会先显示本次清单，经你确认后在自己的淘宝账号中逐项处理。':'<p>桌面 Chrome 或 Edge：<a href="./taobao-helper.zip" download>下载淘宝购物助手</a>，解压后，在 <code>chrome://extensions</code>（Edge 用 <code>edge://extensions</code>）打开开发者模式，选择「加载已解压的扩展」，再刷新此页。</p><p>手机可直接进入每件商品的淘宝详情页确认规格。</p>'}
   $('#buy').disabled=cartBusy||picking||!(browser?fresh:linked).length;$('#buy').textContent=cartBusy?'正在处理…':browser?(fresh.length?`在我的浏览器加购 ${fresh.length} 项`:linked.length?'先核对淘宝购物车':'在我的浏览器加购'):ready.length?`去淘宝加购 ${ready.length} 项`:linked.length?`去淘宝选规格 ${linked.length} 项`:'去淘宝加购';
 }
@@ -321,7 +420,7 @@ function renderBrowserOutcome(target,out,batch,total,unmatched){
     return `<li><b>${esc(part.name)} ×${esc(part.qty||1)}</b><span>${labels[status]}</span>${rec?.message||rec?.reason?`<small>${esc(rec.message||rec.reason)}</small>`:''}${['needs_login','needs_selection'].includes(status)?shopLink(u.href,'打开商品详情'):''}</li>`;
   });
   if(counts.added||counts.not_confirmed)remember();
-  const q=[`已勾选 ${total} 项`,`有成功回执 ${counts.added} 项`,...(counts.not_confirmed?[`结果未确认 ${counts.not_confirmed} 项`]:[]),...(unmatched?[`待匹配 ${unmatched} 项`]:[])].join(' · ');
+  const q=[`已勾选 ${total} 项`,`有成功回执 ${counts.added} 项`,...(counts.not_confirmed?[`结果未确认 ${counts.not_confirmed} 项`]:[]),...(unmatched?[`待选商品 ${unmatched} 项`]:[])].join(' · ');
   target.innerHTML=`<p>${esc(q)}</p>${out.reason?`<small>${esc(out.reason)}</small>`:''}<ul class="browser-results">${output.join('')}</ul>${shopLink(market(out.cartUrl)?.href||'https://cart.taobao.com/cart.htm','核对淘宝购物车')}`;
 }
 project.addEventListener('click',async e=>{
@@ -350,7 +449,7 @@ project.addEventListener('click',async e=>{
     const verified=0;
     const unhanded=Math.max(0,included.length-handed-verified);
     const stateMessage=handed?'已准备淘宝加购链接，请打开后在淘宝确认。':verified?'淘宝已确认加购。':out.state==='needs_login'?'请先登录淘宝，再继续加购。':out.state==='needs_selection'?'请打开商品详情页，确认所需规格。':'请打开以下商品详情，核对数量并在淘宝加购。';
-    const countMessage=[`已勾选 ${included.length} 项`,handed?`${handed} 项已获得确认链接`:verified?`${verified} 项已确认加购`:'未获得官方加购链接',`未交接 ${unhanded} 项`,`待选规格 ${pending.length} 项`,...(unmatched?[`待匹配 ${unmatched} 项`]:[])].join(' · ');
+    const countMessage=[`已勾选 ${included.length} 项`,handed?`${handed} 项已获得确认链接`:verified?`${verified} 项已确认加购`:'未获得官方加购链接',`未交接 ${unhanded} 项`,`待选规格 ${pending.length} 项`,...(unmatched?[`待选商品 ${unmatched} 项`]:[])].join(' · ');
     target.innerHTML=`<p>${esc(stateMessage)}</p><small>${esc(countMessage)}</small>${out.reason?`<small>${esc(out.reason)}</small>`:''}<div class="cart-links">${links.map((l,i)=>shopLink(l.url,`淘宝确认${links.length>1?' '+(i+1):''} · ${l.count} 项`)).join('')}${!handed&&!verified?detailLinks(ready,'打开商品'):''}${detailLinks(pending,'选择规格')}${market(out.cartUrl)?shopLink(out.cartUrl,'查看淘宝购物车'):''}${localUrl(out.localUrl)?shopLink(localUrl(out.localUrl),'打开本机工作室'):''}</div>`;
   }catch(err){if(browser&&revision===cartVersion){renderBrowserOutcome(target,{items:[],state:'not_confirmed'},batch,included.length,unmatched);return}if(revision===cartVersion)target.innerHTML=`<p>暂未交接这 ${included.length} 项。请到淘宝商品页核对。</p><div class="cart-links">${detailLinks(ready,'打开商品')}${detailLinks(pending,'选择规格')}</div>`}
   finally{if(target.isConnected){cartBusy=false;syncCart()}}

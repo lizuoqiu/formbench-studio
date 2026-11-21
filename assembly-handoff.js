@@ -124,10 +124,10 @@ export function assemblyHandoffUI(st) {
     <div class="stack" data-ah-step aria-live="polite">${stepView(st,currentStep(st))}</div>
     <details><summary>项目零件 · ${n} 项</summary><ol>${summarize(st)}</ol></details>
     <details><summary>待确认事项</summary><p data-ah-issues>${esc(issues(st))}</p></details>
-    <div><h3>交接项目资料</h3><p>项目包包含零件、步骤、型号和已绑定的 CAD。收件人可在此打开；采购与确认记录不随包传递。</p>
+    <details class="handoff-files"><summary>项目文件与交接</summary><p>项目包包含零件、装配步骤和已绑定的 CAD。采购记录保存在当前设备。</p>
     <div class="row"><button class="btn" type="button" data-ah="export">导出装配项目包</button><button class="btn" type="button" data-ah="choose">导入项目包…</button><a class="btn" href="./samples/assembly-example.json" download>下载示例项目包</a><input type="file" accept=".json,application/json" data-ah-file hidden></div>
     <div data-ah-preview hidden class="card"><b data-ah-preview-title></b><p data-ah-preview-info></p><div class="row"><button class="btn btn-primary" type="button" data-ah="apply">替换当前项目</button><button class="btn" type="button" data-ah="cancel">取消导入</button></div></div>
-    <p data-ah-message role="status" aria-live="polite"></p></div></div></section>`;
+    <p data-ah-message role="status" aria-live="polite"></p></details></div></section>`;
 }
 function issues(st){
   const {parts,steps}=st.design;
