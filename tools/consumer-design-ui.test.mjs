@@ -95,6 +95,14 @@ test('prompt, immutable regeneration, truthful backend model receipts, old proje
   }
   await p.setViewportSize({width:1280,height:800});
   await p.getByRole('button',{name:'我的项目'}).click();await p.locator('dialog button').filter({hasText:'第二个版本'}).click();await p.locator('#geometry-state[data-phase=error]').waitFor();assert.deepEqual(errors,[]);
+  const requestsBeforeRetry=requests.length;
+  await p.locator('#revision-prompt').fill('保留这个修改意见');
+  const previousCanvas=await p.locator('#cad-panel canvas').elementHandle();
+  await p.getByRole('button',{name:'重新加载模型'}).click();
+  await p.locator('#geometry-state[data-phase=error]').waitFor();
+  assert.equal(await previousCanvas.evaluate(canvas=>canvas.isConnected),false);
+  assert.equal(await p.locator('#revision-prompt').inputValue(),'保留这个修改意见');
+  assert.equal(requests.length,requestsBeforeRetry);
   const handoff=await b.newContext({reducedMotion:'reduce'}),designRequests=[];
   await handoff.route(/https:\/\/formwork-ui-test\.github\.io\/|http:\/\/127\.0\.0\.1:4173\//,async route=>{
     const pathname=new URL(route.request().url()).pathname;

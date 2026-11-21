@@ -191,11 +191,14 @@ const selected=r=>r.candidates[r.choice]||null;
 function disposeViewer(){try{cadDispose?.()}finally{cadDispose=null}}
 function mount(){
   disposeViewer();const target=$('#cad-panel'),badge=$('#geometry-state'),declared=!!design?.cadPlan?.bodies?.length;let active=true;
+  const retry=$('#retry-model');
+  retry.hidden=true;retry.onclick=mount;
   const onStatus=({phase,mode,message,exact,engine})=>{
     if(!active||!badge?.isConnected)return;
     const names={closed:'外观',open:'开盖',inside:'内部布局',references:'未定位件'};
     const messages={parts:'正在加载零件几何',enclosure:'正在构建内外结构',ready:declared?(exact?'实体几何已完成'+(engine?' · '+engine:''):'近似形体已显示，尚未确认实体几何'):'参考布局已显示',error:declared?'实体建模未完成':'未能生成三维预览',empty:'没有可预览的结构',view:'已切换到'+(names[mode]||'当前视图')};
     badge.dataset.phase=phase;badge.dataset.approximate=String(phase==='ready'&&declared&&!exact);badge.textContent=[messages[phase]||'正在准备三维预览',message].filter(Boolean).join(' · ');
+    if(phase!=='view')retry.hidden=phase!=='error';
     target.setAttribute('aria-busy',String(['parts','enclosure'].includes(phase)));
   };
   const sourceButton=$('#download-forge');
@@ -245,6 +248,7 @@ function projectWorkspace(){
     <div class="project-main">
       <section id="project-model" class="drawing-pane" aria-label="模型">
         <p class="geometry-state" id="geometry-state" role="status" aria-live="polite"></p>
+        <button class="small-button" type="button" id="retry-model" hidden>重新加载模型</button>
         <div id="cad-panel" aria-label="可旋转的结构预览"></div><div id="mobile-components"></div>
       </section>
       <section id="project-parts" class="shopping" aria-label="零件清单" hidden>
