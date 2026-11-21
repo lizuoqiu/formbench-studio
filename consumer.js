@@ -22,17 +22,67 @@ function remember(){
 function notice(id,msg='',href='',label=''){const el=$(id);if(el)el.innerHTML=msg?`<p class="notice">${esc(msg)} ${href?shopLink(href,label):''}</p>`:''}
 const localPrompt=()=>{try{if(!['127.0.0.1','localhost','[::1]'].includes(location.hostname))return;const incoming=new URLSearchParams(location.hash.slice(1)).get('wish');if(incoming){$('#wish').value=incoming.slice(0,1800);history.replaceState(null,'',location.pathname+location.search)}}catch{}};
 localPrompt();
-function capabilityHint(){const href=localUrl(caps.localUrl);if(caps.ai===false&&href){$('#generate').textContent='在本机生成 →';notice('#entry-notice','此页面可直接查看示例。生成新方案将在已启动的本机工作室继续。')}else if(caps.ai===false){notice('#entry-notice','当前暂不能生成新方案，可先查看示例。');$('#generate').disabled=true}}
-serviceCapabilities().then(v=>{caps=v||{};if(!entry.hidden)capabilityHint();else if($('#buy')){rows.forEach((_,i)=>refreshRow(i));syncCart()}}).catch(()=>{});
-function showEntry(){projectId=null;projectPrompt='';design=null;generation++;cartVersion++;cartBusy=false;cadDispose?.();cadDispose=null;entry.hidden=false;project.hidden=true;project.replaceChildren();$('#back').hidden=true;$('#generate').disabled=false;$('#generate').textContent='生成设计 →';$('#sample').disabled=false;notice('#entry-notice');capabilityHint();window.scrollTo(0,0);$('#wish').focus()}
-$('#back').onclick=showEntry;
-$('#intent').onsubmit=async e=>{e.preventDefault();const p=$('#wish').value.trim();const local=localUrl(caps.localUrl);if(!caps.ai&&local){const u=new URL(local);if(p)u.hash=new URLSearchParams({wish:p}).toString();window.open(u.href,'_blank','noopener,noreferrer');return}if(!p){$('#wish').focus();notice('#entry-notice','先写一句你想实现的功能。');return}const run=++generation;$('#generate').disabled=true;$('#generate').textContent='正在生成…';notice('#entry-notice','正在整理结构和零件清单…');try{const d=await generateDesign(p);if(run===generation)await showProject(d,false,{prompt:p})}catch(err){if(run===generation){const url=localUrl(err?.localUrl||caps.localUrl);notice('#entry-notice',url?'此页面可预览示例。请在已启动的本机设计服务中生成新方案。':(err?.message||'暂时无法生成，请稍后重试或先查看示例。'),url,'打开本机工作室')}}finally{if(run===generation){$('#generate').disabled=false;$('#generate').textContent='生成设计 →'}}};
+function capabilityHint(){if(!$('#entry-progress').hidden)return;const href=localUrl(caps.localUrl);if(caps.ai===false&&href){$('#generate').textContent='在本机生成 →';notice('#entry-notice','此页面可直接查看示例。生成新方案将在已启动的本机工作室继续。')}else if(caps.ai===false){notice('#entry-notice','OpenAI API 尚未连接，可以先查看示例。');$('#generate').disabled=true}}
+function generationLabel(){
+ const who={'local-codex':'本机 Codex','openai-api':'OpenAI API'}[caps.aiProvider]||'设计服务';
+ return caps.aiModel?`${who} · 请求模型：${caps.aiModel}`:`${who} · 当前未公开模型名`;
+}
+serviceCapabilities().then(v=>{caps=v||{};const model=$('#selected-model');model.hidden=!caps.ai;model.textContent=caps.ai?generationLabel():'';if(!entry.hidden)capabilityHint();else if($('#buy')){rows.forEach((_,i)=>refreshRow(i));syncCart()}}).catch(()=>{});
+function showEntry(){progress();projectId=null;projectPrompt='';design=null;generation++;cartVersion++;cartBusy=false;cadDispose?.();cadDispose=null;entry.hidden=false;project.hidden=true;project.replaceChildren();$('#back').hidden=true;$('#generate').disabled=false;$('#generate').textContent='生成设计 →';$('#sample').disabled=false;notice('#entry-notice');capabilityHint();window.scrollTo(0,0);$('#wish').focus()}
+$('#back').onclick=()=>{showEntry();$('#wish').value=''};
+function progress(phase){
+  const node=$('#entry-progress');node.hidden=!phase;$('#intent').setAttribute('aria-busy',String(!!phase));
+  if(!phase)return;
+  node.dataset.phase=phase;
+  const labels={request:[caps.aiProvider==='local-codex'?'本机 Codex 正在生成方案':caps.aiProvider==='openai-api'?'正在请求 OpenAI 设计方案':'正在请求设计方案',(caps.aiModel?'请求模型：'+caps.aiModel+'。':'')+'等待返回零件与结构方案。'],response:['已收到设计方案','正在读取零件数据和几何计划。']};
+  const info=labels[phase];if(info){$('#build-title').textContent=info[0];$('#build-hint').textContent=info[1]}
+}
+function planOrigin(d){
+ if(Array.isArray(d.cadPlan?.bodies)){
+   const n=d.cadPlan.bodies.length;
+   return n?`本次形体计划 · ${n} 个实体描述`:'本次计划未包含自制形体';
+ }
+ return d.generation?.provider==='sample'?'示例参考布局':'没有记录专属形体计划';
+}
+function provenance(d){
+  const g=d.generation||{};
+  if(g.provider==='sample')return '<span class="model-stamp">内置示例 · 未调用生成模型</span>';
+  const path={'openai-api':'OpenAI API','local-codex':'本机 Codex'}[g.provider];
+  if(!path)return '<span class="model-stamp">生成模型：未记录</span>';
+  const evidence=g.modelSource==='response'&&g.modelId?`响应模型：${g.modelId}`:g.modelSource==='configured'&&g.modelId?`请求指定模型：${g.modelId}（响应未披露）`:'服务未披露具体模型';
+  const url=safeUrl(g.skill?.sourceUrl);
+  const label=g.skill?.name?esc(g.skill.name):'';
+  const skill=label?(url?` · <a href="${esc(url.href)}" target="_blank" rel="noopener noreferrer" title="${esc(g.skill.revision||'建模指导来源')}">${label}</a>`:` · ${label}`):'';
+  return `<span class="model-stamp">${esc(path)} · ${esc(evidence)}${skill}</span>`;
+}
+$('#intent').onsubmit=async e=>{e.preventDefault();const p=$('#wish').value.trim();const local=localUrl(caps.localUrl);if(!caps.ai&&local){const u=new URL(local);if(p)u.hash=new URLSearchParams({wish:p}).toString();window.open(u.href,'_blank','noopener,noreferrer');return}if(!p){$('#wish').focus();notice('#entry-notice','先写一句你想实现的功能。');return}const run=++generation;$('#generate').disabled=true;$('#generate').textContent='正在生成…';notice('#entry-notice');try{const d=await generateDesign(p,{onProgress:phase=>{if(run===generation)progress(phase)}});if(run===generation)await showProject(d,false,{prompt:p})}catch(err){if(run===generation){progress();const url=localUrl(err?.localUrl||caps.localUrl);notice('#entry-notice',url?'此页面可预览示例。请在已启动的本机设计服务中生成新方案。':(err?.message||'暂时无法生成，请稍后重试或先查看示例。'),url,'打开本机工作室')}}finally{if(run===generation){$('#generate').disabled=false;$('#generate').textContent='生成设计 →'}}};
+async function openFistExample(){
+ const run=++generation;
+ try{
+  const res=await fetch(new URL('./samples/fist-bump.json',import.meta.url));
+  if(!res.ok)throw Error();
+  const example=await res.json();
+  if(run===generation)await showProject(example.design,true,{prompt:example.prompt});
+ }catch{if(run===generation)notice('#entry-notice','碰拳示例暂时无法打开，请刷新后重试。')}
+}
+$('#fist-example').onclick=openFistExample;
 $('#sample').onclick=async()=>{generation++;try{await showProject(await sampleDesign(),true)}catch(err){notice('#entry-notice',err.message||'示例暂时无法打开。')}};
 const measure=p=>Array.isArray(p.sizeMm)&&p.sizeMm.length===3&&p.sizeMm.every(x=>Number.isFinite(Number(x))&&Number(x)>0)?p.sizeMm.map(Number):null;
 const selected=r=>r.candidates[r.choice]||null;
 function disposeViewer(){try{cadDispose?.()}finally{cadDispose=null}}
-function mount(){disposeViewer();const target=$('#cad-panel');try{cadDispose=mountConsumerCad(target,design,{})||null}catch{target.textContent='当前设备暂时无法显示三维预览。'}}
-async function showProject(d,isSample,record={}){if(!d||!Array.isArray(d.parts)||!d.parts.length)throw Error('没有收到可用的零件方案，请换个描述再试。');generation++;const run=generation;cartVersion++;cartBusy=false;design=structuredClone(d);sample=isSample;projectId=record.id||crypto.randomUUID();projectPrompt=typeof record.prompt==='string'?record.prompt:'';rows=design.parts.map((p,i)=>{const prev=record.selected?.[i],c=prev?.candidate&&productUrl(prev.candidate.url)?prev.candidate:null;return {candidates:c?[c]:[],choice:c?0:-1,manual:c,searchUrl:defaultSearch(p),searching:!c,serial:0,holdKey:prev?.holdKey||'',holdStatus:prev?.holdStatus||'',included:prev?.included!==false}});entry.hidden=true;project.hidden=false;$('#back').hidden=false;project.innerHTML=`<div class="result-head"><div>${sample?'<p class="kicker">示例设计</p>':''}<h1>${esc(design.name)}</h1><p>${esc(design.summary)}</p><small id="save-status" role="status"></small></div></div><div class="split"><section class="drawing-pane"><div class="pane-label"><h2>结构预览</h2></div><div id="cad-panel" aria-label="可旋转的结构预览"></div></section><section class="shopping"><div class="pane-label"><h2>零件清单</h2><span>${rows.length} 项</span></div><div id="shopping-cart"><div class="purchase-head"><div><b>淘宝采购</b><small id="buy-summary"></small></div><button type="button" id="buy" class="primary">一键淘宝加购</button></div><div id="cart-feedback" aria-live="polite"></div><details class="cart-helper"><summary>使用自己的淘宝购物车</summary><div id="helper-info"></div></details></div><div id="items"></div></section></div>`;mount();renderList();syncCart();window.scrollTo(0,0);if(!sample&&!record.id)remember();const queue=rows.flatMap((r,i)=>r.searching?[i]:[]);await Promise.all(Array.from({length:Math.min(3,queue.length)},async()=>{while(queue.length&&generation===run){await lookup(queue.shift(),run)}}))}
+function mount(){
+  disposeViewer();const target=$('#cad-panel'),badge=$('#geometry-state'),declared=!!design?.cadPlan?.bodies?.length;let active=true;
+  const onStatus=({phase,mode,message,exact,engine})=>{
+    if(!active||!badge?.isConnected)return;
+    const names={closed:'外观',open:'开盖',inside:'内部布局'};
+    const messages={parts:'正在加载零件几何',enclosure:'正在构建内外结构',ready:declared?(exact?'实体几何已完成'+(engine?' · '+engine:''):'近似形体已显示，尚未确认实体几何'):'参考布局已显示',error:declared?'实体建模未完成':'未能生成三维预览',empty:'没有可预览的结构',view:'已切换到'+(names[mode]||'当前视图')};
+    badge.dataset.phase=phase;badge.textContent=[messages[phase]||'正在准备三维预览',message].filter(Boolean).join(' · ');
+    target.setAttribute('aria-busy',String(['parts','enclosure'].includes(phase)));
+  };
+  try{onStatus({phase:'parts'});const cleanup=mountConsumerCad(target,design,{onStatus});cadDispose=()=>{active=false;cleanup?.()}}
+  catch(error){onStatus({phase:'error',message:error?.message||'当前设备暂时无法显示三维预览。'});target.replaceChildren()}
+}
+async function showProject(d,isSample,record={}){if(!d||!Array.isArray(d.parts)||!d.parts.length)throw Error('没有收到可用的零件方案，请换个描述再试。');generation++;const run=generation;cartVersion++;cartBusy=false;design=structuredClone(d);progress();sample=isSample||d.generation?.provider==='sample';projectId=record.id||crypto.randomUUID();projectPrompt=typeof record.prompt==='string'?record.prompt:'';rows=design.parts.map((p,i)=>{const prev=record.selected?.[i],c=prev?.candidate&&productUrl(prev.candidate.url)?prev.candidate:null;return {candidates:c?[c]:[],choice:c?0:-1,manual:c,searchUrl:defaultSearch(p),searching:!c,serial:0,holdKey:prev?.holdKey||'',holdStatus:prev?.holdStatus||'',included:prev?.included!==false}});entry.hidden=true;project.hidden=false;$('#back').hidden=false;project.innerHTML=`<div class="result-head"><div>${sample?'<p class="kicker">示例设计</p>':''}<h1>${esc(design.name)}</h1><p>${esc(design.summary)}</p><div class="result-provenance">${provenance(design)}<button type="button" id="revise-design" class="small-button">修改需求，另存方案</button></div><small id="save-status" role="status"></small></div></div><div class="split"><section class="drawing-pane"><div class="pane-label"><h2>结构预览</h2><span class="geometry-origin">${esc(planOrigin(design))}</span></div><p class="geometry-state" id="geometry-state" role="status" aria-live="polite"></p><div id="cad-panel" aria-label="可旋转的结构预览"></div></section><section class="shopping"><div class="pane-label"><h2>零件清单</h2><span>${rows.length} 项</span></div><div id="shopping-cart"><div class="purchase-head"><div><b>淘宝采购</b><small id="buy-summary"></small></div><button type="button" id="buy" class="primary">一键淘宝加购</button></div><div id="cart-feedback" aria-live="polite"></div><details class="cart-helper"><summary>使用自己的淘宝购物车</summary><div id="helper-info"></div></details></div><div id="items"></div></section></div>`;mount();renderList();syncCart();window.scrollTo(0,0);if(!sample&&!record.id)remember();const queue=rows.flatMap((r,i)=>r.searching?[i]:[]);await Promise.all(Array.from({length:Math.min(3,queue.length)},async()=>{while(queue.length&&generation===run){await lookup(queue.shift(),run)}}))}
 async function lookup(i,run){const p=design.parts[i],r=rows[i],serial=++r.serial;r.searching=true;try{const x=await findProducts(p);if(run!==generation||serial!==r.serial)return;r.searchUrl=market(x?.searchUrl)?.href||defaultSearch(p);r.candidates=(x?.candidates||[]).filter(c=>productUrl(c?.url));r.choice=r.candidates.length===1?0:-1}catch{if(run!==generation||serial!==r.serial)return;r.searchUrl=defaultSearch(p)}finally{if(run===generation&&serial===r.serial){r.searching=false;refreshRow(i);syncCart()}}}
 function card(i){const p=design.parts[i],r=rows[i],c=selected(r),dims=measure(p);const status=c&&r.holdKey===skuKey(c)?(r.holdStatus==='added'?'已确认加购':'请核对购物车'):r.searching?'查找中':(!c?r.candidates.length?'待选商品':'待匹配':c.skuId&&!c.requiresSelection&&(c.sku||c.options?.length)?'已选规格':'待核对规格');const edit=`<details class="edit"><summary>尺寸与采购规格</summary><p class="measure">${dims?`${dims.map(esc).join(' × ')} mm · ${sourceText(p.dimensionSource)}`:'暂无尺寸'}${p.dimensionNote?' · '+esc(p.dimensionNote):''}</p><form data-edit="${i}"><label>固定采购型号或规格<input name="spec" maxlength="240" value="${esc(p.spec)}" placeholder="例如：6 × 6 mm 轻触开关"></label><fieldset><legend>外形尺寸（毫米）</legend><div class="dims">${['长','宽','高'].map((a,j)=>`<label>${a}<input type="number" name="dim${j}" step="any" min="0.1" max="2000" value="${esc(dims?.[j]??'')}"></label>`).join('')}</div></fieldset><label>淘宝商品链接（可选）<input type="url" name="url" placeholder="粘贴淘宝或天猫商品详情链接" value="${esc(r.manual?.url||c?.url||'')}"></label><label>详情页商品标题（可选）<input name="listingTitle" maxlength="250" placeholder="可粘贴商品页面的原始标题" value="${esc(knownTitle(r.manual||c))}"></label><label>商品页的规格选项（可选）<input name="skuOptions" maxlength="300" placeholder="按淘宝选项原文填写，多项用分号隔开" value="${esc((r.manual?.options||c?.options||[]).join('；'))}"></label><div class="edit-actions"><small class="edit-note" role="status"></small><button class="small-button" type="submit">保存并更新设计</button></div></form></details>`;
 return `<article class="part" data-i="${i}"><div class="part-top"><div class="part-name"><label class="part-check" title="加入本次采购"><input class="include" type="checkbox" aria-label="采购${esc(p.name)}" ${r.included?'checked':''}></label><h3>${esc(p.name)}</h3></div><span class="qty">× ${esc(p.qty||1)}</span></div><p class="spec">${esc(modelText(p)||'按设计规格选择')}</p><div class="part-links"><span class="tag ${c?.skuId?'matched':''}">${status}</span>${c?shopLink(c.url,'商品详情'):''}${shopLink(r.searchUrl||defaultSearch(p),'淘宝精确搜索')}${caps.cart==='browser'?`<button type="button" class="picker" data-pick="${i}" ${r.picking?'disabled':''}>${r.picking?'等待选择…':'去淘宝选规格'}</button>`:''}</div>${r.pickNote?`<p class="pick-note" role="status">${esc(r.pickNote)}</p>`:''}${r.candidates.length>1?`<label class="product-select">匹配商品<select aria-label="${esc(p.name)}的匹配商品" data-product="${i}"><option value="">选择商品</option>${r.candidates.map((v,j)=>`<option value="${j}" ${j===r.choice?'selected':''}>${esc(v.title||'淘宝商品')}${v.sku?' · '+esc(v.sku):''}</option>`).join('')}</select></label>`:''}${c?`<p class="candidate-title">${esc(knownTitle(c)||c.title||'已绑定商品')}${c.sku?' · '+esc(c.sku):''}${c.selectionNote?' · '+esc(c.selectionNote):''}</p>`:''}${edit}</article>`}
@@ -110,6 +160,8 @@ function renderBrowserOutcome(target,out,batch,total,unmatched){
   target.innerHTML=`<p>${esc(q)}</p>${out.reason?`<small>${esc(out.reason)}</small>`:''}<ul class="browser-results">${output.join('')}</ul>${shopLink(market(out.cartUrl)?.href||'https://cart.taobao.com/cart.htm','核对淘宝购物车')}`;
 }
 project.addEventListener('click',async e=>{
+  if(e.target.closest('#revise-design')){const value=projectPrompt||design.summary||design.name;showEntry();$('#wish').value=value;$('#wish').focus();return}
+
   const picker=e.target.closest('[data-pick]');if(picker){await pickForRow(Number(picker.dataset.pick));return}if(!e.target.closest('#buy')||cartBusy||rows.some(r=>r.picking))return;
   const {included,linked,fresh,ready,pending,unmatched}=cartSelection();if(!linked.length)return;const browser=caps.cart==='browser',batch=browser?fresh:ready;
   const lines=batch.map(({part,item})=>({...item,qty:part.qty||1,options:item.options||[]}));
@@ -134,3 +186,5 @@ project.addEventListener('click',async e=>{
 });
 
 mountConsumerAccount($('#consumer-account'),{onOpen:async rec=>{if(!rec?.design)return;try{await showProject(rec.design,false,rec)}catch(e){showEntry();notice('#entry-notice',e.message||'暂时无法打开项目。')}},onSignOut:()=>{accountEpoch++;showEntry();$('#wish').value=''}});
+
+if(new URLSearchParams(location.search).get('example')==='fist')openFistExample();

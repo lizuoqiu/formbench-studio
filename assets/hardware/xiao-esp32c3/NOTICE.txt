@@ -1,0 +1,19 @@
+Independent XIAO ESP32C3 (no headers) visual reference. Original code and meshes by
+Formwork project contributors, CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+No Seeed, GrabCAD, or third-party 3D geometry is incorporated or relicensed.
+
+Sources: Seeed Studio's guide https://wiki.seeedstudio.com/XIAO_ESP32C3_Getting_Started/
+Seeed's XIAO ESP32C3 v1.3 schematic & PCB package:
+https://files.seeedstudio.com/wiki/XIAO_WiFi/Resources/XIAO_ESP32C3_v1.3_KiCad_260116.zip
+Board measurement facts taken from Edge.Cuts, general.thickness, the 2.54-mm-spaced
+connector pads and USB0, RST0, BOOT0, ANT0 component centres. The guide gives
+a nominal 21 x 17.8 mm format; the PCB source measures 20.955 x 17.78 x 1.6 mm.
+Component heights, shield, colour, organic contours, port tongue and switch caps
+are approximated for recognition; do not use these to establish enclosure fit.
+The detachable antenna and headers are excluded. This is not exact manufacturer CAD.
+
+To regenerate the four groups with ForgeCAD 0.13.0:
+forgecad export stl reference.forge.js --param Group=1 --output pcb.stl
+forgecad export stl reference.forge.js --param Group=2 --output pads.stl
+forgecad export stl reference.forge.js --param Group=3 --output metal.stl
+forgecad export stl reference.forge.js --param Group=4 --output polymer.stl

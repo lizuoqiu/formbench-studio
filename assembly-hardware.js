@@ -1,6 +1,7 @@
 // Reference components are matched to the BOM, not to a merchant SKU.
 // All meshes are millimetres. A project-specific layout is independent of a model match.
 const rows = [
+  ['xiao-esp32c3','xiao-esp32c3','Seeed Studio XIAO ESP32C3','无排针版；自绘近似板形及器件，非原厂 CAD。'],
   ['pico','pico','Raspberry Pi Pico','初代 RP2040、Micro-B、无排针的参考板。'],
   ['red-led','led','红色 LED','5 mm 直插圆形封装，红色是显示颜色。'],
   ['green-led','led','绿色 LED','5 mm 直插圆形封装，绿色是显示颜色。'],
@@ -15,7 +16,19 @@ const rows = [
 export const catalog = Object.fromEntries(rows.map(([id,dir,label,description])=>[id,{id,dir,label,description}]));
 // The prototype's ten known BOM rows only. An unfamiliar device, package, or
 // variant should be reported as unresolved instead of inheriting plausible-looking CAD.
+// Explicit product identity only. A bare ESP32-C3 chip is not a XIAO board.
+export function matchXiaoC3Reference(part) {
+  if (!part || part.modelSourceInvalidated || part.dimensionSource==='specified' || part.modelId && part.modelId!=='xiao-esp32c3') return null;
+  const identity=[part.name,part.model].filter(s=>typeof s==='string').join(' ').normalize('NFKC');
+  const all=[identity,part.spec].join(' ').normalize('NFKC');
+  if(!/\bXIAO[\s_-]*ESP32[\s_-]*C3(?![A-Za-z0-9])/i.test(identity))return null;
+  if(/ESP32[\s_-]*(?:S3|C6|C5)|RP2040|NRF52840|XIAO[\s_-]*Plus|\bSense\b|兼容板|替代板|仿制|clone|breakout carrier/i.test(all))return null;
+  const headerless=/(?:无|不带|未焊|未预焊|未装)(?:接)?排针|\b(?:no headers?|without (?:pin )?headers?|headerless|unsoldered)\b/i;
+  if(!headerless.test(all)||/预焊版|预焊排针版|带排针版|pre[ -]?soldered|with (?:pin )?headers?/i.test(all.replace(new RegExp(headerless.source,'gi'),'')))return null;
+  return 'xiao-esp32c3';
+}
 export function matchHardware(part) {
+  const xiao=matchXiaoC3Reference(part);if(xiao)return xiao;
   const n=String(part?.name||'').normalize('NFKC').trim(), s=String(part?.spec||'').normalize('NFKC');
   if(/^(?:Raspberry\s*Pi\s+)?Pico$/i.test(n) && !/Pico\s*(?:2|W|H)\b|RP2350|USB[ -]?C|Type[ -]?C|已焊|预焊/i.test(s))return 'pico';
   if(/^(红色?|绿色?)\s*LED$/i.test(n)&&/(?:^|[^.\d])5(?:\.0)?\s*(?:mm|毫米)/i.test(s)&&!/贴片|SMD|5050|WS2812|方形/i.test(s))return n.startsWith('红')?'red-led':'green-led';

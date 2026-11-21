@@ -36,7 +36,7 @@ function helperPresent(){
 export async function serviceCapabilities(){
   const fallback=capabilityFallback();
   const [ext,d]=await Promise.all([helperPresent(),isPages()?null:call('capabilities').catch(()=>null)]);
-  return {...fallback,ai:d?.ai===true,catalog:d?.catalog===true,cart:ext?'browser':d?.cart==='official'?'official':'manual'};
+  return {...fallback,ai:d?.ai===true,...(d?.ai===true&&text(d.aiModel,180)?{aiModel:text(d.aiModel,180)}:{}),...(['local-codex','openai-api'].includes(d?.aiProvider)?{aiProvider:d.aiProvider}:{}),catalog:d?.catalog===true,cart:ext?'browser':d?.cart==='official'?'official':'manual'};
 }
 
 const sampleRows=[
@@ -48,7 +48,7 @@ const sampleRows=[
   ['USB 数据线','USB-A 公头至 Micro-B 公头，供电与数据','USB-A → Micro-B','usb-cable',[74.546,48.75,7.8],'原创短线展示路由，仅为预览外廓，不代表实物线长','external','连接电脑，供电并写入程序。']
 ];
 export function sampleDesign(){
-  return {name:'桌面专注状态灯',summary:'按一下按钮，就能在红色的「专注中」和绿色的「可以打扰」之间切换。由电脑的 USB 接口供电。',
+  return {generation:{provider:'sample',modelId:null,modelSource:'undisclosed'},name:'桌面专注状态灯',summary:'按一下按钮，就能在红色的「专注中」和绿色的「可以打扰」之间切换。由电脑的 USB 接口供电。',
     parts:sampleRows.map(([name,spec,model,modelId,sizeMm,dimensionSource,role,purpose,qty=1])=>({name,spec,qty,model,modelId,sizeMm:[...sizeMm],dimensionSource:'catalog',dimensionNote:dimensionSource,role,purpose})),
     steps:['分别为两只 LED 串联限流电阻后连接到控制板。','连接按钮和 USB 数据线，写入切换状态的程序。','依次测试两种状态，再按实物尺寸确认安装位置。']};
 }
@@ -69,11 +69,15 @@ function designPart(raw){
     ...(['internal','panel','external','enclosure'].includes(raw.role)?{role:raw.role}:{}),
     ...(['box','cylinder'].includes(raw.shape)?{shape:raw.shape}:{}),purpose:text(raw.purpose,500)};
 }
-export async function generateDesign(prompt){
+export async function generateDesign(prompt,{onProgress}={}){
   if(typeof prompt!=='string'||!prompt.trim()||prompt.length>10000)throw Error('请填写 1–10000 字的设计需求。');
+  onProgress?.('request');
   const {design:d}=await call('design',{prompt:prompt.trim()});
+  onProgress?.('response');
   if(!text(d?.name,200)||!Array.isArray(d.parts)||!d.parts.length||d.parts.length>60)throw Error('没有收到有效的硬件方案，请重新生成。');
-  return {name:text(d.name,200),summary:text(d.summary,5000),steps:(Array.isArray(d.steps)?d.steps:[]).map(s=>text(s,900)).filter(Boolean),parts:d.parts.map(designPart)};
+  const g=d.generation;
+  const generation=g&&['openai-api','local-codex'].includes(g.provider)?{provider:g.provider,modelId:text(g.modelId,200)||null,modelSource:['response','configured'].includes(g.modelSource)?g.modelSource:'undisclosed',...(g.skill?.name?{skill:{name:text(g.skill.name,200),revision:text(g.skill.revision,150),sourceUrl:citationUrl(g.skill.sourceUrl)}}:{})}:undefined;
+  return {...(generation?{generation}:{}),...(d.cadPlan?{cadPlan:d.cadPlan}:{}),name:text(d.name,200),summary:text(d.summary,5000),steps:(Array.isArray(d.steps)?d.steps:[]).map(s=>text(s,900)).filter(Boolean),parts:d.parts.map(designPart)};
 }
 function detail(raw){
   if(!raw||typeof raw!=='object')return null;

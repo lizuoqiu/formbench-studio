@@ -1,0 +1,126 @@
+{
+  "label": "Seeed Studio XIAO ESP32C3（无排针，近似装配参考）",
+  "modelType": "dimensioned-approximation",
+  "description": "独立绘制的参考几何。PCB 轮廓、USB-C 平面位置和焊盘间距依据 Seeed v1.3 设计；屏蔽罩、USB 内部和器件高度仅供识别，不代表原厂三维文件。",
+  "author": "Formwork project contributors; board measurements from Seeed Studio",
+  "license": "CC0-1.0 (original geometry only)",
+  "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "units": "mm",
+  "sourceUrl": "https://wiki.seeedstudio.com/XIAO_ESP32C3_Getting_Started/",
+  "measurementSourceUrl": "https://files.seeedstudio.com/wiki/XIAO_WiFi/Resources/XIAO_ESP32C3_v1.3_KiCad_260116.zip",
+  "sourceFile": "reference.forge.js",
+  "origin": "PCB centre on underside; USB mating face points along +X, components face +Z.",
+  "boundsMm": {
+    "min": [
+      -10.4775,
+      -8.89,
+      0.0
+    ],
+    "max": [
+      11.9855,
+      8.89,
+      4.7
+    ]
+  },
+  "sizeMm": [
+    22.463,
+    17.78,
+    4.7
+  ],
+  "boardSizeMm": [
+    20.955,
+    17.78,
+    1.6
+  ],
+  "meshes": [
+    {
+      "file": "pcb.stl",
+      "label": "PCB 轮廓与半孔",
+      "color": [
+        34,
+        58,
+        65
+      ],
+      "triangles": 928,
+      "boundsMm": {
+        "min": [
+          -10.4775,
+          -8.89,
+          0.0
+        ],
+        "max": [
+          10.4775,
+          8.89,
+          1.6
+        ]
+      }
+    },
+    {
+      "file": "pads.stl",
+      "label": "两列七个焊盘",
+      "color": [
+        204,
+        159,
+        67
+      ],
+      "triangles": 952,
+      "boundsMm": {
+        "min": [
+          -8.4335,
+          -8.865,
+          1.6
+        ],
+        "max": [
+          8.3065,
+          8.865,
+          1.645
+        ]
+      }
+    },
+    {
+      "file": "metal.stl",
+      "label": "USB-C 壳、近似屏蔽罩、按钮底座与天线座",
+      "color": [
+        177,
+        189,
+        195
+      ],
+      "triangles": 172,
+      "boundsMm": {
+        "min": [
+          -10.3305,
+          -6.22,
+          1.6
+        ],
+        "max": [
+          11.9855,
+          6.22,
+          4.7
+        ]
+      }
+    },
+    {
+      "file": "polymer.stl",
+      "label": "USB-C 舌片与按钮按头",
+      "color": [
+        47,
+        49,
+        55
+      ],
+      "triangles": 36,
+      "boundsMm": {
+        "min": [
+          -9.765,
+          -5.495,
+          2.42
+        ],
+        "max": [
+          11.7105,
+          5.495,
+          3.36
+        ]
+      }
+    }
+  ],
+  "limitations": "No supplier STEP reused. Connector overhang in XY follows board silkscreen; heights, apertures, passive parts, shielding and housing clearance are unverified. Excludes removable antenna and cable; a board with headers is a different variant."
+}

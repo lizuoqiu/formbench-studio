@@ -3,11 +3,12 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['forge/*.forge.js', 'server/forge*.mjs', '.github/workflows/forge-assets.yml']
+    paths: ['forge/*.forge.js', 'server/forge.mjs', '.github/workflows/forge-assets.yml']
 permissions:
   contents: read
 jobs:
   export:
+    if: ${{ vars.FORGECAD_ENTERPRISE_AUTOMATION == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:

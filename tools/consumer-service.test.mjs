@@ -125,3 +125,11 @@ test('picker is read-only: one request, official URL + explicit variant required
   for(const wrong of [{...choice,options:[]},{...choice,skuId:'999'},{...choice,url:'https://elsewhere.example/?id=123'}]){candidate=wrong;assert.equal((await pickProduct(part)).candidate,undefined);}
   assert.ok(actions.every(x=>['FB_PICK_PREPARE','FB_HELPER_PING'].includes(x)));assert.equal(http.mock.callCount(),0);
 });
+
+test('design keeps verified service geometry and execution provenance without guessing model identity',async t=>{
+ const cadPlan={version:1,bodies:[{partIndex:0,positionMm:[0,0,0],name:'Handle',features:[{op:'add',shape:'ellipsoid',centerMm:[0,0,8],sizeMm:[28,18,16]}]}]};
+ const g={provider:'local-codex',modelSource:'undisclosed',modelId:null,skill:{name:'hardware',revision:'r1',sourceUrl:'https://example.org/skill'}};
+ at(t,'https://example.org/app/',()=>Response.json({design:{name:'触摸器',parts:[{name:'把手',spec:'软胶',qty:1}],cadPlan,generation:g}}));
+ const phases=[];const d=await generateDesign('触摸',{onProgress:v=>phases.push(v)});
+ assert.deepEqual(d.generation,g);assert.deepEqual(d.cadPlan,cadPlan);assert.deepEqual(phases,['request','response']);
+});
