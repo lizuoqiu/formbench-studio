@@ -126,9 +126,8 @@ function planKey(plan){
 }
 
 const sampleExportFiles={'fist-bump':'fist-bump-cad.json','fist-bump-v1':'fist-bump.v1-cad.json'};
-async function savedExample(plan,base,fetcher,signal,exampleAsset,onProgress){
+async function savedExample(plan,url,fetcher,signal,onProgress){
  try{
-  const url=new URL('./samples/'+sampleExportFiles[exampleAsset],base);
   const response=await fetcher(url,{credentials:'same-origin',mode:'same-origin',redirect:'error',signal});
   if(!response.ok)return null;
   const data=await response.json();
@@ -199,8 +198,16 @@ export async function compileCadPlan(raw,options={}){
  let url;try{url=new URL('./api/forge/plan',base)}catch{}
  const requireForge=/^forgecad\b/i.test(options.engine||'');
  const useEndpoint=url&&(requireForge||localHosts.has(url.hostname));
- const useSavedExample=Object.hasOwn(sampleExportFiles,options.exampleAsset)&&url&&!localHosts.has(url.hostname);
- const key=(useSavedExample?'example:':'design:')+JSON.stringify(plan);
+ let savedURL;
+ if(options.savedCadUrl){
+  const sharedRoot=new URL('./samples/shared/',base),candidate=new URL(options.savedCadUrl,base);
+  if(candidate.origin!==sharedRoot.origin||!candidate.pathname.startsWith(sharedRoot.pathname))
+   throw Error('项目的 CAD 存档地址无效。');
+  savedURL=candidate;
+ }else if(Object.hasOwn(sampleExportFiles,options.exampleAsset)&&url&&!localHosts.has(url.hostname)){
+  savedURL=new URL('./samples/'+sampleExportFiles[options.exampleAsset],base);
+ }
+ const key=(savedURL?savedURL.href+':':'design:')+JSON.stringify(plan);
  // The server's selected engine can change between requests.
  options.signal?.throwIfAborted();
  if(!useEndpoint&&!requireForge&&meshCache.has(key)){
@@ -211,13 +218,14 @@ export async function compileCadPlan(raw,options={}){
  const cancel=()=>controller.abort();options.signal?.addEventListener('abort',cancel,{once:true});
  if(options.signal?.aborted)controller.abort();
  try{
-  if(useSavedExample){
+  if(savedURL){
    options.onProgress?.({stage:'load',phase:'request',total:plan.bodies.length});
-   const result=await savedExample(plan,base,options.fetcher??globalThis.fetch,controller.signal,options.exampleAsset,options.onProgress);
+   const result=await savedExample(plan,savedURL,options.fetcher??globalThis.fetch,controller.signal,options.onProgress);
    if(result){
     if(meshCache.size>=12)meshCache.delete(meshCache.keys().next().value);
     meshCache.set(key,result);return result;
    }
+   if(options.savedCadUrl)throw Error('此版保存的 CAD 缺失或与设计不符，请重新载入项目。');
   }
   let data;
   options.onProgress?.({stage:'generate',phase:'request',total:plan.bodies.length});
@@ -239,7 +247,7 @@ export async function compileCadPlan(raw,options={}){
    }catch(error){if(requireForge||error.business||controller.signal.aborted)throw error;data=await runCadWorker(plan,{...options,signal:controller.signal})}
   }else data=await runCadWorker(plan,{...options,signal:controller.signal});
   const result=await decodeSolidResult(plan,data,requireForge,'decode',{onProgress:options.onProgress,signal:controller.signal});
-  if(!useEndpoint&&!useSavedExample){meshCache.set(key,result);if(meshCache.size>12)meshCache.delete(meshCache.keys().next().value)}
+  if(!useEndpoint&&!savedURL){meshCache.set(key,result);if(meshCache.size>12)meshCache.delete(meshCache.keys().next().value)}
   return result;
  }catch(error){if(error.name==='AbortError'&&!options.signal?.aborted)throw Error('实体计算超时，当前保留形体预览。');throw error}
  finally{clearTimeout(timer);options.signal?.removeEventListener('abort',cancel)}

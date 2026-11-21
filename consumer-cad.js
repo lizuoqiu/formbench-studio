@@ -1,6 +1,6 @@
 import {catalog,loadPartMeshes,getHardwareMetadata,encodeSTL} from './assembly-hardware.js';
 import {makeDocumentedProxy} from './part-geometry.js';
-import {prepareMesh,createRaster,fitCamera} from './mesh-renderer.js';
+import {prepareMesh,createRaster,fitCamera,cameraBasis,projectWorldPoint,worldPointAtZ} from './mesh-renderer.js';
 import {previewCadPlan,compileCadPlan,meshBounds,featurePlacement,cadDownloadName} from './consumer-geometry.js';
 import {completeCatalogAnchors,editableForgeSource,hasEditableCatalogSource} from './forge-source.js';
 import {validateCadPlan,wholePartBox} from './cad-plan.js';
@@ -11,7 +11,7 @@ const validSize=size=>Array.isArray(size)&&size.length===3&&size.every(n=>Number
 const colors=[[66,139,131],[194,133,76],[82,132,175],[167,117,154],[145,160,86]];
 const roleText={internal:'内部',panel:'顶面位置示意',external:'外接附件',enclosure:'外壳目标包络'};
 const inspectionPitch=1.15;
-const dataText={catalog:'资料几何',specified:'指定设计包络',estimated:'估算设计包络'};
+const dataText={catalog:'资料几何',datasheet:'型号资料尺寸',specified:'指定设计包络',estimated:'估算设计包络'};
 const safeUrl=value=>{try{const u=new URL(value);return /^https?:$/.test(u.protocol)?u.href:null}catch{return null}};
 const looseMaterial=part=>/线束|胶材|胶带|导线|USB.*线|USB.*cable|wire|adhesive/i.test(part.name+' '+part.spec);
 
@@ -222,10 +222,11 @@ function installedHardwareView(concept,defaultYaw){
  // Pick the oblique view that overlaps the fewest mounted modules on screen.
  // Two CAD bodies from the same purchased actuator form one part.
  function coverage(yaw){
-  const c=Math.cos(yaw),s=Math.sin(yaw),sp=Math.sin(inspectionPitch),cp=Math.cos(inspectionPitch);
+  const {right,down}=cameraBasis(yaw,inspectionPitch);
   const projected=installed.map(({item,box})=>{
    const [x,y,z]=box.min.map((n,k)=>(n+box.max[k])/2),[w,d,h]=box.min.map((n,k)=>(box.max[k]-n)/2);
-   const u=x*c-y*s,v=(x*s+y*c)*sp-z*cp,du=w*Math.abs(c)+d*Math.abs(s),dv=(w*Math.abs(s)+d*Math.abs(c))*sp+h*cp;
+   const [u,v]=projectWorldPoint([x,y,z],{yaw,pitch:inspectionPitch}),half=[w,d,h];
+   const du=half.reduce((sum,n,k)=>sum+n*Math.abs(right[k]),0),dv=half.reduce((sum,n,k)=>sum+n*Math.abs(down[k]),0);
    return {part:item.partIndex,left:u-du,right:u+du,top:v-dv,bottom:v+dv,area:4*du*dv};
   });
   let overlap=0;
@@ -297,20 +298,14 @@ function viewerIcon(name){
 // Intersect the four viewport corners with the assembly's XY floor and draw
 // whole millimetre intervals using the same orthographic camera as its solids.
 function drawFloorGrid(canvas,box,camera,floorZ){
- const {yaw,pitch,target,center,scale}=camera;
- const sinPitch=Math.sin(pitch),cosPitch=Math.cos(pitch);
- if(sinPitch<.14)return;
- const sinYaw=Math.sin(yaw),cosYaw=Math.cos(yaw),height=floorZ-target[2];
- const corners=[[0,0],[box.width,0],[box.width,box.height],[0,box.height]].map(([x,y])=>{
-  const lateral=(x-center[0])/scale,forward=((y-center[1])/scale+height*cosPitch)/sinPitch;
-  return [target[0]+lateral*cosYaw+forward*sinYaw,target[1]-lateral*sinYaw+forward*cosYaw];
- });
+ const {pitch,scale}=camera;
+ if(Math.sin(pitch)<.14)return;
+ const corners=[[0,0],[box.width,0],[box.width,box.height],[0,box.height]].map(p=>worldPointAtZ(p,camera,floorZ));
  const bounds=[0,1].map(axis=>[Math.min(...corners.map(p=>p[axis])),Math.max(...corners.map(p=>p[axis]))]);
  const targetStep=48/scale,decade=10**Math.floor(Math.log10(targetStep));
  const step=Math.max(1,decade*([1,2,5,10].find(n=>n*decade>=targetStep)||10));
  function screen(x,y){
-  x-=target[0];y-=target[1];
-  return [center[0]+scale*(x*cosYaw-y*sinYaw),center[1]+scale*((x*sinYaw+y*cosYaw)*sinPitch-height*cosPitch)];
+  return projectWorldPoint([x,y,floorZ],camera).slice(0,2);
  }
  const ctx=canvas.getContext('2d');
  ctx.save();
@@ -336,6 +331,10 @@ function drawFloorGrid(canvas,box,camera,floorZ){
 export function mountConsumerCad(container,design,options={}){
  if(!container)return ()=>{};
  const allowDownloads=options.downloads!==false,declared=!!design.cadPlan?.bodies?.length;
+ const research=design.generation?.mechanicalResearch;
+ const priorNote=Number.isInteger(research?.inherited)&&research.inherited>0?`另有 ${research.inherited} 个型号沿用上版已查到的资料。`:'';
+ const sourcingNote=research?.status==='searched'?`本轮查询了 ${research.requested} 个候选型号，其中 ${research.found} 个有可引用的厂家资料。`:
+  research?.status==='unavailable'?'本轮未取得在线查参结果。各件采用的其他依据见下表。':'';
  container.innerHTML=`<section class="cc" aria-label="三维装配视图" data-cc-state="loading">
   <div class="cc-stage">
    <div class="cc-header">
@@ -373,6 +372,7 @@ export function mountConsumerCad(container,design,options={}){
     <summary>${viewerIcon('parts')}<span>零件与尺寸依据</span>${viewerIcon('chevron')}</summary>
     <div class="cc-metadata">
      <strong data-cc-engine></strong>
+     ${sourcingNote||priorNote?`<p>${esc(sourcingNote+priorNote)}</p>`:''}
      <p data-cc-note>${declared?'装配间隙、材料和强度仍需实物验证。':'壳体尺寸根据零件包络计算，顶面件仅示意交互位置。'}</p>
     </div>
     <div class="cc-source-list" data-cc-sources>正在读取零件…</div>
@@ -589,10 +589,12 @@ export function mountConsumerCad(container,design,options={}){
  function renderSources(){
   root.querySelector('[data-cc-sources]').innerHTML=parts.map(part=>{
    const bodies=geometry?.bodies.filter(body=>body.partIndex===part.index)||[],usedCatalog=concept.instances.some(item=>item.partIndex===part.index&&item.source==='catalog');
+   const supply=bodies.some(body=>body.role==='printed')?'定制结构':bodies.length||usedCatalog?'采购件':'';
    const href=safeUrl((usedCatalog&&part.metadata?.sourceUrl)||part.geometryReference?.sourceUrl||part.dimensionSourceUrl||part.metadata?.sourceUrl||part.sourceUrl);
+   const cadLink=safeUrl(part.geometryReference?.cadUrl);
    const note=bodies.length?(usedCatalog?part.geometryNote:part.geometryReference?.detail||(geometry.exact?'结构方案由 '+geometry.engine+' 计算实体。':'结构方案正在计算实体。')):part.geometryNote;
    const placement=declared?(bodies.length?'安装位置来自 AI 声明式方案。':concept.instances.some(item=>item.partIndex===part.index&&!item.placed)?'尚未指定安装位置，可在「未定位件」中查看。':'柔性线材／附件仅在清单记录。'):'';
-   return `<div class="cc-source"><div><strong>${esc(part.name)} × ${part.qty}</strong><small>${esc(roleText[part.role])} · ${sizeText(part.sizeMm)}</small></div><div>${esc(part.model||part.metadata?.label||dataText[part.dimensionSource])}<small>${esc(note)}</small>${placement?`<small>${esc(placement)}</small>`:''}${part.dimensionNote?`<small>${esc(part.dimensionNote)}</small>`:''}${part.metadata?.description?`<small>${esc(part.metadata.description)}</small>`:''}${part.metadata?.license?`<small>许可：${esc(part.metadata.license)}</small>`:''}${href?`<small><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${usedCatalog&&part.metadata?.modelType==='manufacturer-cad'?'原厂 CAD 来源':'尺寸／形体参考资料'}</a></small>`:''}</div></div>`;
+   return `<div class="cc-source"><div><strong>${esc(part.name)} × ${part.qty}</strong><small>${supply?supply+' · ':''}${esc(roleText[part.role])} · ${sizeText(part.sizeMm)}</small></div><div>${esc(part.model||part.metadata?.label||dataText[part.dimensionSource])}<small>${esc(note)}</small>${placement?`<small>${esc(placement)}</small>`:''}${part.dimensionNote?`<small>${esc(part.dimensionNote)}</small>`:''}${part.metadata?.description?`<small>${esc(part.metadata.description)}</small>`:''}${part.metadata?.license?`<small>许可：${esc(part.metadata.license)}</small>`:''}${href?`<small><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${usedCatalog&&part.metadata?.modelType==='manufacturer-cad'?'原厂 CAD 来源':'尺寸／形体参考资料'}</a></small>`:''}${cadLink?`<small><a href="${esc(cadLink)}" target="_blank" rel="noopener noreferrer">查看供应商 CAD 资源</a> · 本次按尺寸建模</small>`:''}</div></div>`;
   }).join('');
  }
  function renderDownloads(){
@@ -676,7 +678,7 @@ export function mountConsumerCad(container,design,options={}){
   buildState='compiling';emit('enclosure','正在准备 CAD 实体。');
   try{
    const exact=await compileCadPlan(activePlan,{
-    partCount:parts.length,engine:options.engine,exampleAsset:options.exampleAsset,baseUrl:options.baseUrl,
+    partCount:parts.length,engine:options.engine,exampleAsset:options.exampleAsset,savedCadUrl:options.savedCadUrl,baseUrl:options.baseUrl,
     fetcher:options.fetcher,WorkerClass:options.WorkerClass,signal:aborter.signal,onProgress:progress
    });
    if(disposed||!root.isConnected)return;

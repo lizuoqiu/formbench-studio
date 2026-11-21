@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {prepareMesh,createRaster} from '../mesh-renderer.js';
+import {prepareMesh,createRaster,fitCamera,projectWorldPoint,worldPointAtZ} from '../mesh-renderer.js';
 
 test('intersecting triangles change frontmost color and part across the image, in either draw order',()=>{
   globalThis.devicePixelRatio=1;
@@ -13,12 +13,51 @@ test('intersecting triangles change frontmost color and part across the image, i
   const camera={yaw:0,pitch:Math.PI/2,target:[0,0,0],scale:2};
   for(const order of [[red,green],[green,red]]){
     raster.draw(order,camera);
-    for(const [x,y,id,channel] of [[75,80,'red',0],[125,80,'green',1]]){
+    for(const [x,y,id,channel] of [[125,80,'red',0],[75,80,'green',1]]){
       const start=4*(y*200+x),pixel=displayed.subarray(start,start+4);
       assert.equal(raster.pick(x,y),id);assert.ok(pixel[channel]>100);assert.equal(pixel[1-channel],0);assert.equal(pixel[3],255);
     }
     assert.equal(raster.pick(0,0),undefined);assert.equal(displayed[3],0);
   }
+});
+
+test('front and back views preserve physical handedness, near surfaces and picking in either draw order',()=>{
+ globalThis.devicePixelRatio=1;
+ let pixels;
+ const ctx={createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:image=>{pixels=image.data}};
+ const canvas={getContext:()=>ctx,getBoundingClientRect:()=>({width:200,height:200})},raster=createRaster(canvas);
+ // The product front is -Y. Its left and right marks are -X and +X.
+ // Looking at its back reverses those marks, and the rear surfaces occlude them.
+ const mark=(id,x,y,color)=>({id,mesh:prepareMesh([[[x-9,y,-9],[x+9,y,-9],[x,y,9]]],color)});
+ const scene=[mark('left-front',-30,-10,[255,0,0]),mark('right-front',30,-10,[0,255,0]),mark('left-back',-30,10,[0,0,255]),mark('right-back',30,10,[255,255,0])];
+ for(const order of [scene,[...scene].reverse()]){
+  for(const [yaw,left,right,leftChannel] of [[Math.PI,'left-front','right-front',0],[0,'right-back','left-back',1]]){
+   raster.draw(order,{yaw,pitch:0,target:[0,0,0],center:[100,100],scale:1});
+   assert.equal(raster.pick(70,100),left);assert.equal(raster.pick(130,100),right);
+   assert.ok(pixels[(100*200+70)*4+leftChannel]>100);
+  }
+ }
+});
+
+test('fit, trajectory endpoints and floor projection use one unmirrored camera frame',()=>{
+ const camera={yaw:Math.PI,pitch:.45,target:[10,-5,3],center:[180,120],scale:4};
+ const left=projectWorldPoint([-20,-30,10],camera),right=projectWorldPoint([20,-30,10],camera);
+ assert.ok(left[0]<right[0],'-X stays left when looking from the front (-Y)');
+ assert.ok(projectWorldPoint([0,0,20],camera)[1]<projectWorldPoint([0,0,0],camera)[1],'+Z points upward');
+ assert.ok(projectWorldPoint([0,-30,10],camera)[2]>projectWorldPoint([0,30,10],camera)[2],'-Y is nearer to this camera');
+ const start=projectWorldPoint([-20,-30,10],camera),end=projectWorldPoint([10,-30,10],camera);
+ assert.ok(end[0]>start[0],'+X motion and its plotted path travel to the right');
+ for(const yaw of [-2.1,.4,Math.PI])for(const pitch of [.35,1.15]){
+  const view={...camera,yaw,pitch},world=[23,-17,4],screen=projectWorldPoint(world,view),back=worldPointAtZ(screen,view,world[2]);
+  back.forEach((v,k)=>assert.ok(Math.abs(v-world[k])<1e-9,'floor grid agrees with solid projection'));
+ }
+ const mesh=prepareMesh([[[-10,-3,0],[25,7,2],[4,-6,18]]],[100,100,100]);
+ const scene=[{mesh,offset:[13,-40,5]}],viewport={x:20,y:30,width:280,height:180};
+ const fit=fitCamera(scene,Math.PI-.49,.32,viewport);
+ const projected=mesh.points.map(point=>projectWorldPoint(point.map((v,k)=>v+scene[0].offset[k]),fit));
+ for(const [x,y] of projected){assert.ok(x>=20-1e-9&&x<=300+1e-9);assert.ok(y>=30-1e-9&&y<=210+1e-9)}
+ assert.ok(Math.abs((Math.min(...projected.map(p=>p[0]))+Math.max(...projected.map(p=>p[0])))/2-160)<1e-9);
+ assert.ok(Math.abs((Math.min(...projected.map(p=>p[1]))+Math.max(...projected.map(p=>p[1])))/2-120)<1e-9);
 });
 
 test('inspection draws the actual shell translucently behind opaque interior hardware',()=>{

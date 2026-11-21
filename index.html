@@ -8,8 +8,10 @@
   <link rel="stylesheet" href="./consumer.css">
   <link rel="stylesheet" href="./consumer-account.css">
   <link rel="stylesheet" href="./consumer-entry.css">
+  <link rel="stylesheet" href="./consumer-design-images.css">
   <link rel="stylesheet" href="./consumer-workspace.css">
   <link rel="stylesheet" href="./consumer-viewer.css">
+  <link rel="stylesheet" href="./consumer-gallery.css">
 </head>
 <body>
   <header class="header">
@@ -46,17 +48,20 @@
         <div id="entry-notice" role="status" aria-live="polite"></div>
       </div></div>
       <section class="entry-examples" aria-labelledby="examples-heading">
-          <h2 id="examples-heading">示例项目</h2>
+          <h2 id="examples-heading">精选与示例</h2>
           <div class="example-grid">
             <button id="fist-example" type="button" class="example-card" aria-label="碰拳装置示例">
               <span class="example-cover fist-cover"><img src="./assets/ui/fist.webp" alt="" width="960" height="600"></span>
               <span class="example-caption"><span><strong>桌面碰拳装置</strong><small>垂直升起，轻碰回落</small></span><span aria-hidden="true" class="card-arrow">↗</span></span>
+              <span class="gallery-meta"><span>示例</span><span>仅 CAD 已核验 · 未实物验证</span></span>
             </button>
             <button id="sample" type="button" class="example-card" aria-label="状态灯示例">
               <span class="example-cover status-cover"><img src="./assets/ui/status.webp" alt="" width="960" height="600"></span>
               <span class="example-caption"><span><strong>桌面专注状态灯</strong><small>一键切换红绿灯</small></span><span aria-hidden="true" class="card-arrow">↗</span></span>
+              <span class="gallery-meta"><span>示例</span><span>参考布局 · 未实物验证</span></span>
             </button>
           </div>
+          <div id="studio-gallery" class="example-grid gallery-grid" aria-label="工作室精选" hidden></div>
       </section>
     </section>
     <section id="project" hidden aria-label="设计结果"></section>

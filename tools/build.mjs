@@ -3,7 +3,7 @@ import {execFileSync} from 'node:child_process';
 import {resolve} from 'node:path';
 import { mkdir,readdir,cp,rm,writeFile,readFile } from 'node:fs/promises';
 await rm('dist',{recursive:true,force:true});await mkdir('dist');
-for(const page of ['workbench.html','consumer.js','consumer.css','consumer-account.css','consumer-entry.css','consumer-workspace.css','consumer-viewer.css','workbench-ui.css','consumer-account.js','consumer-cad.js','consumer-geometry.js','forge-source.js','native-features.js','cad-plan.js','cad-plan-compiler.js','cad-worker.js','consumer-service.js'])await cp(page,'dist/'+page);
+for(const page of ['workbench.html','consumer.js','consumer.css','consumer-account.css','consumer-gallery.css','consumer-gallery.js','consumer-design-images.css','consumer-design-images.js','consumer-entry.css','consumer-workspace.css','consumer-viewer.css','workbench-ui.css','consumer-account.js','consumer-cad.js','consumer-geometry.js','forge-source.js','native-features.js','cad-plan.js','cad-plan-compiler.js','cad-worker.js','consumer-service.js'])await cp(page,'dist/'+page);
 await cp('assets/ui','dist/assets/ui',{recursive:true});
 await cp('assets/manifold-3d','dist/assets/manifold-3d',{recursive:true});
 await cp('server/skills/interaction-hardware','dist/skills/interaction-hardware',{recursive:true});

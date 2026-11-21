@@ -1,12 +1,30 @@
 import {validateCadPlan} from '../cad-plan.js';
 
-export const maxDesignRequestBytes=1_048_576;
+export const maxDesignRequestBytes=2*1024*1024;
 const encoder=new TextEncoder();
 const isObject=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const nonempty=(value,max)=>typeof value==='string'&&value.trim().length>0&&value.length<=max;
 
 export class DesignInputError extends Error{
  constructor(message,status=400){super(message);this.status=status;}
+}
+
+function readImages(images=[]){
+ if(!Array.isArray(images)||images.length>3)throw new DesignInputError('最多可附三张参考照片。');
+ return images.map(image=>{
+  const url=image?.dataUrl;
+  if(typeof url!=='string'||url.length>Math.ceil(256*1024/3)*4+30)
+   throw new DesignInputError('每张参考照片压缩后须小于 256 KB。');
+  const match=/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(url);
+  if(!match||match[2].length%4!==0)throw new DesignInputError('参考照片须为 JPEG、PNG 或 WebP 图片数据。');
+  const encoded=match[2],padding=encoded.endsWith('==')?2:encoded.endsWith('=')?1:0;
+  if(encoded.length*3/4-padding>256*1024)throw new DesignInputError('每张参考照片压缩后须小于 256 KB。');
+  const head=atob(match[2].slice(0,24));
+  const valid=match[1]==='jpeg'?head.startsWith('\xff\xd8\xff'):
+   match[1]==='png'?head.startsWith('\x89PNG\r\n\x1a\n'):head.startsWith('RIFF')&&head.slice(8,12)==='WEBP';
+  if(!valid)throw new DesignInputError('参考照片的文件格式与内容不一致。');
+  return {dataUrl:url};
+ });
 }
 
 function previousDesign(raw){
@@ -29,6 +47,7 @@ function previousDesign(raw){
    result.sizeMm=part.sizeMm;
   }
   if(part.modelSourceInvalidated===true)result.modelSourceInvalidated=true;
+  if(nonempty(part.mechanicalEvidenceReceipt,8192))result.mechanicalEvidenceReceipt=part.mechanicalEvidenceReceipt;
   return result;
  });
  const base={name:raw.name,summary:raw.summary,parts,steps:raw.steps};
@@ -60,7 +79,7 @@ export async function readDesignRequest(request){
   throw new DesignInputError('讨论记录超过本次请求上限。',413);
  if(!Number.isInteger(discussionStart)||discussionStart<0||discussionStart>history.length)
   throw new DesignInputError('本轮讨论的起始位置无效。');
- return {action,prompt:prompt.trim(),history,discussionStart,baseDesign:body.baseDesign==null?null:previousDesign(body.baseDesign)};
+ return {action,prompt:prompt.trim(),history,discussionStart,images:readImages(body.images),baseDesign:body.baseDesign==null?null:previousDesign(body.baseDesign)};
 }
 
 export const ready=()=>({decision:'ready',question:'',options:[]});
@@ -72,11 +91,22 @@ export const discussionInstructions=`你是与用户共同设计可触摸硬件�
 只有两种都合理、但会明显改变用户如何使用或体验成品的方向尚未确定时，才返回 ask。用自然中文只问一个普通使用者能回答的问题，可以给 0–3 个简短、彼此不同的具体选项，也允许自由回答。不要让使用者选电机型号、接线、制造流程。不要重问已回答或用户已交由你决定的问题。用户已经说清动作、交互方式或修改目标，或者希望先按目前设想试做时，返回 ready，question 留空，options 为空数组。这个阶段只讨论影响体验的选择。`;
 export const revisionInstructions=`这是一项连续设计任务。按原始需求和历次讨论理解目标，后来明确的用户意见优先。助手提出的备选项并不代表用户已经选择。若给出 baseDesign，以上一版完整 BOM、实体、运动关系、毫米尺寸和装配位置为起点。对于局部修改，保留无关零件的型号、尺寸、位置、特征和顺序，仅更新相关实体和必要的关联部件；增删零件后校正所有 BOM/body 索引。modelSourceInvalidated=true 代表原有尺寸或型号后来变更，按当前值重新确定该件的 CAD。始终返回一份完整、相互一致的新版设计。用户给出的尺寸可引用原始需求或后续用户发言。`;
 
-export function modelInput({prompt,history,discussionStart,baseDesign,action}){
- if(!history.length&&!baseDesign)return prompt;
+export const photoInstructions='用户附上产品或标尺照片。用照片辨认外形、接口位置、安装朝向和相对比例。只有看得清刻度、测量平面且无明显透视误差时才可作粗略尺寸参考，并标为估算。仅将用户明确提供的尺寸作为指定尺寸。隐藏面、深度和公差没有依据时，在必要处询问或标明待核对。';
+export function modelInput({prompt,history,discussionStart,baseDesign,action,images=[]}){
  let base=baseDesign;
  if(base&&action==='discuss')base={name:base.name,summary:base.summary,parts:base.parts.map(({name,purpose,qty})=>({name,purpose,qty}))};
- return JSON.stringify({prompt,conversation:history,discussionStart,...(base?{baseDesign:base}:{})});
+ else if(base)base={...base,parts:base.parts.map(part=>{
+  const {mechanicalEvidenceReceipt,...data}=part;
+  // Manufacturer claims in a client-owned project are reintroduced through
+  // validated evidence. The drawing and its existing design dimensions remain usable.
+  if(data.dimensionSource==='datasheet'||(data.dimensionSource==='estimated'&&data.dimensionSourceUrl)){
+   data.dimensionSource='estimated';delete data.dimensionSourceUrl;delete data.dimensionNote;
+  }
+  return data;
+ })};
+ const text=!history.length&&!base?prompt:JSON.stringify({prompt,conversation:history,discussionStart,...(base?{baseDesign:base}:{})});
+ if(!images.length)return text;
+ return [{role:'user',content:[{type:'input_text',text},...images.map(({dataUrl})=>({type:'input_image',image_url:dataUrl,detail:'high'}))]}];
 }
 
 export function readDecision(value){

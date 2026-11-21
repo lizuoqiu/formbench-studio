@@ -11,8 +11,12 @@ export async function modelingGuide(env={}){
   projectSkill=await response.text();
  }else projectSkill=await readFile(new URL(projectSkillPath,import.meta.url),'utf8');
  if(!projectSkill.startsWith('---\nname: interaction-hardware\n'))throw Error('Invalid interaction design skill');
+ const frontmatter=projectSkill.split('\n---\n',1)[0];
+ const projectRevision=/^revision: ([\w.-]+)$/m.exec(frontmatter)?.[1];
+ if(!projectRevision)throw Error('Missing interaction design skill revision');
  return {
-  skill:{name:'ForgeCAD · 官方建模指导',revision:vendor.revision,sourceUrl:vendor.sourceUrl},
+  skill:{name:'ForgeCAD · 官方建模指导',revision:vendor.revision,sourceUrl:vendor.sourceUrl,
+   project:{name:'interaction-hardware',revision:projectRevision,sourcePath:projectSkillPath}},
   text:vendor.text+'\n\n工作台通过受限的结构化几何接口实现上述设计。遵循本项目的交互与装配规范。\n'+projectSkill
  };
 }

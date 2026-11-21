@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "projects": [
+    {
+      "slug": "hygrometer",
+      "title": "桌面温湿度计",
+      "summary": "USB 供电的桌面温湿度计，面板同时显示温度和湿度，外置探头接触室内空气。",
+      "source": "studio",
+      "preview": "hygrometer/v1.webp",
+      "previewKind": "cad",
+      "versions": [
+        {
+          "version": 1,
+          "label": "初版",
+          "design": "hygrometer/v1.json",
+          "cad": "hygrometer/v1-cad.json",
+          "preview": "hygrometer/v1.webp",
+          "previewKind": "cad",
+          "prompt": "我想在书桌上放一个小温湿度计，一眼能读到室温和湿度。插 USB 供电，不用手机、不联网，桌上安静就好。希望它有个能立起来的外壳。",
+          "verification": {
+            "cad": "checked",
+            "physical": "not-tested",
+            "note": "3 个下载实体两两未检出体积干涉。表头与探头按待选套件估形，采购及实物尺寸仍需核对。"
+          }
+        }
+      ]
+    },
+    {
+      "slug": "usb-timekey",
+      "title": "显示器夹式计时键",
+      "summary": "夹在显示器上的 USB 计时键。短按把经过的分钟数输入电脑，长按重设计时起点。",
+      "source": "studio",
+      "preview": "usb-timekey/v1.webp",
+      "previewKind": "cad",
+      "versions": [
+        {
+          "version": 1,
+          "label": "初版",
+          "design": "usb-timekey/v1.json",
+          "cad": "usb-timekey/v1-cad.json",
+          "preview": "usb-timekey/v1.webp",
+          "previewKind": "cad",
+          "prompt": "我想做一个夹在显示器边上的小工具。用 USB 接电脑，短按实体按钮，会把距离上次短按过了多少分钟输入到光标所在的位置，并换行；长按两秒只清零，不输入。每次记录成功闪一下小灯，安静运行，不装电脑软件。",
+          "verification": {
+            "cad": "checked",
+            "physical": "not-tested",
+            "note": "7 个下载实体两两未检出体积干涉。已核对控制板、USB-C 侧窗与按钮安装孔。尚未实测夹持力和按键。"
+          }
+        }
+      ]
+    },
+    {
+      "slug": "photo-cover",
+      "title": "底座可拆薄盖",
+      "summary": "按已有底座的参考图设计可拆薄盖，在盖上保留左右安装孔和左侧出线槽。",
+      "source": "studio",
+      "preview": "photo-cover/v1.webp",
+      "previewKind": "cad",
+      "versions": [
+        {
+          "version": 1,
+          "label": "按参考图建模",
+          "design": "photo-cover/v1.json",
+          "cad": "photo-cover/v1-cad.json",
+          "preview": "photo-cover/v1.webp",
+          "previewKind": "cad",
+          "referenceImage": "photo-cover/base-reference.png",
+          "prompt": "请为附图中的已有小底座做一片可拆的薄盖。沿用图中安装孔固定，让原有出线方向保持畅通；请把安装孔和边缘的出线缺口直接做到盖子里。未标注处可自行选择合理的打印尺寸与配合余量。只需要薄盖与适合的固定件，可以直接生成。",
+          "verification": {
+            "cad": "checked",
+            "physical": "not-tested",
+            "note": "薄盖两个安装孔的中心距为 37.4 mm，与参考图一致。左侧出线槽直接连通外缘。两个螺钉采用装配包络，螺纹和紧固效果尚未验证。"
+          }
+        }
+      ]
+    },
+    {
+      "slug": "reading-timer",
+      "title": "书架夹装阅读计时器",
+      "summary": "从安静的桌面计时器，逐版调整离线显示与旋钮，再改为 18 mm 书架夹装，最后修订编码器安装间隙。",
+      "source": "studio",
+      "preview": "reading-timer/v4.webp",
+      "previewKind": "cad",
+      "versions": [
+        {
+          "version": 1,
+          "label": "初版",
+          "design": "reading-timer/v1.json",
+          "cad": "reading-timer/v1-cad.json",
+          "preview": "reading-timer/v1.webp",
+          "previewKind": "cad",
+          "prompt": "我想做一个摆在桌上的阅读计时器，读书时一眼能看出时间到了，安静一点。",
+          "verification": {
+            "cad": "checked",
+            "physical": "not-tested",
+            "note": "顶部的透光件和按键均露出，灯板距扩散片 7.7 mm。8 个导出实体两两未检出超过 0.001 mm³ 的交叠。"
+          }
+        },
+        {
+          "version": 2,
+          "label": "离线分钟显示",
+          "design": "reading-timer/v2.json",
+          "cad": "reading-timer/v2-cad.json",
+          "preview": "reading-timer/v2.webp",
+          "previewKind": "cad",
+          "prompt": "我想离线用，USB供电，正面要看得见剩余分钟，旋钮每格调整5分钟，按一下开始或暂停，到时让灯慢慢呼吸，别响。",
+          "verification": {
+            "cad": "checked",
+            "physical": "not-tested",
+            "note": "前窗可见显示面，顶部可操作旋钮。9 个实体中，顶盖与编码器约有 6.3 mm³ 交叠，需复核装配。固件尚未烧录验证。"
+          }
+        },
+        {
+          "version": 3,
+          "label": "18 mm 书架夹装",
+          "design": "reading-timer/v3.json",
+          "cad": "reading-timer/v3-cad.json",
+          "preview": "reading-timer/v3.webp",
+          "previewKind": "cad",
+          "prompt": "把它改成适合放在书架隔板前沿的夹装版，我的隔板18毫米厚；读数和操作都朝前，USB线从右侧引出，我还想能打开后盖维护。保留上一版的计时操作。",
+          "verification": {
+            "cad": "checked",
+            "physical": "not-tested",
+            "note": "18 mm 量规插入 34 mm 时两侧各压软垫 0.2 mm。正面显示和操作、右侧 USB 路径均已核对。后盖沿退出方向前 12 mm 未检出体积碰撞。前壳与编码器仍有 6.3 mm³ 交叠，夹力和固件未实测。"
+          }
+        },
+        {
+          "version": 4,
+          "label": "修订编码器安装位",
+          "design": "reading-timer/v4.json",
+          "cad": "reading-timer/v4-cad.json",
+          "preview": "reading-timer/v4.webp",
+          "previewKind": "cad",
+          "prompt": "前一版的装配检查发现旋钮编码器固定座和前壳有约 0.05 毫米的实体重叠。请把安装位改成留有小间隙、能压到底并回弹的做法，保留螺母的夹持面。其余布局、采购型号和依据尽量沿用，包括可夹 18 毫米隔板、正面读数和操作、右侧 USB 及可拆的后盖。",
+          "verification": {
+            "cad": "checked",
+            "physical": "not-tested",
+            "note": "13 个实体的 78 对静态组合均未检出超过 0.001 mm³ 的交叠。固定座距前壳 0.30 mm，压入旋钮轴帽 2.45 mm 时未碰撞，2.50 mm 时碰轴套。18 mm 夹口和可拆后盖已核对。实物回弹待测，OLED 尺寸来源链接待补。"
+          }
+        }
+      ]
+    }
+  ]
+}

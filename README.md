@@ -2,6 +2,12 @@
 
 [打开用户端](https://lizuoqiu.github.io/formbench-studio/)。输入需求即可生成零件清单和按尺寸计算的外壳概念 CAD。结果页支持开盖、修改零件尺寸、导出底壳和上盖 STL、查看有来源的淘宝商品候选及按型号搜索。默认首页面向采购者，工程与装配工具仍可从[工程工作台](https://lizuoqiu.github.io/formbench-studio/workbench.html#overview)打开。
 
+## 分享项目与建模依据
+
+首页的「工作室精选」可以直接打开某一版设计、查看 BOM 与装配、下载 CAD，也可以保存个人副本继续修改。[打开阅读计时器](https://lizuoqiu.github.io/formbench-studio/?share=reading-timer)。
+
+新建和修改设计共用 [硬件建模 skill](server/skills/interaction-hardware/SKILL.md)。它按具体型号和版本匹配参考 CAD，结合供应商提供的机械尺寸、用户指定尺寸和可选参考图生成独立零件，并把它们放到装配坐标中。模型响应记录所用的 skill 版本。结果页的「零件与尺寸依据」可以查看采购件采用的资料、估算范围和安装位置。每个分享版本的核验说明记录实际检查过的内容。
+
 ## 在本机运行
 
 使用 Node 22.13 或更新版本和 zip。Windows 构建使用 PowerShell。

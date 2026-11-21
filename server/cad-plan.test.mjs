@@ -33,6 +33,12 @@ test('the Worker reads exactly the same maintained interaction skill that local 
  }}});
  assert.ok(local.text.endsWith(skill));
  assert.equal(worker.text,local.text);
+ assert.deepEqual(worker.skill.project,local.skill.project);
+ assert.equal(local.skill.project.name,'interaction-hardware');
+ assert.equal(local.skill.project.sourcePath,'skills/interaction-hardware/SKILL.md');
+ assert.ok(skill.split('\n---\n',1)[0].includes('revision: '+local.skill.project.revision));
+ assert.equal(generation('openai-api','test-model','response',local.skill).skill.project.revision,local.skill.project.revision);
  assert.ok(skill.includes('movingBodyIndices')&&skill.includes('收回')&&skill.includes('placement=mounted'));
  await assert.rejects(modelingGuide({ASSETS:{fetch:async()=>new Response('<html>SPA fallback</html>')}}));
+ await assert.rejects(modelingGuide({ASSETS:{fetch:async()=>new Response(skill.replace(/^revision: .+\n/m,''))}}),/revision/);
 });

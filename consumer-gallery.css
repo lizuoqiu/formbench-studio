@@ -1,0 +1,27 @@
+.gallery-grid{margin-top:16px}
+.gallery-card{text-decoration:none}
+.gallery-card .example-caption small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:330px}
+.gallery-card .example-caption>span:first-child{min-width:0}
+.gallery-meta{display:flex;flex-wrap:wrap;gap:4px 10px;padding:0 14px 12px;font-size:11px;color:#6b7684}
+.gallery-meta>span:first-child{color:#385a82}
+.gallery-placeholder{height:100%;display:grid;place-items:center;font-size:14px;color:#708196}
+.shared-project-bar{margin:-4px 0 20px;padding:12px 14px;border:1px solid #dce3eb;background:#f7f9fc;border-radius:9px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
+.shared-project-context{display:flex;flex-wrap:wrap;gap:5px 12px;align-items:center;font-size:12px;color:#667386}
+.shared-project-context b{color:#30537d;font-weight:600}
+.shared-project-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px;color:#5c6673}
+.shared-project-controls select{padding:5px 8px;background:white;border:1px solid #d2dae5;border-radius:5px;color:#37465a;font-size:12px}
+.shared-verification-note{flex-basis:100%;font-size:12px;color:#677386;line-height:1.6;margin:0}
+.shared-reference-image{font-size:12px;color:#2c5a91;text-underline-offset:3px}
+.shared-edit-note{font-size:13px;line-height:1.7;color:#647084}
+#project[data-shared=true] .part .edit,#project[data-shared=true] .part-check,#project[data-shared=true] #shopping-cart,#project[data-shared=true] [data-pick],#project[data-shared=true] .product-select{display:none}
+.project-actions{flex-wrap:wrap}
+.project-share-dialog{width:min(520px,calc(100% - 32px));padding:22px;border:1px solid #d7dfe9;border-radius:12px;color:#25364a;box-shadow:0 20px 80px #15263730}
+.project-share-dialog::backdrop{background:#18233466}
+.project-share-dialog header{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.project-share-dialog h2{font-size:19px;margin:0}
+.project-share-dialog p,.project-share-dialog label{font-size:13px;line-height:1.7;color:#5e6d80}
+.project-share-dialog label{display:block;margin-bottom:5px}
+.project-share-dialog input{width:100%;padding:9px 10px;border:1px solid #cbd6e4;border-radius:6px;font-size:13px;background:#f6f8fc;color:#2e4d75}
+.share-dialog-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:14px;font-size:12px;color:#5e6d80}
+.share-dialog-actions .primary{padding:7px 13px;font-size:13px}
+@media(max-width:700px){.gallery-meta{padding:0 10px 10px;font-size:10px;gap:3px 7px}.shared-project-bar{align-items:flex-start}.shared-project-controls{width:100%;gap:6px}.gallery-card .example-caption small{max-width:100%}.shared-project-controls .small-button{padding:5px 8px;font-size:12px}}

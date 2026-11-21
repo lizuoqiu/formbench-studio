@@ -36,7 +36,7 @@ function helperPresent(){
 export async function serviceCapabilities(){
   const fallback=capabilityFallback();
   const [ext,d]=await Promise.all([helperPresent(),isPages()?null:call('capabilities').catch(()=>null)]);
-  return {...fallback,...(d?.cadEngine==='forgecad'?{cadEngine:'forgecad'}:{}),ai:d?.ai===true,...(d?.ai===true&&text(d.aiModel,180)?{aiModel:text(d.aiModel,180)}:{}),...(['local-codex','openai-api'].includes(d?.aiProvider)?{aiProvider:d.aiProvider}:{}),catalog:d?.catalog===true,cart:ext?'browser':d?.cart==='official'?'official':'manual'};
+  return {...fallback,...(d?.cadEngine==='forgecad'?{cadEngine:'forgecad'}:{}),ai:d?.ai===true,...(d?.ai===true&&d.aiProvider==='openai-api'&&d.designImages===true?{designImages:true}:{}),...(d?.ai===true&&text(d.aiModel,180)?{aiModel:text(d.aiModel,180)}:{}),...(['local-codex','openai-api'].includes(d?.aiProvider)?{aiProvider:d.aiProvider}:{}),catalog:d?.catalog===true,cart:ext?'browser':d?.cart==='official'?'official':'manual'};
 }
 
 const sampleRows=[
@@ -56,16 +56,27 @@ const size=v=>Array.isArray(v)&&v.length===3&&v.every(x=>Number.isFinite(x)&&x>0
 function citationUrl(value){
   try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)&&!u.username&&!u.password?u.href:'';}catch{return '';}
 }
+function partReference(raw){
+  if(!raw||!['datasheet-approximation','envelope-approximation'].includes(raw.kind))return null;
+  const sourceUrl=citationUrl(raw.sourceUrl),cadUrl=citationUrl(raw.cadUrl);
+  if(!sourceUrl&&!cadUrl)return null;
+  return {kind:raw.kind,detail:text(raw.detail,1200),sourceUrl,
+    ...(cadUrl?{cadUrl}:{}),...(raw.sourceQuote?{sourceQuote:text(raw.sourceQuote,500)}:{})};
+}
 function designPart(raw){
   if(!raw||!text(raw.name,200)||!Number.isInteger(raw.qty)||raw.qty<1||raw.qty>999)throw Error('设计中的零件名称或数量无效，请重新生成。');
   const sizeMm=size(raw.sizeMm),ref=raw.dimensionSource==='catalog'&&Object.hasOwn(models,raw.modelId)?raw.modelId:undefined;
   // Server checks the part/variant and the original user-specified dimensions.
   // An omitted modelId is intentional; a name-only match can bind the wrong purchase.
-  const dimensionSource=sizeMm&&raw.dimensionSource==='specified'?'specified':sizeMm&&ref?'catalog':'estimated';
+  const reference=partReference(raw.geometryReference);
   const sourceUrl=citationUrl(raw.dimensionSourceUrl||raw.sourceUrl);
+  const dimensionSource=sizeMm&&raw.dimensionSource==='specified'?'specified':sizeMm&&ref?'catalog':
+    sizeMm&&raw.dimensionSource==='datasheet'&&reference?.kind==='datasheet-approximation'&&sourceUrl?'datasheet':'estimated';
   return {name:text(raw.name,200),spec:text(raw.spec,800),qty:raw.qty,model:text(raw.model,240)||'待选型',
     ...(ref&&dimensionSource==='catalog'?{modelId:ref}:{}),sizeMm,dimensionSource,
     dimensionNote:text(raw.dimensionNote,900),dimensionSourceUrl:sourceUrl,sourceUrl,
+    ...(reference?{geometryReference:reference}:{}),
+    ...(typeof raw.mechanicalEvidenceReceipt==='string'&&raw.mechanicalEvidenceReceipt.length<=8192?{mechanicalEvidenceReceipt:raw.mechanicalEvidenceReceipt}:{}),
     ...(['internal','panel','external','enclosure'].includes(raw.role)?{role:raw.role}:{}),
     ...(['mounted','loose'].includes(raw.placement)?{placement:raw.placement}:{}),
     ...(raw.dimensionQuote?{dimensionQuote:text(raw.dimensionQuote,500)}:{}),
@@ -74,8 +85,17 @@ function designPart(raw){
 function normalizeDesign(d){
   if(!text(d?.name,200)||!Array.isArray(d.parts)||!d.parts.length||d.parts.length>60)throw Error('没有收到有效的硬件方案，请重新生成。');
   const g=d.generation;
-  const generation=g&&['openai-api','local-codex'].includes(g.provider)?{provider:g.provider,modelId:text(g.modelId,200)||null,modelSource:['response','configured'].includes(g.modelSource)?g.modelSource:'undisclosed',...(g.skill?.name?{skill:{name:text(g.skill.name,200),revision:text(g.skill.revision,150),sourceUrl:citationUrl(g.skill.sourceUrl)}}:{})}:undefined;
-  return {...(generation?{generation}:{}),...(d.cadPlan?{cadPlan:d.cadPlan}:{}),...(d.deviceMotion?{deviceMotion:d.deviceMotion}:{}),name:text(d.name,200),summary:text(d.summary,5000),steps:(Array.isArray(d.steps)?d.steps:[]).map(s=>text(s,900)).filter(Boolean),parts:d.parts.map(designPart)};
+  const project=g?.skill?.project;
+  const skill=g?.skill?.name?{name:text(g.skill.name,200),revision:text(g.skill.revision,150),sourceUrl:citationUrl(g.skill.sourceUrl),
+    ...(project?.name==='interaction-hardware'&&text(project.revision,150)?{project:{name:project.name,revision:text(project.revision,150),sourcePath:'skills/interaction-hardware/SKILL.md'}}:{})}:null;
+  const generation=g&&['openai-api','local-codex'].includes(g.provider)?{provider:g.provider,modelId:text(g.modelId,200)||null,modelSource:['response','configured'].includes(g.modelSource)?g.modelSource:'undisclosed',...(skill?{skill}:{})}:undefined;
+  const research=g?.mechanicalResearch;
+  if(generation&&['searched','no-candidates','unavailable'].includes(research?.status)&&
+    Number.isInteger(research.requested)&&research.requested>=0&&Number.isInteger(research.found)&&research.found>=0&&research.found<=research.requested){
+    generation.mechanicalResearch={status:research.status,requested:research.requested,found:research.found,
+      ...(Number.isInteger(research.inherited)&&research.inherited>0?{inherited:research.inherited}:{})};
+  }
+  return {...(generation?{generation}:{}),...(d.cadPlan?{cadPlan:d.cadPlan}:{}),...(d.deviceMotion?{deviceMotion:d.deviceMotion}:{}),name:text(d.name,200),summary:text(d.summary,5000),steps:(Array.isArray(d.steps)?d.steps:[]).map(s=>text(s,2000)).filter(Boolean),parts:d.parts.map(designPart)};
 }
 export async function discussDesign(context,signal){
   const data=await call('design',{...context,action:'discuss'},signal);

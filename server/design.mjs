@@ -1,7 +1,8 @@
 import {validateCadPlan,cadPlanSchema} from './cad-plan.mjs';
 import {modelingGuide,generation} from './modeling-guide.mjs';
-import {DesignInputError,readDesignRequest,modelInput,ready,readDecision,discussionSchema,discussionInstructions,revisionInstructions} from './design-conversation.mjs';
+import {DesignInputError,readDesignRequest,modelInput,photoInstructions,ready,readDecision,discussionSchema,discussionInstructions,revisionInstructions} from './design-conversation.mjs';
 import {referenceIds,catalogInstructions,designReference,alignCatalogAnchors} from './design-references.mjs';
+import {sourceMechanicalEvidence,evidenceInstructions,withMechanicalEvidence,attachMechanicalEvidence} from './design-evidence.mjs';
 const string={type:'string'},obj=properties=>({type:'object',additionalProperties:false,properties,required:Object.keys(properties)}),array=items=>({type:'array',items});
 const role=['internal','external','panel','enclosure'];
 const deviceMotion=['stationary','powered-linear','other'];
@@ -115,10 +116,16 @@ export async function design(request,env,send=fetch){const reply=(body,status=20
   const currentTurns=ctx.baseDesign?ctx.history.slice(ctx.discussionStart).filter(turn=>turn.role==='user').map(turn=>turn.text):userMessages;
   const strokeDirection=requestedStrokeDirection(currentTurns.length?currentTurns:[ctx.prompt]);
   const axisNote=strokeDirection?'本轮用户指定所述部件'+strokeAxes[strokeDirection].label+'。按装配世界坐标布置机构和回程。':'';
-  const designInstructions=[instructions,...(ctx.history.length||ctx.baseDesign?[revisionInstructions]:[]),axisNote,guide?.text].join('\n');
-  const input={model:env.OPENAI_MODEL,store:false,instructions:discussing?discussionInstructions:designInstructions,input:modelInput(ctx),
+  const evidence=discussing?{candidates:[],records:[]}:await sourceMechanicalEvidence(ctx,env,send,signal);
+  const designInstructions=[instructions,...(ctx.history.length||ctx.baseDesign?[revisionInstructions]:[]),axisNote,evidenceInstructions,guide?.text].join('\n');
+  const input={model:env.OPENAI_MODEL,store:false,instructions:(discussing?discussionInstructions:designInstructions)+(ctx.images.length?'\n'+photoInstructions:''),input:withMechanicalEvidence(modelInput(ctx),evidence),
    text:{format:{type:'json_schema',name:discussing?'hardware_clarification':'hardware_design',strict:true,schema:discussing?discussionSchema:schema}}};
   const r=await send('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify(input),signal});
+  if(!r.ok&&ctx.images.length&&[400,415,422].includes(r.status)){
+   const failure=await r.clone().json().catch(()=>null);
+   if(/image|vision|multimodal/i.test(String(failure?.error?.message||'')+' '+String(failure?.error?.code||'')))
+    return reply({error:'当前模型未能处理这组照片。请更换支持图片的模型，或移除照片后重试。'},502);
+  }
   if(!r.ok)return reply({error:`模型服务返回 ${r.status}，未能生成方案。`},502);
   const data=await r.json();
   if(data.status!=='completed'){
@@ -129,8 +136,11 @@ export async function design(request,env,send=fetch){const reply=(body,status=20
   const value=JSON.parse(txt);
   if(discussing)return reply(readDecision(value));
   const changingPoweredStroke=Boolean(strokeDirection)&&ctx.baseDesign?.cadPlan?.motions?.length===1;
-  const result=normalizeDesign(value,userMessages.join('\n'),userMessages.at(-1),strokeDirection,changingPoweredStroke);
-  return reply({design:{...result,generation:generation('openai-api',data.model??env.OPENAI_MODEL,data.model?'response':'configured',guide.skill)}});
+  const result=await attachMechanicalEvidence(normalizeDesign(value,userMessages.join('\n'),userMessages.at(-1),strokeDirection,changingPoweredStroke),evidence.records,env.OPENAI_API_KEY);
+  const provenance=generation('openai-api',data.model??env.OPENAI_MODEL,data.model?'response':'configured',guide.skill);
+  provenance.mechanicalResearch={status:evidence.status,requested:evidence.candidates.length,found:evidence.found,
+   ...(evidence.inherited?{inherited:evidence.inherited}:{})};
+  return reply({design:{...result,generation:provenance}});
  }catch(error){
   if(error instanceof DesignInputError)return reply({error:error.message},error.status);
   if(timeout.aborted||error.name==='TimeoutError')return reply({error:'模型生成超过 5 分钟，请重试。'},504);

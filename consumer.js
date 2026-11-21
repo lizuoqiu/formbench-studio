@@ -2,10 +2,12 @@ import {discussDesign,generateDesign,findProducts,pickProduct,makeCart,serviceCa
 import {mountConsumerAccount,saveConsumerProject,readConsumerProject} from './consumer-account.js';
 import {currentCadPlan,mountConsumerCad} from './consumer-cad.js';
 import {editableForgeSource} from './forge-source.js';
+import {photoPicker,versionImages} from './consumer-design-images.js';
+import {loadSharedProject,mountGallery,shareLink,sharedProjectBar,showShareDialog} from './consumer-gallery.js';
 const $=s=>document.querySelector(s),entry=$('#entry'),project=$('#project');
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const modelText=p=>[p.model,p.spec].filter(x=>typeof x==='string'&&x.trim()).filter((v,i,a)=>a.indexOf(v)===i).join(' · ');
-const sourceText=s=>({catalog:'参考模型',estimated:'设计估算',specified:'已指定尺寸'}[s]||'尚未指定');
+const sourceText=s=>({catalog:'参考模型',datasheet:'型号资料尺寸',estimated:'设计估算',specified:'已指定尺寸'}[s]||'尚未指定');
 const safeUrl=v=>{try{const u=new URL(v);return u.protocol==='https:'||u.protocol==='http:'?u:null}catch{return null}};
 const market=v=>{const u=safeUrl(v);return u?.protocol==='https:'&&!u.username&&!u.password&&!u.port&&/(?:^|\.)(?:taobao|tmall)\.com$/i.test(u.hostname)?u:null};
 const productUrl=v=>{const u=market(v);return u&&/^(?:item\.taobao|detail\.tmall)\.com$/i.test(u.hostname)&&u.pathname==='/item.htm'&&u.searchParams.getAll('id').length===1&&u.searchParams.getAll('skuId').length<=1&&/^\d{1,25}$/.test(u.searchParams.get('id')||'')&&(!u.searchParams.has('skuId')||/^\d{1,25}$/.test(u.searchParams.get('skuId')))?u:null};
@@ -14,24 +16,30 @@ const shopLink=(u,label)=>`<a target="_blank" rel="noopener noreferrer" href="${
 const defaultSearch=p=>'https://s.taobao.com/search?q='+encodeURIComponent([p.name,p.model,p.spec].filter(x=>typeof x==='string').join(' '));
 let design=null,rows=[],generation=0,cadDispose=null,cartBusy=false,sample=false,caps={},cartVersion=0;
 let exampleAsset=null,projectId=null,projectPrompt='',saveSerial=0,accountEpoch=0,saveTail=Promise.resolve();
+let sharedProject=null,savedCadUrl=null,copyOrigin=null;
 const firstFistVersion='builtin:fist-bump:v1';
 const fistAsset=asset=>asset==='fist-bump'||asset==='fist-bump-v1';
 function syncExampleUrl(example='',version=null){
   const url=new URL(location.href);
+  const wasShared=url.searchParams.has('share');
+  url.searchParams.delete('share');
   if(example){
     url.searchParams.set('example',example);
     if(version!=null)url.searchParams.set('version',String(version));
     else url.searchParams.delete('version');
-  }else if(['fist','status'].includes(url.searchParams.get('example'))){
+  }else if(wasShared||['fist','status'].includes(url.searchParams.get('example'))){
     url.searchParams.delete('example');url.searchParams.delete('version');url.searchParams.delete('view');
-  }else return;
+  }
   history.replaceState(history.state,'',url);
 }
 let iteration={version:1,conversation:[]}, draft=null;
+const entryPhotos=photoPicker($('#intent'),'new-design-images',()=>caps);
+let revisionPhotos=null;
 function readIteration(record){
   const value=record.iteration;
   const conversation=Array.isArray(value?.conversation)?value.conversation.filter(t=>['assistant','user'].includes(t?.role)&&typeof t.text==='string'&&t.text.trim()):[];
   return {version:Number.isSafeInteger(value?.version)&&value.version>0?value.version:1,conversation,
+    ...(Number.isInteger(value?.imageCount)&&value.imageCount>0&&value.imageCount<=3?{imageCount:value.imageCount}:{}),
     ...(typeof value?.previousId==='string'?{previousId:value.previousId}:{})};
 }
 function revisionHistory(){
@@ -41,8 +49,8 @@ function revisionHistory(){
   return `<details class="iteration-history"><summary>设计记录</summary><ol>${original}${turns}</ol></details>`;
 }
 function remember(){
-  if(!design||!projectId)return;
-  const snap=structuredClone({id:projectId,prompt:projectPrompt,iteration,exampleAsset,design,selected:rows.map(r=>({included:r.included,candidate:selected(r),holdKey:r.holdKey||'',holdStatus:r.holdStatus||''}))});
+  if(!design||!projectId||sharedProject)return;
+  const snap=structuredClone({id:projectId,prompt:projectPrompt,iteration,exampleAsset,savedCadUrl,copyOrigin,design,selected:rows.map(r=>({included:r.included,candidate:selected(r),holdKey:r.holdKey||'',holdStatus:r.holdStatus||''}))});
   const epoch=accountEpoch,seq=++saveSerial;
   saveTail=saveTail.then(async()=>{if(epoch!==accountEpoch)return;try{await saveConsumerProject(snap)}catch{if(seq===saveSerial&&snap.id===projectId){const note=$('#save-status');if(note)note.textContent='项目暂未保存。'}}});
 }
@@ -63,8 +71,8 @@ function generationLabel(){
  const who={'local-codex':'本机 Codex','openai-api':'OpenAI API'}[caps.aiProvider]||'设计服务';
  return caps.aiModel?`${who} · 请求模型：${caps.aiModel}`:`${who} · 当前未公开模型名`;
 }
-const capabilitiesReady=serviceCapabilities().then(v=>{caps=v||{};const model=$('#selected-model');model.hidden=!caps.ai;model.textContent=caps.ai?generationLabel():'';if(!entry.hidden)capabilityHint();else if($('#buy')){rows.forEach((_,i)=>refreshRow(i));syncCart()}}).catch(()=>{});
-function showEntry(){stopDraft();syncExampleUrl();progress();projectId=null;projectPrompt='';design=null;generation++;cartVersion++;cartBusy=false;cadDispose?.();cadDispose=null;entry.hidden=false;project.hidden=true;project.replaceChildren();$('#back').hidden=true;$('#generate').disabled=false;$('#generate').textContent='生成设计';$('#sample').disabled=false;notice('#entry-notice');capabilityHint();window.scrollTo(0,0);$('#wish').focus()}
+const capabilitiesReady=serviceCapabilities().then(v=>{caps=v||{};entryPhotos.refresh();revisionPhotos?.refresh();const model=$('#selected-model');model.hidden=!caps.ai;model.textContent=caps.ai?generationLabel():'';if(!entry.hidden)capabilityHint();else if($('#buy')){rows.forEach((_,i)=>refreshRow(i));syncCart()}}).catch(()=>{});
+function showEntry(){stopDraft();entryPhotos.clear();revisionPhotos=null;syncExampleUrl();progress();projectId=null;projectPrompt='';design=null;sharedProject=null;savedCadUrl=null;copyOrigin=null;generation++;cartVersion++;cartBusy=false;cadDispose?.();cadDispose=null;entry.hidden=false;project.hidden=true;project.replaceChildren();$('#back').hidden=true;$('#generate').disabled=false;$('#generate').textContent='生成设计';$('#sample').disabled=false;notice('#entry-notice');capabilityHint();window.scrollTo(0,0);$('#wish').focus()}
 $('#back').onclick=()=>{showEntry();$('#wish').value=''};
 function progress(phase){
   const node=$('#entry-progress');node.hidden=!phase;$('#intent').setAttribute('aria-busy',String(!!phase));
@@ -82,10 +90,12 @@ function provenance(d){
   const url=safeUrl(g.skill?.sourceUrl);
   const label=g.skill?.name?esc(g.skill.name):'';
   const skill=label?(url?` · <a href="${esc(url.href)}" target="_blank" rel="noopener noreferrer" title="${esc(g.skill.revision||'建模指导来源')}">${label}</a>`:` · ${label}`):'';
-  return `<span class="model-stamp">${esc(path)} · ${esc(evidence)}${skill}</span>${g.reviewNote?`<details class="review-note"><summary>几何复核</summary><p>${esc(g.reviewNote)}</p></details>`:''}`;
+  const projectGuide=g.skill?.project?.name==='interaction-hardware'?` · 装配建模规范 ${esc(g.skill.project.revision)}`:'';
+  return `<span class="model-stamp">${esc(path)} · ${esc(evidence)}${skill}${projectGuide}</span>${g.reviewNote?`<details class="review-note"><summary>几何复核</summary><p>${esc(g.reviewNote)}</p></details>`:''}`;
 }
 function setDraftBusy(state,phase=''){
   const initial=state.mode==='new';
+  state.photoInput?.lock(!!draft);
   const field=$(initial?'#wish':'#revision-prompt');
   const submit=$(initial?'#generate':'#revise-design');
   if(field)field.readOnly=!!draft;
@@ -138,9 +148,11 @@ async function requestDraft(state,action){
   if(draft!==state||state.busy)return;
   state.busy=true;state.lastAction=action;
   const signal=state.controller.signal;
-  const context={prompt:state.prompt,conversation:state.conversation,discussionStart:state.discussionStart,...(state.baseDesign?{baseDesign:state.baseDesign}:{})};
   setDraftBusy(state,action==='discuss'?'discuss':'request');renderDiscussion(state);
   try{
+    state.images??=await state.photoInput?.selected()??[];
+    if(draft!==state)return;
+    const context={prompt:state.prompt,conversation:state.conversation,discussionStart:state.discussionStart,...(state.baseDesign?{baseDesign:state.baseDesign}:{}),...(state.images.length?{images:state.images}:{})};
     let d;
     if(action==='discuss'){
       const decision=await discussDesign(context,signal);
@@ -158,9 +170,9 @@ async function requestDraft(state,action){
       d=await generateDesign(state.prompt,{context,signal,onProgress:phase=>{if(draft===state)setDraftBusy(state,phase)}});
     }
     if(draft!==state)return;
-    const next={version:state.version,conversation:state.conversation,...(state.previousId?{previousId:state.previousId}:{})};
+    const next={version:state.version,conversation:state.conversation,...(state.images.length?{imageCount:state.images.length}:{}),...(state.previousId?{previousId:state.previousId}:{})};
     if(state.previousId&&sample)remember();
-    await showProject(d,false,{prompt:state.prompt,iteration:next});
+    await showProject(d,false,{prompt:state.prompt,iteration:next},state.images);
   }catch(error){
     if(draft!==state)return;
     state.busy=false;setDraftBusy(state);renderDiscussion(state,error?.message||'设计服务暂时无法连接。');
@@ -172,7 +184,7 @@ function startDraft(mode,prompt,feedback=''){
   const conversation=revision?structuredClone(iteration.conversation):[];
   const discussionStart=conversation.length;
   if(revision)conversation.push({role:'user',text:feedback});
-  const state={mode,prompt,conversation,discussionStart,version:revision?iteration.version+1:1,
+  const state={mode,prompt,conversation,discussionStart,photoInput:revision?revisionPhotos:entryPhotos,version:revision?iteration.version+1:1,
     baseDesign:revision?structuredClone({...design,summary:design.summary||design.name,steps:Array.isArray(design.steps)?design.steps:[]}):null,previousId:revision?projectId:null,
     controller:new AbortController(),panel:$(revision?'#revision-conversation':'#entry-conversation')};
   draft=state;requestDraft(state,'discuss');
@@ -209,6 +221,25 @@ async function openStatusExample(){
   catch(err){if(run===generation)notice('#entry-notice',err.message||'示例暂时无法打开。')}
 }
 $('#sample').onclick=openStatusExample;
+async function openSharedProject(slug,version=null){
+  stopDraft();const run=++generation;
+  notice('#entry-notice','正在打开分享项目…');
+  try{
+    const value=await loadSharedProject(slug,version);
+    if(run!==generation)return;
+    await showProject(value.design,true,value.record);
+    notice('#entry-notice');
+  }catch(error){
+    if(run!==generation)return;
+    if(project.hidden)notice('#entry-notice',error.message);
+    else {$('#save-status').textContent=error.message;if(sharedProject&&$('#shared-version'))$('#shared-version').value=String(sharedProject.selected.version)}
+  }
+}
+function publicProjectLink(){
+  if(sharedProject)return shareLink(sharedProject.entry.slug,sharedProject.selected.version);
+  if(exampleAsset&&!copyOrigin){const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('example',fistAsset(exampleAsset)?'fist':'status');url.searchParams.set('version',String(iteration.version));return url.href}
+  return null;
+}
 const measure=p=>Array.isArray(p.sizeMm)&&p.sizeMm.length===3&&p.sizeMm.every(x=>Number.isFinite(Number(x))&&Number(x)>0)?p.sizeMm.map(Number):null;
 const selected=r=>r.candidates[r.choice]||null;
 function disposeViewer(){try{cadDispose?.()}finally{cadDispose=null}}
@@ -248,7 +279,7 @@ function mount(){
     }catch{sourceButton.hidden=true}
   }
   const initialMode=new URLSearchParams(location.search).get('view')==='inside'?'inside':undefined;
-  try{onStatus({phase:'parts'});const cleanup=mountConsumerCad(target,design,{onStatus,initialMode,engine:caps.cadEngine,partsPanel:$('#model-components'),exampleAsset:fistAsset(exampleAsset)?exampleAsset:null});cadDispose=()=>{active=false;cleanup?.()}}
+  try{onStatus({phase:'parts'});const cleanup=mountConsumerCad(target,design,{onStatus,initialMode,engine:caps.cadEngine,partsPanel:$('#model-components'),exampleAsset:fistAsset(exampleAsset)?exampleAsset:null,savedCadUrl});cadDispose=()=>{active=false;cleanup?.()}}
   catch(error){onStatus({phase:'error',message:error?.message||'当前设备暂时无法显示三维预览。'});target.replaceChildren()}
 }
 function projectDescription(text){
@@ -267,13 +298,15 @@ function projectWorkspace(){
   ];
   const nav=tabs.map(([key,path,label])=>`<button type="button" id="view-${key}" data-project-view="${key}" aria-controls="project-${key}" aria-pressed="${key==='model'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>${label}${key==='parts'?`<span class="parts-count">${rows.length}</span>`:''}</button>`).join('');
   return `<div class="workspace-heading">
-    <div class="project-heading"><h1>${esc(design.name)}</h1><span class="project-version">${sample?'示例 · ':''}<span id="version-label">第 ${iteration.version} 版</span></span></div>
+    <div class="project-heading"><h1>${esc(design.name)}</h1><span class="project-version">${sharedProject?'':copyOrigin?'个人副本 · ':sample?'示例 · ':''}<span id="version-label">第 ${iteration.version} 版</span></span></div>
     <nav class="project-views" aria-label="项目视图">${nav}</nav>
     <div class="project-actions">
+      ${publicProjectLink()?'<button type="button" class="file-action" id="share-project">分享</button>':''}
       ${iteration.previousId?'<button id="previous-version" type="button" class="small-button">上一版</button>':''}
       <button type="button" class="file-action" id="download-forge" title="下载可编辑的整机结构和行程。采购件的可编辑模型或定位包络见下方 CAD 文件。" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg>ForgeCAD 源文件</button>
     </div>
   </div>
+  ${sharedProject?sharedProjectBar(sharedProject):exampleAsset&&!copyOrigin?`<section class="shared-project-bar" aria-label="示例来源"><div class="shared-project-context"><b>示例</b><span>${fistAsset(exampleAsset)?'仅 CAD 已核验':'参考布局'} · 未实物验证</span></div><button type="button" class="small-button" id="copy-project">创建个人副本</button></section>`:''}
   <small id="save-status" role="status"></small>
   <div class="project-layout">
     <div class="project-main">
@@ -295,7 +328,7 @@ function projectWorkspace(){
       <section class="project-brief"><h2>项目说明</h2>${projectDescription(design.summary)}
         <details class="project-origin"><summary>模型来源</summary>${provenance(design)}</details>
       </section>
-      <section class="revision-panel" aria-label="修改设计"><form id="revision-form"><label for="revision-prompt">修改设计</label>
+      <section class="revision-panel" aria-label="修改设计">${sharedProject?'<p class="shared-edit-note">这是固定分享版本。创建个人副本后，可以继续修改。</p>':''}<form id="revision-form" ${sharedProject?'hidden':''}><label for="revision-prompt">修改设计</label>
         <div class="revision-row"><textarea id="revision-prompt" maxlength="1800" rows="3" placeholder="想改哪里？比如把外壳做矮一点。"></textarea><button class="primary" type="submit" id="revise-design">生成新版</button></div>
         </form><p id="revision-status" role="status"></p><div id="revision-conversation" aria-live="polite"></div>
       </section>
@@ -325,17 +358,44 @@ project.addEventListener('click',event=>{
   const button=event.target.closest('[data-project-view]');
   if(button)selectProjectView(button.dataset.projectView);
 });
+project.addEventListener('click',async event=>{
+  if(event.target.closest('#share-project')){const link=publicProjectLink();if(link)showShareDialog(link);return}
+  if(event.target.closest('#close-shared')){showEntry();return}
+  const copy=event.target.closest('#copy-project');
+  if(copy){
+    copy.disabled=true;
+    const from=sharedProject?{slug:sharedProject.entry.slug,version:sharedProject.selected.version}: {example:exampleAsset,version:iteration.version};
+    const record={prompt:projectPrompt,iteration:{...iteration,previousId:undefined},exampleAsset,savedCadUrl,copyOrigin:from};
+    try{await showProject(design,false,record);remember();await saveTail;if($('#save-status')&&!$('#save-status').textContent)$('#save-status').textContent='已创建个人副本。可以在「我的项目」中重新打开。'}
+    catch(error){if($('#save-status'))$('#save-status').textContent=error.message}
+  }
+});
+project.addEventListener('change',event=>{
+  if(event.target.id==='shared-version'&&sharedProject)openSharedProject(sharedProject.entry.slug,Number(event.target.value));
+});
 window.matchMedia('(max-width: 760px)').addEventListener('change',()=>{
   if(!project.hidden&&$('#project-model'))selectProjectView(project.dataset.view);
 });
 
-async function showProject(d,isSample,record={}){if(!d||!Array.isArray(d.parts)||!d.parts.length)throw Error('没有收到可用的零件方案，请换个描述再试。');stopDraft();iteration=readIteration(record);generation++;const run=generation;cartVersion++;cartBusy=false;design=structuredClone(d);exampleAsset=record.exampleAsset==='fist-bump'&&iteration.version===1?'fist-bump-v1':fistAsset(record.exampleAsset)||record.exampleAsset==='status-light'?record.exampleAsset:null;
-  if(record.exampleRoute)syncExampleUrl(record.exampleRoute.example,record.exampleRoute.version);
+async function showProject(d,isSample,record={},newImages=null){if(!d||!Array.isArray(d.parts)||!d.parts.length)throw Error('没有收到可用的零件方案，请换个描述再试。');stopDraft();iteration=readIteration(record);generation++;const run=generation;cartVersion++;cartBusy=false;design=structuredClone(d);exampleAsset=record.exampleAsset==='fist-bump'&&iteration.version===1?'fist-bump-v1':fistAsset(record.exampleAsset)||record.exampleAsset==='status-light'?record.exampleAsset:null;
+  sharedProject=record.shared||null;savedCadUrl=record.savedCadUrl||null;copyOrigin=record.copyOrigin||null;
+  project.dataset.shared=String(!!sharedProject);
+  if(sharedProject)history.replaceState(history.state,'',shareLink(sharedProject.entry.slug,sharedProject.selected.version));
+  else if(record.exampleRoute)syncExampleUrl(record.exampleRoute.example,record.exampleRoute.version);
   else syncExampleUrl();
-  progress();sample=isSample||d.generation?.provider==='sample';projectId=record.id||crypto.randomUUID();projectPrompt=typeof record.prompt==='string'?record.prompt:'';rows=design.parts.map((p,i)=>{const prev=record.selected?.[i],c=prev?.candidate&&productUrl(prev.candidate.url)?prev.candidate:null;return {candidates:c?[c]:[],choice:c?0:-1,manual:c,searchUrl:defaultSearch(p),searching:!c,serial:0,holdKey:prev?.holdKey||'',holdStatus:prev?.holdStatus||'',included:prev?.included!==false}});entry.hidden=true;project.hidden=false;$('#back').hidden=false;project.innerHTML=projectWorkspace();
+  progress();sample=isSample||d.generation?.provider==='sample';projectId=record.id||crypto.randomUUID();projectPrompt=typeof record.prompt==='string'?record.prompt:'';rows=design.parts.map((p,i)=>{const prev=record.selected?.[i],c=prev?.candidate&&productUrl(prev.candidate.url)?prev.candidate:null;return {candidates:c?[c]:[],choice:c?0:-1,manual:c,searchUrl:defaultSearch(p),searching:!c&&!sharedProject,serial:0,holdKey:prev?.holdKey||'',holdStatus:prev?.holdStatus||'',included:prev?.included!==false}});entry.hidden=true;project.hidden=false;$('#back').hidden=false;project.innerHTML=projectWorkspace();
   // Capture the new revision before asynchronous rendering or navigation can replace it.
   if(!sample&&!record.id)remember();
-  selectProjectView(incomingRevision?'details':'model');await capabilitiesReady;if(generation!==run)return;
+  selectProjectView(incomingRevision?'details':'model');if(!sharedProject)await capabilitiesReady;if(generation!==run)return;
+  const photoId=projectId;
+  const restored=iteration.imageCount&&!sample&&!newImages?versionImages(photoId).catch(()=>[]).then(images=>{
+    if(!images.length&&projectId===photoId)revisionPhotos?.message('这版参考照片保存在创建它的浏览器；可在此处重新添加。');
+    return images;
+  }):[];
+  revisionPhotos=photoPicker($('#revision-form'),'revision-design-images',()=>caps,newImages??restored);
+  if(!sample&&newImages?.length)versionImages(photoId,newImages).catch(()=>{
+    if(projectId===photoId)revisionPhotos?.message('照片本次可用，重新打开前请保留原图再添加。');
+  });
   const revisionField=$('#revision-prompt');
   if(incomingRevision){revisionField.value=incomingRevision;incomingRevision='';revisionField.focus({preventScroll:true})}
   if(!caps.ai&&localUrl(caps.localUrl))$('#revise-design').textContent=exampleAsset?'在本机继续修改':'在本机新建设计';
@@ -378,7 +438,11 @@ function clearFeedback(){cartVersion++;$('#cart-feedback')?.replaceChildren()}
 const sameItem=(a,b)=>{const x=productUrl(a),y=productUrl(b);return !!x&&!!y&&x.hostname===y.hostname&&x.searchParams.get('id')===y.searchParams.get('id')};
 const knownTitle=c=>c?.listingTitle||((c?.titleSource==='page'||c?.titleSource==='user')?c.title:'')||'';
 const skuKey=c=>{const u=productUrl(c?.url);return u?[u.searchParams.get('id'),c.skuId||u.searchParams.get('skuId')||'',...(c.options||[c.sku||''])].join(':'):''};
+function clearPartSource(p){
+  delete p.geometryReference;delete p.mechanicalEvidenceReceipt;delete p.dimensionSourceUrl;delete p.sourceUrl;delete p.dimensionQuote;
+}
 function updateGeometry(p,dimensionsSupplied){
+  clearPartSource(p);
   if(!measure(p))return;
   p.modelId=null;p.modelSourceInvalidated=true;
   if(dimensionsSupplied){p.dimensionSource='specified';p.dimensionNote='已更换采购规格，按本次指定的尺寸重新布局。'}
@@ -424,6 +488,7 @@ function syncCart(){
 }
 project.addEventListener('change',e=>{const el=e.target,i=Number(el.closest('.part')?.dataset.i),r=rows[i];if(!r)return;if(el.matches('.include'))r.included=el.checked;else if(el.matches('[data-product]')){interruptPick(r);const was=selected(r);r.choice=el.value===''?-1:Number(el.value);const next=selected(r);if(reflectSelection(design.parts[i],was,next,{firstPick:true}))mount();refreshRow(i)}else return;remember();clearFeedback();syncCart()});
 project.addEventListener('submit',e=>{
+  if(sharedProject){e.preventDefault();return}
   if(e.target.matches('#revision-form')){
     e.preventDefault();const field=$('#revision-prompt'),feedback=field.value.trim();
     if(!caps.ai&&localUrl(caps.localUrl)){
@@ -443,7 +508,7 @@ project.addEventListener('submit',e=>{
     if(caps.ai===false){$('#revision-status').textContent='此工作室的 AI 服务暂时不可用。';return}
     startDraft('revision',projectPrompt||design.summary||design.name,feedback);return;
   }
-  if(!e.target.matches('[data-edit]'))return;e.preventDefault();const f=e.target,i=Number(f.dataset.edit),p=design.parts[i],r=rows[i],a=new FormData(f),err=f.querySelector('.edit-note');const raw=a.get('url').trim(),u=raw?productUrl(raw):null;if(raw&&!u){err.textContent='请粘贴带商品 id 的淘宝或天猫详情链接。';return}const dims=[0,1,2].map(j=>String(a.get('dim'+j)).trim()),spec=String(a.get('spec')).trim(),has=dims.some(Boolean);if(has&&(!dims.every(Boolean)||dims.some(v=>!Number.isFinite(Number(v))||Number(v)<0.1||Number(v)>2000))){err.textContent='请补齐三个 0.1–2000 mm 的尺寸。';return}interruptPick(r);const old=selected(r);const specChanged=spec!==String(p.spec||''),dimChanged=JSON.stringify(has?dims.map(Number):null)!==JSON.stringify(measure(p));if(dimChanged){p.modelSourceInvalidated=true;p.sizeMm=has?dims.map(Number):null;p.dimensionSource=has?'specified':'estimated';p.dimensionNote=has?'按指定尺寸重新布局。':''}if(specChanged){p.spec=spec;p.model=spec;p.modelId=null}let needLookup=false;if(u){const skuId=u.searchParams.get('skuId');r.serial++;r.searching=false;const options=String(a.get('skuOptions')||'').split(/[;；]/).map(v=>v.trim()).filter(Boolean);const previous=r.candidates.find(k=>sameItem(k.url,u.href));
+  if(!e.target.matches('[data-edit]'))return;e.preventDefault();const f=e.target,i=Number(f.dataset.edit),p=design.parts[i],r=rows[i],a=new FormData(f),err=f.querySelector('.edit-note');const raw=a.get('url').trim(),u=raw?productUrl(raw):null;if(raw&&!u){err.textContent='请粘贴带商品 id 的淘宝或天猫详情链接。';return}const dims=[0,1,2].map(j=>String(a.get('dim'+j)).trim()),spec=String(a.get('spec')).trim(),has=dims.some(Boolean);if(has&&(!dims.every(Boolean)||dims.some(v=>!Number.isFinite(Number(v))||Number(v)<0.1||Number(v)>2000))){err.textContent='请补齐三个 0.1–2000 mm 的尺寸。';return}interruptPick(r);const old=selected(r);const specChanged=spec!==String(p.spec||''),dimChanged=JSON.stringify(has?dims.map(Number):null)!==JSON.stringify(measure(p));if(dimChanged){clearPartSource(p);p.modelSourceInvalidated=true;p.sizeMm=has?dims.map(Number):null;p.dimensionSource=has?'specified':'estimated';p.dimensionNote=has?'按指定尺寸重新布局。':''}if(specChanged){p.spec=spec;p.model=spec;p.modelId=null}let needLookup=false;if(u){const skuId=u.searchParams.get('skuId');r.serial++;r.searching=false;const options=String(a.get('skuOptions')||'').split(/[;；]/).map(v=>v.trim()).filter(Boolean);const previous=r.candidates.find(k=>sameItem(k.url,u.href));
 const given=String(a.get('listingTitle')||'').trim(),fromOther=old&&!sameItem(old.url,u.href)&&given===knownTitle(old);
 const listingTitle=(!fromOther&&given)||knownTitle(previous);
 r.manual={title:listingTitle||previous?.title||('商品编号 '+u.searchParams.get('id')),titleSource:listingTitle?'user':(previous?.titleSource||'label'),listingTitle,url:u.href,...(skuId?{skuId}:{}),...(options.length?{sku:options.join(' / '),options}:{})};r.candidates=[r.manual];r.choice=0;r.searchUrl=defaultSearch(p)}else if(specChanged||r.manual){r.serial++;r.manual=null;r.candidates=[];r.choice=-1;r.searchUrl=defaultSearch(p);r.searching=true;needLookup=true}const swapped=reflectSelection(p,old,u?r.manual:null,{dimensionsSupplied:dimChanged&&has,specChanged,firstPick:true});clearFeedback();f.closest('details').open=false;refreshRow(i);if(dimChanged||specChanged||swapped)mount();syncCart();remember();if(needLookup)void lookup(i,generation)});
@@ -504,7 +569,10 @@ project.addEventListener('click',async e=>{
 mountConsumerAccount($('#consumer-account'),{onOpen:async rec=>{if(!rec?.design)return;try{await showProject(rec.design,false,rec)}catch(e){showEntry();notice('#entry-notice',e.message||'暂时无法打开项目。')}},onSignOut:()=>{accountEpoch++;showEntry();$('#wish').value=''}});
 
 const requestedExample=new URLSearchParams(location.search).get('example');
-if(requestedExample==='fist'){
+const requestedShare=new URLSearchParams(location.search).get('share');
+mountGallery($('#studio-gallery'),openSharedProject);
+if(requestedShare)openSharedProject(requestedShare,new URLSearchParams(location.search).get('version'));
+else if(requestedExample==='fist'){
   const version=new URLSearchParams(location.search).get('version');
   openFistExample(version==='1'?1:version==='2'?2:null);
 }

@@ -133,3 +133,17 @@ test('design keeps verified service geometry and execution provenance without gu
  const phases=[];const d=await generateDesign('触摸',{onProgress:v=>phases.push(v)});
  assert.deepEqual(d.generation,g);assert.deepEqual(d.cadPlan,cadPlan);assert.deepEqual(phases,['request','response']);
 });
+
+test('generated projects retain qualified mechanical evidence and the project skill revision',async t=>{
+  const sourceUrl='https://manufacturer.example/models/AB12/dimensions';
+  const project={name:'interaction-hardware',revision:'2026.11.21.1',sourcePath:'skills/interaction-hardware/SKILL.md'};
+  const geometryReference={kind:'datasheet-approximation',detail:'厂家给出带端子的外廓尺寸。',sourceUrl};
+  const body={name:'按钮',spec:'AB12',qty:1,sizeMm:[10,12,8],dimensionSource:'datasheet',dimensionSourceUrl:sourceUrl,geometryReference};
+  at(t,'https://example.org/work/',()=>Response.json({design:{name:'按钮盒',parts:[body,
+    {...body,name:'待选版本',dimensionSource:'estimated'}, {...body,name:'缺图纸',geometryReference:null}],
+    generation:{provider:'openai-api',modelSource:'response',modelId:'test-model',skill:{name:'ForgeCAD',project}}}}));
+  const result=await generateDesign('做一个按钮盒');
+  assert.deepEqual(result.generation.skill.project,project);
+  assert.equal(result.parts[0].dimensionSource,'datasheet');assert.deepEqual(result.parts[0].geometryReference,geometryReference);
+  assert.equal(result.parts[1].dimensionSource,'estimated');assert.equal(result.parts[2].dimensionSource,'estimated');
+});
