@@ -1,0 +1,84 @@
+{
+  "label": "6 × 6 mm 直插轻触开关",
+  "description": "4 脚 PCB 轻触按钮，机身 6 × 6 mm；顶端距 PCB 4.3 mm，按头直径约 3.5 mm。需要 PCB 或支架支撑，不能依靠面板孔固定。仅为封装参考，非已确认的 Omron 料号。",
+  "sourceUrl": "https://github.com/KiCad/kicad-packages3D/blob/b8b3cfdfad88ba66f21002b3de51dc6f7d55ba5a/Button_Switch_THT.3dshapes/SW_PUSH_6mm_H4.3mm.wrl",
+  "stepSourceUrl": "https://github.com/KiCad/kicad-packages3D/blob/b8b3cfdfad88ba66f21002b3de51dc6f7d55ba5a/Button_Switch_THT.3dshapes/SW_PUSH_6mm_H4.3mm.step",
+  "stepFile": "SW_PUSH_6mm_H4.3mm.step",
+  "licenseUrl": "https://github.com/KiCad/kicad-packages3D/blob/b8b3cfdfad88ba66f21002b3de51dc6f7d55ba5a/LICENSE.md",
+  "license": "CC BY-SA 4.0 with KiCad library exception",
+  "author": "kicad StepUp (ksu MCAD); KiCad 3D package libraries",
+  "upstreamRevision": "b8b3cfdfad88ba66f21002b3de51dc6f7d55ba5a",
+  "packageName": "SW_PUSH_6mm_H4.3mm",
+  "modelType": "package-reference",
+  "units": "mm",
+  "boundsMm": {
+    "min": [
+      -3.586,
+      -3.0,
+      -3.5
+    ],
+    "max": [
+      3.586,
+      3.0,
+      4.3
+    ]
+  },
+  "sizeMm": [
+    7.172,
+    6.0,
+    7.8
+  ],
+  "origin": "STL: 器件中心轴与 PCB 上表面交点；+Z 为元件及操作者一侧，金属脚向 −Z，电阻长轴沿 X。STEP 保留上游的原点。",
+  "sourceOriginShiftMm": [
+    -3.15,
+    2.25,
+    0
+  ],
+  "modifications": "KiCad VRML faces converted to binary STL (2.54 mm per source unit), grouped by material and functional region and translated to the footprint centre. Original STEP is unmodified.",
+  "meshes": [
+    {
+      "file": "body.stl",
+      "label": "本体",
+      "color": [
+        38,
+        37,
+        37
+      ],
+      "role": "body",
+      "triangles": 398
+    },
+    {
+      "file": "cover.stl",
+      "label": "金属盖板",
+      "color": [
+        210,
+        209,
+        199
+      ],
+      "role": "cover",
+      "triangles": 217
+    },
+    {
+      "file": "plunger.stl",
+      "label": "按头",
+      "color": [
+        38,
+        37,
+        37
+      ],
+      "role": "plunger",
+      "triangles": 373
+    },
+    {
+      "file": "leads.stl",
+      "label": "金属引脚",
+      "color": [
+        210,
+        209,
+        199
+      ],
+      "role": "leads",
+      "triangles": 536
+    }
+  ]
+}

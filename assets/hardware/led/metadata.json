@@ -1,0 +1,62 @@
+{
+  "label": "5 mm 直插 LED",
+  "description": "两脚直插封装，2.54 mm 脚距；红、绿版本共享几何，仅改变透镜颜色。圆顶直径约 4.9 mm，法兰约 5.8 mm，透镜底面离 PCB 3 mm。",
+  "sourceUrl": "https://github.com/KiCad/kicad-packages3D/blob/b8b3cfdfad88ba66f21002b3de51dc6f7d55ba5a/LED_THT.3dshapes/LED_D5.0mm.wrl",
+  "stepSourceUrl": "https://github.com/KiCad/kicad-packages3D/blob/b8b3cfdfad88ba66f21002b3de51dc6f7d55ba5a/LED_THT.3dshapes/LED_D5.0mm.step",
+  "stepFile": "LED_D5.0mm.step",
+  "licenseUrl": "https://github.com/KiCad/kicad-packages3D/blob/b8b3cfdfad88ba66f21002b3de51dc6f7d55ba5a/LICENSE.md",
+  "license": "CC BY-SA 4.0 with KiCad library exception",
+  "author": "kicad StepUp (ksu MCAD); KiCad 3D package libraries",
+  "upstreamRevision": "b8b3cfdfad88ba66f21002b3de51dc6f7d55ba5a",
+  "packageName": "LED_D5.0mm",
+  "modelType": "package-reference",
+  "units": "mm",
+  "boundsMm": {
+    "min": [
+      -2.5,
+      -2.9,
+      -2.5
+    ],
+    "max": [
+      2.9,
+      2.9,
+      11.6
+    ]
+  },
+  "sizeMm": [
+    5.4,
+    5.8,
+    14.1
+  ],
+  "origin": "STL: 器件中心轴与 PCB 上表面交点；+Z 为元件及操作者一侧，金属脚向 −Z，电阻长轴沿 X。STEP 保留上游的原点。",
+  "sourceOriginShiftMm": [
+    -1.27,
+    0,
+    0
+  ],
+  "modifications": "KiCad VRML faces converted to binary STL (2.54 mm per source unit), grouped by material and functional region and translated to the footprint centre. Original STEP is unmodified.",
+  "meshes": [
+    {
+      "file": "lens.stl",
+      "label": "透镜与法兰",
+      "color": [
+        178,
+        26,
+        13
+      ],
+      "role": "lens",
+      "triangles": 921
+    },
+    {
+      "file": "leads.stl",
+      "label": "金属引脚",
+      "color": [
+        210,
+        209,
+        199
+      ],
+      "role": "leads",
+      "triangles": 20
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "label": "M2×6 内六角圆柱头螺钉（候选）",
+  "description": "真实 STEP 的预览网格：候选 M2×6、0.4 mm 螺距、3.8 mm 头径、2 mm 头高、1.5 mm 内六角。Pico 有约 2.1 mm 安装通孔；仅靠孔径不能确定螺钉长度或紧固结构。当前螺柱顶距壳底外表面约 4 mm，这不是可用螺纹深度；不要默认选用 6 mm 长度。",
+  "license": "CC0-1.0",
+  "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "sourceUrl": "https://www.innerscene.com/tools/library/3d-parts/socket-cap-screw-m2-x-6-77092786",
+  "author": "Innerscene Corp；FormBench 将原始 STEP 三角化并平移渲染原点",
+  "units": "mm",
+  "origin": "STL 原点为螺头下承面轴心；螺纹杆沿 −Z，顶端 +2 mm，杆端 −6 mm。原版 STEP 以杆端为 z=0。",
+  "boundsMm": {
+    "min": [
+      -1.898,
+      -1.899,
+      -6.0
+    ],
+    "max": [
+      1.9,
+      1.899,
+      2.0
+    ]
+  },
+  "sizeMm": [
+    3.798,
+    3.798,
+    8.0
+  ],
+  "meshes": [
+    {
+      "file": "m2x6.stl",
+      "label": "不锈钢外观（材料未选型）",
+      "color": [
+        164,
+        168,
+        170
+      ],
+      "triangles": 11354
+    }
+  ],
+  "modelType": "candidate-fastener",
+  "sourceFile": "iso4762-m2x6.step",
+  "stepFile": "iso4762-m2x6.step",
+  "stepSourceUrl": "https://www.innerscene.com/api/library/socket-cap-screw-m2-x-6-77092786/download",
+  "modifications": "STEP unchanged. STL tessellated with Open CASCADE through occt-import-js 0.0.23, then Z translated −6 mm.",
+  "selectedForAssembly": false
+}

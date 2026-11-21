@@ -1,0 +1,48 @@
+{
+  "label": "Adafruit 375 门磁开关与配套磁铁（几何参考）",
+  "description": "一对带安装耳和长孔的封装件；开关侧含双线引出，另一侧为配套磁铁。用于装配预览，非裸干簧管。",
+  "license": "CC0-1.0",
+  "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "author": "FormBench contributors (independent model)",
+  "sourceUrl": "https://www.adafruit.com/product/375",
+  "referencePhotoUrl": "https://cdn-shop.adafruit.com/970x728/375-01.jpg",
+  "sourceFile": "model.scad",
+  "provenance": "Original geometry under CC0; vendor specifications and linked photo used as references. No vendor mesh or image redistributed.",
+  "units": "mm",
+  "coordinateSystem": "Both meshes share axes; place without re-centering. X long, Y from switch flange toward magnet flange, +Z up from mounting plane. Switch casing starts at (0,0,0).",
+  "dimensions": {
+    "eachHousingVendorMm": [
+      29,
+      15.2,
+      9
+    ],
+    "presentedAirGapMm": 4,
+    "vendorWireLengthApproxMm": 290,
+    "modeledWireLengthBeyondCaseMm": 10
+  },
+  "fitConditions": "Reference for Adafruit product 375 only. Other MC-series or generic Taobao door contacts must be measured separately. Display gap is illustrative, not a verified trigger distance. Model excludes the installed surface, most cable and screws.",
+  "unknowns": [
+    "Mounting hole centers, slot sizes, rounded corners, cable exit and flange thickness were estimated from product photography.",
+    "Actual sourcing SKU, orientation tolerance and fit have not been verified."
+  ],
+  "meshes": [
+    {
+      "file": "switch.stl",
+      "label": "带双线的开关壳体",
+      "color": [
+        224,
+        227,
+        230
+      ]
+    },
+    {
+      "file": "magnet.stl",
+      "label": "配套磁铁壳体",
+      "color": [
+        201,
+        204,
+        212
+      ]
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "label": "USB A → Micro-B 数据线（完整外部附件）",
+  "description": "独立绘制的短 U 形展示路由，包括两端插头、金属壳、绝缘舌片、触点、模塑握柄和护线尾。不是 Adafruit 592 的 CAD，3 英尺产品长度不反映在此模型中。插头尺寸、配合和线缆弯曲半径未经实物验证。",
+  "license": "CC0-1.0",
+  "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "sourceUrl": "https://www.adafruit.com/product/592",
+  "author": "FormBench 原创参考几何；Adafruit 仅供接口/用途参考",
+  "units": "mm",
+  "origin": "Micro-B 配接面中心 (0,0,0)，A 配接面中心 (0,−36,0)；两端插入方向 −X，线在 XY 平面。",
+  "boundsMm": {
+    "min": [
+      0.0,
+      -43.75,
+      -3.9
+    ],
+    "max": [
+      74.546,
+      5.0,
+      3.9
+    ]
+  },
+  "sizeMm": [
+    74.546,
+    48.75,
+    7.8
+  ],
+  "meshes": [
+    {
+      "file": "shells.stl",
+      "label": "插头金属外壳",
+      "color": [
+        179,
+        184,
+        187
+      ],
+      "triangles": 160
+    },
+    {
+      "file": "insulators.stl",
+      "label": "内部绝缘舌片",
+      "color": [
+        57,
+        56,
+        55
+      ],
+      "triangles": 40
+    },
+    {
+      "file": "contacts.stl",
+      "label": "连接触点",
+      "color": [
+        202,
+        157,
+        68
+      ],
+      "triangles": 108
+    },
+    {
+      "file": "overmoulds.stl",
+      "label": "握柄及防弯尾套",
+      "color": [
+        48,
+        51,
+        56
+      ],
+      "triangles": 7792
+    },
+    {
+      "file": "jacket.stl",
+      "label": "USB 线缆外被",
+      "color": [
+        33,
+        36,
+        40
+      ],
+      "triangles": 4796
+    }
+  ],
+  "modelType": "illustrative-cable-route",
+  "sourceFile": "build.py",
+  "mounting": "external; not fixed inside the enclosure"
+}

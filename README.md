@@ -11,3 +11,5 @@
 团队私有云后端的部署说明见 [Cloudflare Worker](server/private-deployment.md)。公开演示无需登录，不使用团队额度。
 
 机械页提供 Pico 参考外壳的独立 ForgeCAD 参数源码、STL 和 STEP。参见 [Forge 模型与尺寸](forge/README.md) 和 [本机重新计算](docs/local-forge.md)。采购候选和可下载 CAD 都不代表实物已装配通过。
+
+结构页可开盖查看 Pico 默认内部布局，并按当前 BOM 逐项检查候选硬件几何、尺寸和来源。见[模型目录、授权与摆位依据](docs/hardware-models.md)。

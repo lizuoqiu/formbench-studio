@@ -1,0 +1,6 @@
+Raspberry Pi Pico R3 — reference geometry by Raspberry Pi Ltd.
+Pico-R3-step.zip is the original archive at https://datasheets.raspberrypi.com/pico/Pico-R3-step.zip . The three binary STL files are tessellated from that archive and reoriented; the display colours are assigned by this project. The source assembly is unmodified within the archive.
+
+The Raspberry Pi Pico Datasheet, §1.1 “Raspberry Pi Pico design files”, grants permission to use, copy, modify and distribute this design for any purpose, with or without fee. The design is supplied as is, without warranty. See the permission and disclaimer in the official source:
+https://datasheets.raspberrypi.com/pico/pico-datasheet.pdf#page=6
+https://www.raspberrypi.com/licensing/

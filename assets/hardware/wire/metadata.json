@@ -1,0 +1,51 @@
+{
+  "label": "22 AWG 绝缘连接导线",
+  "description": "按长度裁切的示例路由，包含两个剥线端、每端七根可见铜丝及绝缘层。绝缘外径 1.6 mm 参考 Pololu 2642；每端约剥 4 mm 及布线路径为展示假定，不能作为装配线束的下料图。",
+  "license": "CC0-1.0",
+  "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "sourceUrl": "https://www.pololu.com/product/2642/specs",
+  "author": "FormBench 原创参考几何；Pololu 仅供外径与规格参考",
+  "units": "mm",
+  "origin": "首端切口中心 (0,0,0)，第二端切口中心 (48,8,0)，线沿 +X，总长视走线而定；无需沿原路径装配。",
+  "boundsMm": {
+    "min": [
+      -0.03,
+      -0.662,
+      -0.8
+    ],
+    "max": [
+      48.03,
+      8.662,
+      0.8
+    ]
+  },
+  "sizeMm": [
+    48.06,
+    9.324,
+    1.6
+  ],
+  "meshes": [
+    {
+      "file": "insulation.stl",
+      "label": "绝缘层",
+      "color": [
+        167,
+        43,
+        44
+      ],
+      "triangles": 5180
+    },
+    {
+      "file": "copper.stl",
+      "label": "两端绞合裸铜丝",
+      "color": [
+        185,
+        111,
+        67
+      ],
+      "triangles": 8344
+    }
+  ],
+  "modelType": "illustrative-wire-route",
+  "sourceFile": "build.py"
+}

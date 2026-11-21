@@ -1,0 +1,5 @@
+// npm install occt-import-js@0.0.23 and run: node convert.cjs
+const fs=require('node:fs'),path=require('node:path');
+(async()=>{const occt=await require('occt-import-js')();const data=occt.ReadStepFile(fs.readFileSync(path.join(__dirname,'iso4762-m2x6.step')),{linearUnit:'millimeter',linearDeflectionType:'absolute_value',linearDeflection:0.025,angularDeflection:.2});if(!data.success)throw new Error('STEP import failed');const count=data.meshes.reduce((s,m)=>s+m.index.array.length/3,0),b=Buffer.alloc(84+50*count); b.write('Innerscene CC0 M2x6; mm; head bearing surface at z=0',0);b.writeUInt32LE(count,80);let k=84;
+for(const m of data.meshes){const a=m.attributes.position.array,idx=m.index.array;for(let i=0;i<idx.length;i+=3){let p=idx.slice(i,i+3).map(j=>[a[3*j],a[3*j+1],a[3*j+2]-6]);let u=p[1].map((x,i)=>x-p[0][i]),v=p[2].map((x,i)=>x-p[0][i]);let n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],l=Math.hypot(...n)||1;for(const val of [...n.map(x=>x/l),...p.flat()]){b.writeFloatLE(val,k);k+=4;} k+=2;}}
+fs.writeFileSync(path.join(__dirname,'m2x6.stl'),b);console.log(count,'triangles');})();

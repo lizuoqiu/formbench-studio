@@ -1,0 +1,63 @@
+{
+  "label": "DIN0207 水平轴向电阻",
+  "description": "6.3 × Ø2.5 mm 本体，水平弯脚，孔距 10.16 mm。仅为 1/4 W 电阻的候选封装；不标识阻值和实际功率。",
+  "sourceUrl": "https://github.com/KiCad/kicad-packages3D/blob/b8b3cfdfad88ba66f21002b3de51dc6f7d55ba5a/Resistor_THT.3dshapes/R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal.wrl",
+  "stepSourceUrl": "https://github.com/KiCad/kicad-packages3D/blob/b8b3cfdfad88ba66f21002b3de51dc6f7d55ba5a/Resistor_THT.3dshapes/R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal.step",
+  "stepFile": "R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal.step",
+  "licenseUrl": "https://github.com/KiCad/kicad-packages3D/blob/b8b3cfdfad88ba66f21002b3de51dc6f7d55ba5a/LICENSE.md",
+  "license": "CC BY-SA 4.0 with KiCad library exception",
+  "author": "kicad StepUp (ksu MCAD); KiCad 3D package libraries",
+  "upstreamRevision": "b8b3cfdfad88ba66f21002b3de51dc6f7d55ba5a",
+  "packageName": "R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal",
+  "modelType": "package-reference",
+  "units": "mm",
+  "boundsMm": {
+    "min": [
+      -5.377,
+      -1.25,
+      -3.0
+    ],
+    "max": [
+      5.377,
+      1.25,
+      2.499
+    ]
+  },
+  "sizeMm": [
+    10.754,
+    2.5,
+    5.499
+  ],
+  "origin": "STL: 器件中心轴与 PCB 上表面交点；+Z 为元件及操作者一侧，金属脚向 −Z，电阻长轴沿 X。STEP 保留上游的原点。",
+  "sourceOriginShiftMm": [
+    -5.08,
+    0,
+    0
+  ],
+  "modifications": "KiCad VRML faces converted to binary STL (2.54 mm per source unit), grouped by material and functional region and translated to the footprint centre. Original STEP is unmodified.",
+  "meshes": [
+    {
+      "file": "body.stl",
+      "label": "本体",
+      "color": [
+        225,
+        181,
+        125
+      ],
+      "role": "body",
+      "triangles": 2754
+    },
+    {
+      "file": "leads.stl",
+      "label": "金属引脚",
+      "color": [
+        210,
+        209,
+        199
+      ],
+      "role": "leads",
+      "triangles": 846
+    }
+  ],
+  "copyright": "Copyright (C) 2017, kicad StepUp"
+}

@@ -1,0 +1,75 @@
+{
+  "label": "DFRobot Gravity DFR0032 数字蜂鸣器模块（几何参考）",
+  "description": "含 PCB、带出声孔的蜂鸣器、三针侧进连接器、接脚、晶体管与阻容。对应高低电平控制的带驱动整板，不是裸蜂鸣器。",
+  "license": "CC0-1.0",
+  "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "author": "FormBench contributors (independent model)",
+  "sourceUrl": "https://wiki.dfrobot.com/dfr0032/",
+  "dimensionDrawingUrl": "https://dfimg.dfrobot.com/wiki/17038/DFR0032_digital-buzzer-module_dimension_v1.0.png",
+  "schematicUrl": "https://dfimg.dfrobot.com/wiki/17038/DFR0032_digital-buzzer-module_schematics_v1.0.pdf",
+  "sourceFile": "model.scad",
+  "provenance": "New CC0 schematic representation from public vendor board drawing and circuit schematic. No vendor CAD, artwork or textures redistributed.",
+  "units": "mm",
+  "coordinateSystem": "Origin at midpoint of PCB connector-end edge and underside. +X board width, +Y from connector to mounting holes, +Z into components. All layers share coordinates.",
+  "dimensions": {
+    "vendorBoardOutlineMm": [
+      22,
+      30
+    ],
+    "vendorMountingCenterSpacingMm": 15,
+    "assumedPcbThicknessMm": 1.6,
+    "estimatedTotalHeightMm": 10.5
+  },
+  "fitConditions": "Reference SKU DFR0032 only. Vendor rates the module for 5 V. Verify signal levels, connector pinout, mating plug and clearance for the purchased board before integration with Pico. Different generic buzzer boards can have a different outline or drive circuit.",
+  "unknowns": [
+    "Component heights, mounting-hole diameter and edge setback, connector envelope and footprints approximated; mating cable omitted.",
+    "Exact supplier revision, assembly clearance and functionality are not physically verified."
+  ],
+  "meshes": [
+    {
+      "file": "pcb.stl",
+      "label": "模块电路板",
+      "color": [
+        31,
+        43,
+        46
+      ]
+    },
+    {
+      "file": "buzzer.stl",
+      "label": "蜂鸣器与出声孔",
+      "color": [
+        51,
+        54,
+        56
+      ]
+    },
+    {
+      "file": "socket.stl",
+      "label": "三针插座外壳",
+      "color": [
+        230,
+        224,
+        207
+      ]
+    },
+    {
+      "file": "metal.stl",
+      "label": "金属焊盘和针脚",
+      "color": [
+        194,
+        173,
+        122
+      ]
+    },
+    {
+      "file": "electronics.stl",
+      "label": "驱动晶体管和阻容",
+      "color": [
+        92,
+        84,
+        76
+      ]
+    }
+  ]
+}
