@@ -2,6 +2,7 @@ import {catalog,loadPartMeshes,getHardwareMetadata,encodeSTL} from './assembly-h
 import {makeDocumentedProxy} from './part-geometry.js';
 import {prepareMesh,createRaster,fitCamera} from './mesh-renderer.js';
 import {previewCadPlan,compileCadPlan,meshBounds,cadBodyToForgeScript,cadDownloadName} from './consumer-geometry.js';
+import {validateCadPlan} from './cad-plan.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const sizeText=size=>size.map(n=>Number(n.toFixed(1))).join(' × ')+' mm';
@@ -92,17 +93,18 @@ export async function resolveConsumerGeometry(design){
      if(bounds.size.every((n,k)=>Math.abs(n-part.sizeMm[k])<=.01)){
       actualSize=bounds.size;
       meshes=raw.map(mesh=>({...mesh,triangles:mesh.triangles.map(face=>face.map(p=>p.map((n,k)=>n-bounds.min[k])))}));
-      geometryNote='资料模型原始尺寸，未缩放';
-     }else geometryNote='输入尺寸与目录几何不一致，保留输入尺寸显示设计包络，未缩放原厂模型';
+      geometryNote=metadata.modelType==='dimensioned-approximation'?'据资料绘制的近似参考模型，未缩放；器件高度等估计细节见来源说明':'资料模型原始尺寸，未缩放';
+     }else geometryNote='输入尺寸与目录几何不一致，保留输入尺寸显示设计包络，未缩放目录模型';
     }
    }catch{geometryNote='资料几何暂不可用，按当前尺寸显示近似包络'}
   }
-  if(!meshes&&(planned||part.role!=='external'||design.cadPlan&&!looseMaterial(part))&&part.role!=='enclosure'){
+  if(!meshes&&(planned||part.role!=='external'||design.cadPlan&&!looseMaterial(part))&&(part.role!=='enclosure'||part.modelSourceInvalidated)){
    meshes=makeDocumentedProxy({shape:part.shape||'box',sizeMm:part.sizeMm}).meshes.map(mesh=>({...mesh,color:colors[part.index%colors.length]}));
    geometryNote=geometryNote||`按当前尺寸生成的${part.shape==='cylinder'?'圆柱':'长方体'}设计包络，不代表原厂外形`;
   }
   if(part.role==='external'&&!planned)geometryNote='外接附件的尺寸记录，未指定安装位置；不参与外壳包络';
   if(part.role==='enclosure')geometryNote=planned?'按声明式结构生成形体，不代表原厂外壳或已验证的制造设计':'作为目标外包络下限；当前显示重新计算的概念壳体';
+  if(planned&&part.modelSourceInvalidated)geometryNote='型号或尺寸已更改，旧形体与安装位置已撤下；当前为新尺寸包络，请重新生成结构。';
   parts.push({...part,sizeMm:[...part.sizeMm],dimensionSource:actualSize?'catalog':meshes&&part.dimensionSource==='catalog'?'specified':part.dimensionSource,meshes,metadata,geometryKind:actualSize?'catalog':'envelope',geometryNote});
  }
  return parts;
@@ -111,11 +113,16 @@ export async function resolveConsumerGeometry(design){
 // A declared body owns its placement. A catalogue reference replaces an AI
 // reference envelope at the same centre without stretching the purchased part.
 function shiftedMeshes(meshes,offset){return meshes.map(mesh=>({...mesh,triangles:mesh.triangles.map(face=>face.map(point=>point.map((n,k)=>n+offset[k])))}))}
+export function currentCadPlan(design){
+ validateCadPlan(design.cadPlan,design.parts.length);
+ return {version:1,bodies:design.cadPlan.bodies.filter(body=>!design.parts[body.partIndex].modelSourceInvalidated)};
+}
 export function buildDeclaredAssembly(design,parts,geometry){
  const instances=[],counts=new Map();
  for(let index=0;index<geometry.bodies.length;index++){
   const body=geometry.bodies[index],part=parts[body.partIndex];
   if(!part)throw Error('形体引用了不存在的零件。');
+  if(part.modelSourceInvalidated)continue;
   counts.set(part.index,(counts.get(part.index)||0)+1);
   let meshes=body.meshes,source='generated';
   if(body.role==='reference'&&part.geometryKind==='catalog'&&part.meshes?.length){
@@ -160,7 +167,7 @@ export function mountConsumerCad(container,design,options={}){
  const allowDownloads=options.downloads!==false,declared=!!design.cadPlan?.bodies?.length;
  container.innerHTML=`<style>${style}</style><section class="cc"><header class="cc-header"><div><span class="cc-eyebrow" data-cc-engine>FORM / CONCEPT</span><h3>${esc(design?.name||'整机概念')}</h3></div><span class="cc-size" data-cc-size>正在整理尺寸…</span></header><div class="cc-stage"><canvas tabindex="0" aria-label="整机概念：拖动或方向键旋转，滚轮或加减键缩放"></canvas><div class="cc-tabs" aria-label="整机视图"><button type="button" data-cc-mode="closed">外观</button><button type="button" data-cc-mode="open">${declared?'分解':'开盖'}</button><button type="button" data-cc-mode="inside">内部布局</button></div><div class="cc-camera"><button type="button" data-cc-camera="out" aria-label="缩小">−</button><button type="button" data-cc-camera="in" aria-label="放大">＋</button><button type="button" data-cc-camera="home">归位</button></div><span class="cc-hint">拖动旋转 · 滚轮缩放 · 同一毫米比例</span></div><div class="cc-footer"><p class="cc-status" data-cc-status role="status">根据部件尺寸整理形体与布局…</p><p data-cc-note>${declared?'AI 声明式结构表达设计意图；材料、壁厚、装配间隙和强度仍需验证。':'这是尺寸驱动的整机概念。壳体开孔、固定结构和电气连接尚未设计；顶面件仅示意交互位置。'}</p>${allowDownloads?'<div class="cc-downloads" data-cc-downloads></div>':''}<details class="cc-sources"><summary>尺寸、形体与安装位置依据</summary><div class="cc-source-list" data-cc-sources>正在读取…</div></details></div></section>`;
  const root=container.querySelector('.cc'),canvas=root.querySelector('canvas'),status=root.querySelector('[data-cc-status]'),raster=createRaster(canvas),aborter=new AbortController();
- let disposed=false,concept=null,parts=[],scene=[],shellMeshes=null,geometry=null,mode=declared?'closed':'open',yaw=-.64,pitch=.56,zoom=1,drag=null,frame=0,pendingPhase='ready',homePose={yaw,pitch},buildState=declared?'compiling':'legacy';
+ let disposed=false,concept=null,parts=[],scene=[],shellMeshes=null,geometry=null,activePlan=null,mode=declared?'closed':'open',yaw=-.64,pitch=.56,zoom=1,drag=null,frame=0,pendingPhase='ready',homePose={yaw,pitch},buildState=declared?'compiling':'legacy';
  function emit(phase,message){try{options.onStatus?.({phase,mode,message,exact:geometry?.exact??false,engine:geometry?.engine??null,instances:concept?.instances.length??0})}catch{}}
  function paint(){
   frame=0;if(disposed||!root.isConnected||!scene.length)return;
@@ -211,19 +218,23 @@ export function mountConsumerCad(container,design,options={}){
   renderSources();renderDownloads();
  }
  function assemblyMessage(){
-  if(concept.declared)return `${geometry.notice} ${concept.unplacedCount?`${concept.unplacedCount} 个未定位零件在「分解／内部布局」中独立排布；`:''}${concept.omittedCount?`${concept.omittedCount} 个线材或附件仅在清单记录。`:''}`;
+  if(concept.declared){const invalid=design.cadPlan.bodies.length-activePlan.bodies.length;return `${geometry.notice} ${invalid?`${invalid} 个旧形体因型号或尺寸变动已撤下，请重新生成；`:''}${concept.unplacedCount?`${concept.unplacedCount} 个未定位零件在「分解／内部布局」中独立排布；`:''}${concept.omittedCount?`${concept.omittedCount} 个线材或附件仅在清单记录。`:''}`}
   return concept.shell?`${concept.instances.length} 个内部／顶面实例已自动排布${concept.external.length?`；${concept.external.reduce((n,part)=>n+part.qty,0)} 个外接附件不计入外壳`:'。'} 默认壁厚 ${concept.defaults.wall} mm，部件间距 ${concept.defaults.gap} mm。`:'当前清单为外接附件，尚无需要包裹的部件。';
  }
  async function load(){
   try{
    emit('parts','正在读取零件尺寸与来源。');parts=await resolveConsumerGeometry(design);if(disposed||!root.isConnected)return;
    emit('enclosure',declared?'正在生成声明式形体。':'正在计算外壳与内部布局。');
-   if(declared)geometry=previewCadPlan(design.cadPlan,parts.length);
-   prepareConcept(true);status.textContent=assemblyMessage();updateScene('ready');
    if(declared){
+    activePlan=currentCadPlan(design);
+    geometry=previewCadPlan(activePlan,parts.length);
+    if(!activePlan.bodies.length){buildState='fallback';mode='inside';geometry.notice='当前仅显示修改后的尺寸包络。'}
+   }
+   prepareConcept(true);status.textContent=assemblyMessage();updateScene('ready');
+   if(declared&&activePlan.bodies.length){
     emit('enclosure','正在通过 Manifold 内核计算实体与切削特征。');
     try{
-     const exact=await compileCadPlan(design.cadPlan,{partCount:parts.length,baseUrl:options.baseUrl,fetcher:options.fetcher,WorkerClass:options.WorkerClass,signal:aborter.signal});
+     const exact=await compileCadPlan(activePlan,{partCount:parts.length,baseUrl:options.baseUrl,fetcher:options.fetcher,WorkerClass:options.WorkerClass,signal:aborter.signal});
      if(disposed||!root.isConnected)return;geometry=exact;buildState='exact';prepareConcept();status.textContent=assemblyMessage();updateScene('ready');
     }catch(error){if(disposed||!root.isConnected)return;buildState='fallback';geometry.notice=String(error.message||error)+' 当前显示近似形体，未完成实体布尔，不能导出实体 STL。';status.textContent=assemblyMessage();renderSources();updateScene('error')}
    }
@@ -238,7 +249,7 @@ export function mountConsumerCad(container,design,options={}){
   if(button.dataset.ccCamera==='in')scale(1.2);if(button.dataset.ccCamera==='out')scale(1/1.2);if(button.dataset.ccCamera==='home')home();
   const part=button.dataset.ccDownload;if(part&&concept?.shell)download(encodeSTL(concept.shell[part],'FormBench concept enclosure; mm; no fit or manufacturing validation'),`concept-${part}-${concept.shell.sizeMm.map(n=>Number(n.toFixed(1))).join('x')}-mm.stl`,'model/stl');
   if(button.dataset.ccBodyStl!==undefined){const body=geometry?.bodies[Number(button.dataset.ccBodyStl)];if(body?.exact&&body.stlBytes)download(body.stlBytes,cadDownloadName(body.name),'model/stl')}
-  if(button.dataset.ccBodyForge!==undefined){const body=design.cadPlan.bodies[Number(button.dataset.ccBodyForge)];if(body)download(cadBodyToForgeScript(body),cadDownloadName(body.name,'forge.js'),'text/javascript')}
+  if(button.dataset.ccBodyForge!==undefined){const body=activePlan?.bodies[Number(button.dataset.ccBodyForge)];if(body)download(cadBodyToForgeScript(body),cadDownloadName(body.name,'forge.js'),'text/javascript')}
  };
  canvas.onpointerdown=e=>{drag=[e.clientX,e.clientY,yaw,pitch];canvas.setPointerCapture(e.pointerId)};
  canvas.onpointermove=e=>{if(!drag)return;yaw=drag[2]+(e.clientX-drag[0])*.012;pitch=Math.max(-1.5,Math.min(1.5,drag[3]+(e.clientY-drag[1])*.012));schedule()};canvas.onpointerup=canvas.onpointercancel=()=>{drag=null};

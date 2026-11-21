@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {previewCadPlan,compileCadPlan,meshBounds,cadBodyToForgeScript,runCadWorker,cadDownloadName} from '../consumer-geometry.js';
-import {buildDeclaredAssembly,resolveConsumerGeometry,declaredHomeCamera,declaredExplosionOffset} from '../consumer-cad.js';
+import {buildDeclaredAssembly,resolveConsumerGeometry,declaredHomeCamera,declaredExplosionOffset,currentCadPlan} from '../consumer-cad.js';
 import {compileCadPlan as compileSolid} from '../cad-plan-compiler.js';
 
 const feature=(shape,sizeMm,centerMm=[0,0,0],op='add')=>({op,shape,sizeMm,centerMm});
@@ -62,6 +62,15 @@ test('explosion separates a central shell, front contact surface and bottom cove
  const design={cadPlan:p,parts:[part({role:'enclosure'}),part({role:'panel'}),part({role:'enclosure'})]},parts=await resolveConsumerGeometry(design),assembly=buildDeclaredAssembly(design,parts,previewCadPlan(p,3));
  const offsets=assembly.instances.map(item=>declaredExplosionOffset(item,assembly));
  assert.ok(offsets[0][2]>0);assert.ok(offsets[1][1]<0);assert.ok(offsets[2][2]<0);assert.equal(new Set(offsets.map(JSON.stringify)).size,3);
+});
+
+test('changing a purchase or dimensions invalidates only that body and exposes its current envelope',async()=>{
+ const p=plan([body('旧拳壳',[feature('ellipsoid',[50,40,45])]),body('保持的底盖',[feature('box',[30,20,2])],{partIndex:1})]);
+ const design={cadPlan:p,parts:[part({modelSourceInvalidated:true,sizeMm:[65,46,57],role:'enclosure'}),part({role:'enclosure'})]};
+ const active=currentCadPlan(design);assert.equal(active.bodies.length,1);assert.equal(active.bodies[0].name,'保持的底盖');assert.equal(active.bodies[0].partIndex,1);
+ const parts=await resolveConsumerGeometry(design),assembly=buildDeclaredAssembly(design,parts,previewCadPlan(active,2));
+ assert.equal(assembly.instances.filter(item=>item.placed).length,1);assert.equal(assembly.unplacedCount,1);
+ const changed=assembly.instances.find(item=>item.partIndex===0);assert.equal(changed.placed,false);near(meshBounds(changed.meshes).sizeMm,[65,46,57]);assert.match(parts[0].geometryNote,/旧形体与安装位置已撤下/);
 });
 
 test('invalid kernel output and business errors never turn into a successful preview or download',async()=>{
