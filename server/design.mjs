@@ -1,6 +1,7 @@
 import {validateCadPlan,cadPlanSchema} from './cad-plan.mjs';
 import {modelingGuide,generation} from './modeling-guide.mjs';
 import {catalog as models, matchHardware} from '../assembly-hardware.js';
+import xiao from '../assets/hardware/xiao-esp32c3/metadata.json' with {type:'json'};
 import pico from '../assets/hardware/pico/metadata.json' with {type:'json'};
 import led from '../assets/hardware/led/metadata.json' with {type:'json'};
 import button from '../assets/hardware/button/metadata.json' with {type:'json'};
@@ -8,7 +9,7 @@ import resistor from '../assets/hardware/resistor/metadata.json' with {type:'jso
 import screw from '../assets/hardware/screw/metadata.json' with {type:'json'};
 import wire from '../assets/hardware/wire/metadata.json' with {type:'json'};
 import cable from '../assets/hardware/usb-cable/metadata.json' with {type:'json'};
-const refs={pico,'red-led':led,'green-led':led,button,resistor,screw,wire,'usb-cable':cable};
+const refs={'xiao-esp32c3':xiao,pico,'red-led':led,'green-led':led,button,resistor,screw,wire,'usb-cable':cable};
 const string={type:'string'},obj=properties=>({type:'object',additionalProperties:false,properties,required:Object.keys(properties)}),array=items=>({type:'array',items});
 const role=['internal','external','panel','enclosure'];
 export const schema=obj({name:string,summary:string,parts:array(obj({name:string,spec:string,qty:{type:'integer'},model:string,modelId:{type:'string',enum:['',...Object.keys(models)]},sizeMm:array({type:'number'}),dimensionSource:{type:'string',enum:['catalog','estimated','specified']},dimensionQuote:string,role:{type:'string',enum:role},purpose:string})),steps:array(string),cadPlan:cadPlanSchema});
@@ -23,7 +24,7 @@ export function normalizeDesign(raw,prompt){if(!str(raw?.name,200)||!str(raw.sum
  if(p.dimensionSource==='specified'&&specified(p,prompt))return {...result,dimensionSource:'specified',dimensionNote:'需求原文：'+p.dimensionQuote};
  const id=matchHardware({...p,spec:p.spec+' '+p.model}),meta=id&&id===p.modelId&&refs[id];if(!meta)return result;
  const b=meta.boundsMm,dim=meta.sizeMm??(Array.isArray(b)?b[0].map((x,k)=>Number((b[1][k]-x).toFixed(3))):null);
- if(!sizes(dim))return result;return {...result,modelId:id,sizeMm:dim,dimensionSource:'catalog',dimensionNote:`目录参考模型外廓：${meta.label}；不代表已核对购买规格。`,dimensionSourceUrl:meta.sourceUrl};});
+ if(!sizes(dim))return result;return {...result,modelId:id,sizeMm:dim,dimensionSource:'catalog',dimensionNote:`目录参考模型外廓：${meta.label}；${meta.modelType==='dimensioned-approximation'?meta.description+' ':''}不代表已核对购买规格。`,dimensionSourceUrl:meta.measurementSourceUrl||meta.sourceUrl};});
  return {name:raw.name.trim(),summary:raw.summary.trim(),parts,steps:raw.steps.map(s=>s.trim()),cadPlan:validateCadPlan(raw.cadPlan,parts.length)};}
 export async function design(request,env,send=fetch){const reply=(body,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'no-store'}});
  if(request.method!=='POST')return reply({error:'只支持 POST。'},405);

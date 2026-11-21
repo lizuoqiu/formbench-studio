@@ -12,11 +12,9 @@ node tools/build.mjs
 node server/local.mjs
 ```
 
-打开 <http://127.0.0.1:4173/>。GitHub Pages 提供静态用户端、示例 CAD 及浏览器加购助手。本机服务与发布在同一域名的 Worker 可接 AI 生成服务。OpenAI API 模式使用服务端环境变量 `OPENAI_API_KEY` 和该项目实际有权调用的 `OPENAI_MODEL`。本机也可从已加入 gitignore 的 `.env.local` 加载配置。服务器不会把密钥写进前端。
+打开 <http://127.0.0.1:4173/>。GitHub Pages 提供静态用户端、示例 CAD 及浏览器加购助手。生成新设计只通过服务端的 OpenAI Responses API。本机和私有 Worker 均须配置 `OPENAI_API_KEY` 以及项目有权使用的模型 ID `OPENAI_MODEL`；缺少任一项，生成按钮显示未连接，设计接口返回 503。本机可使用被 Git 忽略的 `.env.local`，Worker 使用服务端秘密变量。网页不接触密钥。
 
 ## 淘宝与项目
-
-在装有官方 Codex CLI 且已经登录的 Mac 上，可用 `FORM_BENCH_LOCAL_CODEX=1 node server/local.mjs` 开启单用户本机生成。这里使用本机 Codex 会话，服务仅监听回环地址。云端生成使用服务端 API 凭据。
 
 安装浏览器助手后，清单中的「去淘宝选规格」可以打开商品或搜索页。在淘宝选好规格，点击扩展图标，标题、链接和选中的规格会带回原项目。这个动作只记录选型。
 
