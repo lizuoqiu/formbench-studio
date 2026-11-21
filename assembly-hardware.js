@@ -33,6 +33,18 @@ function cached(map,key,load){if(!map.has(key))map.set(key,load().catch(e=>{map.
 function base(id){if(!Object.hasOwn(catalog,id))throw Error('没有匹配的硬件模型');return new URL('./assets/hardware/'+catalog[id].dir+'/',import.meta.url)}
 async function read(url){const response=await fetch(url);if(!response.ok)throw Error('模型文件未能加载：'+url.pathname.split('/').pop());return response}
 export function getHardwareMetadata(id){const u=base(id);return cached(infoCache,u.href,async()=>{const m=await(await read(new URL('metadata.json',u))).json();if(!m.sourceUrl||!m.license||!m.meshes?.length)throw Error('模型目录未就绪');return m})}
+export function encodeSTL(faces,header=''){
+  const buffer=new ArrayBuffer(84+50*faces.length),view=new DataView(buffer);
+  new Uint8Array(buffer).set(new TextEncoder().encode(header).subarray(0,80));
+  view.setUint32(80,faces.length,true);
+  faces.forEach(([a,b,c],i)=>{
+    const u=b.map((v,k)=>v-a[k]),v=c.map((n,k)=>n-a[k]);
+    const normal=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
+    const length=Math.hypot(...normal)||1;
+    [normal.map(n=>n/length),a,b,c].flat().forEach((n,j)=>view.setFloat32(84+i*50+j*4,n,true));
+  });
+  return buffer;
+}
 export function decodeSTL(buf){
   const v=new DataView(buf),n=v.byteLength>=84?v.getUint32(80,true):0;
   if(!n||84+50*n!==v.byteLength)throw Error('不是有效的二进制 STL');

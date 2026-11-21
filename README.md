@@ -13,3 +13,5 @@
 机械页提供 Pico 参考外壳的独立 ForgeCAD 参数源码、STL 和 STEP。参见 [Forge 模型与尺寸](forge/README.md) 和 [本机重新计算](docs/local-forge.md)。采购候选和可下载 CAD 都不代表实物已装配通过。
 
 结构页可开盖查看 Pico 默认内部布局，并按当前 BOM 逐项检查候选硬件几何、尺寸和来源。见[模型目录、授权与摆位依据](docs/hardware-models.md)。
+
+要把已选型号、对应 CAD 和逐步装配说明交给组装方，请看[采购件 CAD 与项目交接指南](docs/purchased-cad.md)，或直接下载[可导入的 Pico 门磁示例项目包](samples/assembly-example.json)。

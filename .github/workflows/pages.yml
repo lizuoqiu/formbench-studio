@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test tools/raster.test.mjs tools/hardware-models.test.mjs
+      - run: node --test tools/*.test.mjs
       - run: node tools/build.mjs
       - uses: actions/upload-pages-artifact@v3
         with:

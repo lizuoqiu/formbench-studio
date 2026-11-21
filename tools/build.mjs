@@ -1,6 +1,6 @@
 import { mkdir,readdir,cp,rm,writeFile,readFile } from 'node:fs/promises';
 await rm('dist',{recursive:true,force:true});await mkdir('dist');
-for(const name of ['index.html','style.css','app.js','studio.js','mechanical.js','mechanical.css','mesh-renderer.js','assembly-hardware.js','hardware-library.js','hardware-library.css','wiring.js','wiring.css','frame.css','studio-entry.css','samples'])await cp(name,'dist/'+name,{recursive:true});
+for(const name of ['index.html','style.css','app.js','studio.js','mechanical.js','mechanical.css','mesh-renderer.js','assembly-hardware.js','part-geometry.js','model-selection.js','project-layout.js','assembly-handoff.js','hardware-library.js','hardware-library.css','wiring.js','wiring.css','frame.css','studio-entry.css','samples'])await cp(name,'dist/'+name,{recursive:true});
 await mkdir('dist/forge');
 const assets=(await readdir('forge',{withFileTypes:true}).catch(e=>{if(e.code==='ENOENT')return [];throw e})).filter(d=>d.isFile()&&/^pico-[\w-]+\.(forge\.js|stl|step|stp|glb|3mf)$/i.test(d.name)).map(d=>d.name).sort();
 for(const name of assets)await cp('forge/'+name,'dist/forge/'+name);
@@ -8,6 +8,7 @@ await writeFile('dist/forge/assets.json',JSON.stringify(assets));
 
 // Preserve per-model source links and license notices alongside their public geometry.
 await cp('assets/hardware','dist/assets/hardware',{recursive:true});
+await cp('assets/cad-reader','dist/assets/cad-reader',{recursive:true});
 
 // The same assets and transforms that power the viewer, for CAD tools consuming the BOM.
 const {catalog,picoLayout}=await import('../assembly-hardware.js');

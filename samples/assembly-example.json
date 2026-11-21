@@ -1,0 +1,44 @@
+{
+  "format": "formwork-assembly-project",
+  "version": 1,
+  "design": {
+    "name": "Pico 盒盖门磁 · 台面试放",
+    "summary": "用一块初代 Raspberry Pi Pico 和一套 Adafruit 375 门磁试放盒盖开合检测装置。本清单按装配件列出：375 的有线开关侧和无引线磁铁侧各一件，采购时只需一套 375，不要按两行买两套。三件在台面上的位置仅为演示，未经实物验证；本包不含成品外壳、接线或固件。",
+    "parts": [
+      {"name": "Raspberry Pi Pico", "spec": "初代 RP2040 · Micro USB · 无排针版 · SC0915", "qty": 1},
+      {"name": "门磁开关侧（带双线）", "spec": "Adafruit 375 同一套装中的有线一侧 · 29 × 15.2 × 9 mm 壳体", "qty": 1},
+      {"name": "门磁磁铁侧（无引线）", "spec": "随上述 Adafruit 375 套装提供 · 29 × 15.2 × 9 mm 壳体 · 不另购", "qty": 1}
+    ],
+    "steps": [
+      "辨认同一套 375 的两半：有双线的一侧为开关，无引线的一侧为磁铁。采购数量为一套；拆包时清点两个壳体。",
+      "将 Pico 放在台面，Micro USB 口朝便于接线的一边。暂将有线开关侧放在盒体边缘；给引线预留弯曲和走线空间，不要按包络模型钻孔。",
+      "将磁铁侧暂放在盒盖边缘。缓慢开合，调整两半的位置，确保合盖时能彼此靠近、开盖时稳定分离。用万用表通断档检查开关两根引线，记录实际闭合和断开位置。",
+      "在盒体和盒盖上分别标记试放位置，核对全程不碰撞、不会夹线且 USB 可插拔。实测孔位与行程后再确定固定方式。"
+    ]
+  },
+  "items": {
+    "0": {"manufacturer": "Raspberry Pi", "mpn": "SC0915", "title": "Raspberry Pi Pico", "url": "https://www.raspberrypi.com/products/raspberry-pi-pico/"},
+    "1": {"manufacturer": "Adafruit", "mpn": "375", "title": "Magnetic contact switch (door sensor) · 一套含两半", "url": "https://www.adafruit.com/product/375"},
+    "2": {"manufacturer": "Adafruit", "mpn": "375", "title": "随同一套 375 提供的磁铁侧（不另购）", "url": "https://www.adafruit.com/product/375"}
+  },
+  "cadBindings": {
+    "1": {
+      "kind": "dimensions", "model": "Adafruit 375 · 有线开关侧",
+      "shape": "box", "sizeMm": [29, 15.2, 9], "holes": [],
+      "sourceUrl": "https://www.adafruit.com/product/375",
+      "notes": "尺寸为商品页给出的单侧壳体外包络，不含引线。将有线侧试放在固定盒体上，保留出线空间；安装耳、孔位和线缆走向均未建模，固定前按实物确认。"
+    },
+    "2": {
+      "kind": "dimensions", "model": "Adafruit 375 · 配套磁铁侧",
+      "shape": "box", "sizeMm": [29, 15.2, 9], "holes": [],
+      "sourceUrl": "https://www.adafruit.com/product/375",
+      "notes": "尺寸为同套磁铁壳体的外包络，未提供孔位。本侧无引线；试放在活动盒盖上。开合间距以实物通断测试为准，不从两个模型的演示间距推定触发距离。"
+    }
+  },
+  "assemblyStepParts": {"0": [1, 2], "1": [0, 1], "2": [1, 2], "3": [0, 1, 2]},
+  "placements": [
+    {"partIndex": 0, "positionMm": [0, 0, 0], "rotationDeg": [0, 0, 0]},
+    {"partIndex": 1, "positionMm": [0, 32, 0], "rotationDeg": [0, 0, 0]},
+    {"partIndex": 2, "positionMm": [0, 51, 0], "rotationDeg": [0, 0, 0]}
+  ]
+}

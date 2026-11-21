@@ -1,11 +1,10 @@
+import {encodeSTL as stl} from './assembly-hardware.js';
 import {prepareMesh,createRaster,fitCamera} from './mesh-renderer.js';
 // A dimension edit stretches only clear planar spans between fixed-size features.
 const dims0={w:64,d:32,h:17};const parts=['base','lid'];const titles={assembly:'完整装配',base:'底壳',lid:'上盖'};
 const ratio=(v,lo,hi)=>Math.min(1,Math.max(0,(v-lo)/(hi-lo)));
 function moved(p,part,d){const [x,y,z]=p;return [x+(d.w-64)*ratio(x,56,60),y+(d.d-32)*(ratio(y,3.3,7.2)+ratio(y,24.8,28.7))/2,z+(part==='base'?(d.h-17)*ratio(z,12,16):0)]}
-const sub=(a,b)=>a.map((v,i)=>v-b[i]); const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
 function parse(buffer){const v=new DataView(buffer),count=v.getUint32(80,true);if(!count||buffer.byteLength!==84+50*count)throw Error('STL 文件无效');return Array.from({length:count},(_,i)=>Array.from({length:3},(_,j)=>Array.from({length:3},(_,k)=>v.getFloat32(96+i*50+j*12+k*4,true))))}
-function stl(faces){const a=new ArrayBuffer(84+faces.length*50),dv=new DataView(a);dv.setUint32(80,faces.length,true);faces.forEach((f,i)=>{const n=cross(sub(f[1],f[0]),sub(f[2],f[0])),len=Math.hypot(...n)||1;[n.map(v=>v/len),...f].flat().forEach((v,j)=>dv.setFloat32(84+i*50+j*4,v,true))});return a}
 function download(name,body,type){const a=document.createElement('a'),u=URL.createObjectURL(new Blob([body],{type}));a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
 const endpoint=name=>new URL('./samples/'+name,import.meta.url);async function read(name,binary){const r=await fetch(endpoint(name));if(!r.ok)throw Error('无法读取 '+name);return binary?r.arrayBuffer():r.text()}
 let cached;function model(){if(!cached)cached=Promise.all([read('pico-base.stl',true),read('pico-lid.stl',true),read('pico-enclosure.scad')]).then(([b,l,s])=>({base:parse(b),lid:parse(l),source:s})).catch(e=>{cached=null;throw e});return cached}
