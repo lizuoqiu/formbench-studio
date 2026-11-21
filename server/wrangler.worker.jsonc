@@ -2,6 +2,7 @@
   "name": "formbench-studio-private",
   "main": "worker.mjs",
   "compatibility_date": "2026-11-20",
+  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "preview_urls": false,
   "assets": {"directory": "../dist", "binding": "ASSETS", "run_worker_first": ["/api/*"]}
