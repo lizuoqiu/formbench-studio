@@ -6,9 +6,11 @@ export function verifiedSources(result) {
     for (const source of call.action?.sources || []) {
       try {
         const u = new URL(source.url), id = u.searchParams.get('id');
-        if (u.protocol !== 'https:' || u.username || u.password || u.port || !['item.taobao.com','detail.tmall.com'].includes(u.hostname) || u.pathname !== '/item.htm' || !/^\d+$/.test(id || '')) continue;
-        const url=`https://${u.hostname}/item.htm?id=${id}`;
-        unique.set(url,{url,title:String(source.title||`商品 ${id}`).slice(0,200)});
+        if (u.protocol !== 'https:' || u.username || u.password || u.port || !['item.taobao.com','detail.tmall.com'].includes(u.hostname) || u.pathname !== '/item.htm' || u.searchParams.getAll('id').length!==1 || !/^\d{1,25}$/.test(id || '')) continue;
+        const raw=u.searchParams.getAll('skuId');
+        if(raw.length>1 || (raw.length && !/^\d{1,25}$/.test(raw[0])))continue;
+        const skuId=raw[0],url=`https://${u.hostname}/item.htm?id=${id}${skuId?'&skuId='+skuId:''}`,key=`${id}:${skuId||''}`;
+        if(!unique.has(key))unique.set(key,{url,title:String(source.title||`商品 ${id}`).slice(0,200),...(skuId?{skuId}:{})});
       } catch { /* non-product source */ }
     }
   }

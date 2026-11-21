@@ -1,29 +1,6 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#6babf5"><title>Formwork · 硬件工坊</title><link rel="stylesheet" href="./style.css"><link rel="stylesheet" href="./mechanical.css"><link rel="stylesheet" href="./hardware-library.css"><link rel="stylesheet" href="./wiring.css"><link rel="stylesheet" href="./frame.css"><link rel="stylesheet" href="./studio-entry.css"></head><body>
-<svg aria-hidden="true" class="icons" xmlns="http://www.w3.org/2000/svg"><defs><symbol id="cube" viewBox="0 0 24 24"><path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5m-9 5v10"/></symbol><symbol id="wire" viewBox="0 0 24 24"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 6h5v12h5"/></symbol><symbol id="parts" viewBox="0 0 24 24"><path d="M8 5h12M8 12h12M8 19h12M3 5h1M3 12h1M3 19h1"/></symbol><symbol id="cart" viewBox="0 0 24 24"><path d="M2 4h3l3 12h11l3-9H6"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></symbol><symbol id="grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol></defs></svg>
-<header class="top">
-  <div class="top-inner">
-    <div class="top-identity">
-      <a class="brand-home" href="#studio" aria-label="Formwork 设计工作室">
-        <svg class="fw-mark" aria-hidden="true" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m5 10 11-5 11 5-11 5zM5 16l11 5 11-5M5 22l11 5 11-5"/></svg>
-        <b class="studio-wordmark">Formwork</b>
-      </a>
-      <span id="project-title" class="top-project">Pico 桌面指示器</span>
-    </div>
-    <nav class="project-tabs" aria-label="项目视图">
-      <button type="button" data-view="overview" aria-label="设计总览"><svg aria-hidden="true"><use href="#grid"/></svg>总览</button>
-      <button type="button" data-view="bom" aria-label="零件清单"><svg aria-hidden="true"><use href="#parts"/></svg>零件</button>
-      <button type="button" data-view="wiring" aria-label="电气连接"><svg aria-hidden="true"><use href="#wire"/></svg>接线</button>
-      <button type="button" data-view="mechanical" aria-label="机械结构"><svg aria-hidden="true"><use href="#cube"/></svg>结构</button>
-      <button type="button" data-view="procurement" aria-label="采购与交付"><svg aria-hidden="true"><use href="#cart"/></svg>采购</button>
-    </nav>
-    <div class="bar-actions">
-      <button class="bar-export" type="button" data-action="export" aria-label="导出装配项目包" title="导出装配项目包"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg></button>
-      <a id="surface-link" href="#overview">项目工作台</a>
-    </div>
-  </div>
-</header>
-<main id="studio" hidden><div id="studio-screen"></div></main>
-<div class="shell">
-<main class="workspace"><h1 id="view-title" class="workspace-title">设计总览</h1>
-<div id="app" aria-live="polite"></div><noscript>请启用 JavaScript 以查看和编辑项目。</noscript></main>
-<aside class="delivery"><h2>交付状态</h2><div class="summary-card"><div class="status-top"><i></i><strong id="ready-status">待核对</strong></div><p id="next-action">核对采购、报价与组装安排后再下单。</p><div class="divider"></div><div class="srow"><span>标准件入车</span><b id="cart-progress">待核对</b></div><div class="srow"><span>外壳加工</span><b id="quote-progress">待报价</b></div><button data-view="procurement" class="btn btn-dark">查看采购清单 <span>↗</span></button></div></aside></div><script type="module" src="./app.js"></script><script type="module" src="./studio.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#dceafb"><title>Formwork · 硬件设计</title><link rel="stylesheet" href="./consumer.css"><link rel="stylesheet" href="./consumer-account.css"></head>
+<body><header class="header"><div class="mast"><a class="wordmark" href="./" aria-label="Formwork 首页"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="m5 10 11-6 11 6-11 6zM5 16l11 6 11-6M5 22l11 6 11-6"/></svg>Formwork</a><button type="button" id="back" class="quiet" hidden>新建设计 <span aria-hidden="true">＋</span></button><div id="consumer-account"></div></div></header>
+<main id="main"><section id="entry" class="entry"><div class="draft-art" aria-hidden="true"><svg viewBox="0 0 660 660" fill="none" xmlns="http://www.w3.org/2000/svg"><g stroke="currentColor" stroke-linejoin="round"><g stroke-width="2.6"><path d="m101 333 198-110 224 95-199 125z m0 0v30l223 111 199-128v-28m-199 125v31"/><path d="m121 333 179-97 199 84-176 109z m13 12 165-89 181 76"/><path d="m128 261 167-91 197 83-173 103z m0 0v9l191 94 173-104v-7m-173 103v8"/><ellipse cx="170" cy="261" rx="10" ry="5"/><ellipse cx="293" cy="189" rx="10" ry="5"/><ellipse cx="447" cy="255" rx="10" ry="5"/><ellipse cx="322" cy="337" rx="10" ry="5"/><path d="m232 263 70-39 73 31-70 42z m0 0v8l73 34 70-42v-8m-70 42v8"/><path d="m97 170 200-108 227 93-200 124z m0 0v21l227 111 200-125v-22m-200 124v23"/><ellipse cx="297" cy="170" rx="46" ry="23" transform="rotate(-6 297 170)"/><ellipse cx="374" cy="151" rx="12" ry="6"/></g><g stroke-dasharray="5 8" stroke-width="1.5"><path d="M99 194v134m224-23v132m200-253v130M299 70V37"/></g><g stroke-width="1.3"><path d="m110 376-24 23m233 83-20 24M97 398l205 100m-197-105-9 13m203 84-9 13m242-167 26 12m-203 121 26 12m-4-5 180-123m-178 116 7 13m162-131 7 10M370 141l47-72h108m-271 205-81 87H35"/></g></g></svg></div>
+<div class="entry-content"><h1>今天，想做什么硬件？</h1><p class="subtitle">用一句话描述想法，生成可旋转的 CAD 方案，找到制作所需的零件。</p><form id="intent" novalidate><label for="wish" class="sr">描述你的硬件需求</label><textarea id="wish" name="prompt" rows="3" maxlength="1800" required placeholder="例如：我想做一盏桌面状态灯，按一下按钮就能切换红绿灯。"></textarea><div class="composer-foot"><button id="generate" type="submit" class="primary">生成设计 <span aria-hidden="true">→</span></button></div></form><div class="entry-bottom"><span>先看看设计结果？</span><button id="sample" class="example" type="button">查看示例 <span aria-hidden="true">↗</span></button></div><div id="entry-notice" role="status" aria-live="polite"></div></div></section>
+<section id="project" hidden aria-label="设计结果"></section></main><noscript>请启用 JavaScript 以查看三维设计和零件清单。</noscript><script type="module" src="./consumer.js"></script></body></html>

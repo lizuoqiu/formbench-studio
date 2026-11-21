@@ -1,6 +1,17 @@
 import {gzipSync} from 'node:zlib';
+import {execFileSync} from 'node:child_process';
+import {resolve} from 'node:path';
 import { mkdir,readdir,cp,rm,writeFile,readFile } from 'node:fs/promises';
 await rm('dist',{recursive:true,force:true});await mkdir('dist');
+for(const page of ['workbench.html','consumer.js','consumer.css','consumer-account.css','consumer-account.js','consumer-cad.js','consumer-service.js'])await cp(page,'dist/'+page);
+const helperFiles=(await readdir('extension',{withFileTypes:true})).filter(f=>f.isFile()&&/^[\w-]+\.(?:html|css|js|json|png)$/.test(f.name)).map(f=>f.name).sort();
+for(const file of ['manifest.json','bridge.js','background.js','product.js','confirm.html','confirm.js'])if(!helperFiles.includes(file))throw Error('Missing browser helper file: '+file);
+const helperArchive=resolve('dist/taobao-helper.zip');
+if(process.platform==='win32'){
+  execFileSync('powershell.exe',['-NoProfile','-Command',`Compress-Archive -LiteralPath ${helperFiles.map(f=>"'"+f+"'").join(',')} -DestinationPath '${helperArchive.replaceAll("'","''")}'`],{cwd:'extension'});
+}else{
+  execFileSync('zip',['-q','-X',helperArchive,...helperFiles],{cwd:'extension'});
+}
 for(const name of ['index.html','style.css','app.js','studio.js','mechanical.js','mechanical.css','mesh-renderer.js','assembly-hardware.js','part-geometry.js','model-selection.js','project-layout.js','assembly-handoff.js','hardware-library.js','hardware-library.css','wiring.js','wiring.css','frame.css','studio-entry.css','samples'])await cp(name,'dist/'+name,{recursive:true});
 await mkdir('dist/forge');
 const assets=(await readdir('forge',{withFileTypes:true}).catch(e=>{if(e.code==='ENOENT')return [];throw e})).filter(d=>d.isFile()&&/^pico-[\w-]+\.(forge\.js|stl|step|stp|glb|3mf)$/i.test(d.name)).map(d=>d.name).sort();

@@ -16,7 +16,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test tools/*.test.mjs
+      - run: npm ci --prefix server
+      - run: npm ci --prefix tools --ignore-scripts
+      - run: node --test tools/*.test.mjs tools/product-extension.test.cjs server/accounts.test.mjs server/cart.test.mjs server/catalog.test.mjs server/design.test.mjs server/local-codex.test.mjs server/worker.test.mjs
       - run: node tools/build.mjs
       - uses: actions/upload-pages-artifact@v3
         with:

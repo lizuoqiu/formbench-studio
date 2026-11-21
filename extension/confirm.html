@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>核对淘宝采购清单 · FormBench</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#1e2930;background:#fafaf7;font-size:16px}main{max-width:680px;margin:7vh auto;padding:0 24px 40px}h1{font-size:1.6rem;margin:.6rem 0}li{margin:.8rem 0;padding:1rem;background:white;border:1px solid #d6ded9;border-radius:9px;overflow-wrap:anywhere}li p{margin:.3rem 0}small{color:#425960}button{border:0;border-radius:6px;padding:.65em 1.1em;font:inherit;cursor:pointer;margin-right:.6em}#approve{background:#176542;color:white}button:disabled{opacity:.5;cursor:default}#status{font-weight:600}code{font-size:.83rem}
+</style></head>
+<body><main><small>FormBench · 浏览器扩展确认页</small><h1>核对淘宝采购清单</h1><p>下列操作使用此浏览器当前登录的淘宝买家账号。请逐项核对商品、型号、数量和链接；确认后会逐页尝试加入购物车，不下单、不付款。</p><ol id="items"></ol><p id="status" role="status">正在读取清单…</p><button id="approve" disabled>确认并逐项加购</button><button id="cancel" disabled>取消</button><script src="confirm.js"></script></main></body></html>

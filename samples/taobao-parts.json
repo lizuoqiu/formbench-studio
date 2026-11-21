@@ -1,0 +1,34 @@
+{
+  "checkedAt": "2026-11-20",
+  "coverage": "示例 BOM 的采购候选；商品链接由厂商或店家公开页面指明。未查询库存、价格或购买情况。",
+  "items": [
+    {
+      "modelId": "pico",
+      "title": "树莓派 Pico",
+      "url": "https://item.taobao.com/item.htm?id=636980501509",
+      "itemId": "636980501509",
+      "skuId": null,
+      "sourceUrl": "https://shumeipai.nxez.com/raspberry-pi-pico",
+      "sourceTitle": "树莓派 Pico | 树莓派实验室",
+      "sourceType": "seller-link",
+      "sourceRedirect": "http://link.nxez.com/buy/raspberry-pi-pico",
+      "selectionNote": "打开后确认原厂初代 Pico（RP2040、Micro USB、无预焊排针）。具体 SKU 和 R3 板修订均待卖家确认。",
+      "evidence": "树莓派实验室的初代 Pico 介绍页列出购买链接；该链接公开重定向到所记录的淘宝商品编号。未读取到淘宝商品正文，未核实默认规格和批次。",
+      "checkedAt": "2026-11-20"
+    },
+    {
+      "modelId": "usb-cable",
+      "title": "绿联Micro USB安卓数据线",
+      "url": "https://detail.tmall.com/item.htm?id=16184646887&skuId=6292854915476",
+      "itemId": "16184646887",
+      "skuId": "6292854915476",
+      "sourceUrl": "https://www.lulian.cn/product/1951.html",
+      "sourceTitle": "绿联Micro USB安卓数据线 | US289",
+      "sourceType": "manufacturer-link",
+      "options": ["0.25 米", "1 米", "1.5 米"],
+      "selectionNote": "可替代的 USB-A 至 Micro USB 数据线。请确认长度和插头外壳尺寸；此天猫 SKU 对应的线长未知。",
+      "evidence": "绿联官网的产品参数确认 US289 支持 USB 2.0 数据传输并列出这些可选长度。天猫商品和 SKU 编号取自同页的“天猫购买”按钮。未读取到天猫商品正文。",
+      "checkedAt": "2026-11-20"
+    }
+  ]
+}
