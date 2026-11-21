@@ -50,12 +50,25 @@ export function decodeSTL(buf){
   if(!n||84+50*n!==v.byteLength)throw Error('不是有效的二进制 STL');
   return Array.from({length:n},(_,i)=>Array.from({length:3},(_,j)=>Array.from({length:3},(_,k)=>v.getFloat32(96+50*i+12*j+4*k,true))));
 }
+async function readPreviewMesh(url,compressed){
+  if(compressed&&typeof DecompressionStream==='function'){
+    try{
+      const bytes=new Uint8Array(await (await read(compressed)).arrayBuffer());
+      const buffer=bytes[0]===0x1f&&bytes[1]===0x8b
+        ?await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
+        :bytes.buffer;
+      return decodeSTL(buffer);
+    }catch{/* Previously cached catalogs can outlive a preview. The source STL stays available. */}
+  }
+  return decodeSTL(await (await read(url)).arrayBuffer());
+}
 export async function loadPartMeshes(id){
   const meta=await getHardwareMetadata(id),u=base(id);
   return Promise.all(meta.meshes.map(async m=>{
     if(!/^[\w.-]+\.stl$/i.test(m.file))throw Error('模型文件名无效');
     const url=new URL(m.file,u);
-    const triangles=await cached(geomCache,url.href,async()=>decodeSTL(await(await read(url)).arrayBuffer()));
+    const compressed=m.previewGzip===m.file+'.gz'?new URL(m.previewGzip,u):null;
+    const triangles=await cached(geomCache,url.href,()=>readPreviewMesh(url,compressed));
     const color=m.role==='lens'?(id==='green-led'?[56,194,106]:[225,67,59]):m.color||[150,158,164];
     return {label:m.label||catalog[id].label,color,triangles,role:m.role||'',file:m.file};
   }));

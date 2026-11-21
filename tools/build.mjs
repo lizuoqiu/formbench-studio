@@ -9,6 +9,18 @@ await writeFile('dist/forge/assets.json',JSON.stringify(assets));
 
 // Preserve per-model source links and license notices alongside their public geometry.
 await cp('assets/hardware','dist/assets/hardware',{recursive:true});
+for(const folder of await readdir('dist/assets/hardware',{withFileTypes:true})){
+  if(!folder.isDirectory())continue;
+  const dir='dist/assets/hardware/'+folder.name+'/',metadata=JSON.parse(await readFile(dir+'metadata.json','utf8'));
+  let changed=false;
+  for(const mesh of metadata.meshes){
+    const data=await readFile(dir+mesh.file);
+    if(data.length<48*1024)continue;
+    mesh.previewGzip=mesh.file+'.gz';
+    await writeFile(dir+mesh.previewGzip,gzipSync(data,{level:9}));changed=true;
+  }
+  if(changed)await writeFile(dir+'metadata.json',JSON.stringify(metadata,null,2));
+}
 await cp('assets/cad-reader','dist/assets/cad-reader',{recursive:true});
 const wasm=await readFile('assets/cad-reader/occt-import-js.wasm');
 await writeFile('dist/assets/cad-reader/occt-import-js.wasm.gz',gzipSync(wasm,{level:9}));
