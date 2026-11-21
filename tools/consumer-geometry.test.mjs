@@ -4,6 +4,7 @@ import {previewCadPlan,compileCadPlan,meshBounds,cadBodyToForgeScript,runCadWork
 import {buildDeclaredAssembly,resolveConsumerGeometry,declaredHomeCamera,declaredExplosionOffset,currentCadPlan,bodyPose,visibleAssemblyInstances,assemblyStl} from '../consumer-cad.js';
 import {decodeSTL} from '../assembly-hardware.js';
 import {compileCadPlan as compileSolid} from '../cad-plan-compiler.js';
+import {editableForgeSource} from '../forge-source.js';
 
 const feature=(shape,sizeMm,centerMm=[0,0,0],op='add')=>({op,shape,sizeMm,centerMm});
 const body=(name,features,extra={})=>({name,partIndex:0,role:'printed',positionMm:[30,40,50],features,...extra});
@@ -11,6 +12,30 @@ const plan=bodies=>({version:1,bodies});
 const part=(fields={})=>({name:'打印拳部',spec:'定制',model:'自建结构',qty:1,role:'external',sizeMm:[50,40,45],dimensionSource:'specified',...fields});
 const near=(a,b)=>a.forEach((v,k)=>assert.ok(Math.abs(v-b[k])<1e-5,`${a} != ${b}`));
 const volume=faces=>Math.abs(faces.reduce((sum,[a,b,c])=>sum+(a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]))/6,0));
+
+test('editable exports embed only the packaged board program in complete catalog anchors',async t=>{
+ const {readFile}=await import('node:fs/promises');
+ const seen=[];
+ t.mock.method(globalThis,'fetch',async url=>{
+  seen.push(url.pathname);
+  assert.match(url.pathname,/\/assets\/hardware\/xiao-esp32(?:s3|c3)\/(?:metadata\.json|reference\.forge\.js)$/);
+  return new Response(await readFile(url));
+ });
+ for(const [modelId,size] of [['xiao-esp32s3',[22.482,17.78,4.46]],['xiao-esp32c3',[22.463,17.78,4.7]]]){
+  const row=part({modelId,sizeMm:size,dimensionSource:'catalog',role:'internal',sourceFile:'https://invalid.example/injected.js'});
+  const anchor=body('可编辑控制板',[{...feature('box',size,[2,3,4]),rotationDeg:[20,30,40]}],{role:'reference'});
+  const source=await editableForgeSource(plan([anchor]),[row],0);
+  assert.ok(source.includes(modelId));assert.match(source,/\.rotate\(\[1,0,0\], 20\)\.rotate\(\[0,1,0\], 30\)\.rotate\(\[0,0,1\], 40\)\.translate\(2, 3, 4\)/);
+  assert.doesNotMatch(source,/injected\.js|Placement envelope/);
+  const fallback=await editableForgeSource(plan([anchor,anchor]),[row]);
+  assert.match(fallback,/Placement envelope/);assert.doesNotMatch(fallback,/function catalogBoard/);
+  for(const patch of [{modelId:'../../injected'},{modelSourceInvalidated:true},{dimensionSource:'specified'},{sizeMm:[30,20,10]}]){
+   const ordinary=await editableForgeSource(plan([anchor]),[{...row,...patch}],0);
+   assert.match(ordinary,/Placement envelope/);assert.doesNotMatch(ordinary,/function catalogBoard|injected/);
+  }
+ }
+ assert.ok(seen.some(path=>path.endsWith('xiao-esp32c3/reference.forge.js')));
+});
 
 test('a purchased part uses its complete placement box and exports the displayed, rotated detail at the current travel',()=>{
  const p=part({index:0,qty:1,role:'internal',geometryKind:'catalog',sizeMm:[20,10,4],

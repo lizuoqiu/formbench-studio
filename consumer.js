@@ -1,7 +1,7 @@
 import {discussDesign,generateDesign,findProducts,pickProduct,makeCart,serviceCapabilities,sampleDesign} from './consumer-service.js';
 import {mountConsumerAccount,saveConsumerProject,readConsumerProject} from './consumer-account.js';
 import {currentCadPlan,mountConsumerCad} from './consumer-cad.js';
-import {cadPlanToForgeScript} from './forge-source.js';
+import {editableForgeSource} from './forge-source.js';
 const $=s=>document.querySelector(s),entry=$('#entry'),project=$('#project');
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const modelText=p=>[p.model,p.spec].filter(x=>typeof x==='string'&&x.trim()).filter((v,i,a)=>a.indexOf(v)===i).join(' · ');
@@ -232,10 +232,17 @@ function mount(){
       if(plan.bodies.length){
         const filename=design.name.replace(/[^\p{L}\p{N}._-]+/gu,'-').slice(0,80)||'assembly';
         sourceButton.hidden=false;
-        sourceButton.onclick=()=>{
-          const url=URL.createObjectURL(new Blob([cadPlanToForgeScript(plan)],{type:'text/javascript;charset=utf-8'}));
-          const a=document.createElement('a');a.href=url;a.download=filename+'.forge.js';a.click();
-          setTimeout(()=>URL.revokeObjectURL(url),1500);
+        sourceButton.disabled=false;
+        sourceButton.onclick=async()=>{
+          sourceButton.disabled=true;
+          try{
+            const source=await editableForgeSource(plan,design.parts);
+            if(!active)return;
+            const url=URL.createObjectURL(new Blob([source],{type:'text/javascript;charset=utf-8'}));
+            const a=document.createElement('a');a.href=url;a.download=filename+'.forge.js';a.click();
+            setTimeout(()=>URL.revokeObjectURL(url),1500);
+          }catch(error){if(active)badge.textContent=error.message||'整机模型下载失败。'}
+          finally{if(active)sourceButton.disabled=false}
         };
       }
     }catch{sourceButton.hidden=true}
@@ -264,7 +271,7 @@ function projectWorkspace(){
     <nav class="project-views" aria-label="项目视图">${nav}</nav>
     <div class="project-actions">
       ${iteration.previousId?'<button id="previous-version" type="button" class="small-button">上一版</button>':''}
-      <button type="button" class="file-action" id="download-forge" title="编辑装配结构与行程。目录采购件在源文件中使用定位包络；完整外形可在 CAD 文件中下载 STL。" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg>ForgeCAD 源文件</button>
+      <button type="button" class="file-action" id="download-forge" title="下载可编辑的整机结构和行程。采购件的可编辑模型或定位包络见下方 CAD 文件。" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg>ForgeCAD 源文件</button>
     </div>
   </div>
   <small id="save-status" role="status"></small>

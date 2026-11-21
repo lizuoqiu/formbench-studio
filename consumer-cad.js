@@ -1,7 +1,8 @@
 import {catalog,loadPartMeshes,getHardwareMetadata,encodeSTL} from './assembly-hardware.js';
 import {makeDocumentedProxy} from './part-geometry.js';
 import {prepareMesh,createRaster,fitCamera} from './mesh-renderer.js';
-import {previewCadPlan,compileCadPlan,meshBounds,featurePlacement,cadBodyToForgeScript,cadDownloadName} from './consumer-geometry.js';
+import {previewCadPlan,compileCadPlan,meshBounds,featurePlacement,cadDownloadName} from './consumer-geometry.js';
+import {completeCatalogAnchors,editableForgeSource,hasEditableCatalogSource} from './forge-source.js';
 import {validateCadPlan,wholePartBox} from './cad-plan.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -138,12 +139,7 @@ export function currentCadPlan(design){
 }
 export function buildDeclaredAssembly(design,parts,geometry){
  const instances=[],counts=new Map();
- const bodyCounts=new Map(),incompleteRows=new Set();
- for(const body of geometry.bodies){
-  const index=body.partIndex,native=parts[index]?.sizeMm,box=wholePartBox(body);
-  bodyCounts.set(index,(bodyCounts.get(index)||0)+1);
-  if(!box||!native||!box.sizeMm.every((n,k)=>Math.abs(n-native[k])<=.01))incompleteRows.add(index);
- }
+ const anchors=completeCatalogAnchors(geometry.bodies,parts);
  for(let index=0;index<geometry.bodies.length;index++){
   const body=geometry.bodies[index],part=parts[body.partIndex];
   if(!part)throw Error('形体引用了不存在的零件。');
@@ -152,9 +148,8 @@ export function buildDeclaredAssembly(design,parts,geometry){
   let meshes=body.meshes,source='generated';
   // A motor and its rod can share a BOM row. Swap only a complete part's
   // dimensioned placement box, never an individual mechanism or a custom solid.
-  const anchor=wholePartBox(body);
-  if(anchor&&part.geometryKind==='catalog'&&part.meshes?.length
-    &&bodyCounts.get(part.index)<=part.qty&&!incompleteRows.has(part.index)){
+  const anchor=anchors[index];
+  if(anchor&&part.geometryKind==='catalog'&&part.meshes?.length){
    const place=featurePlacement(anchor,part.sizeMm.map(n=>n/2));
    meshes=part.meshes.map(mesh=>({...mesh,triangles:mesh.triangles.map(face=>face.map(place))}));
    source='catalog';
@@ -607,7 +602,8 @@ export function mountConsumerCad(container,design,options={}){
    target.innerHTML=assembly+geometry.bodies.map((body,index)=>{
     const item=concept.instances.find(instance=>instance.bodyIndex===index),catalogPart=item?.source==='catalog';
     const label=esc(body.name),role=body.role==='printed'?'结构件':'装配参考';
-    const sourceLabel=catalogPart?'定位包络 .forge.js':'.forge.js';
+    const editable=catalogPart&&hasEditableCatalogSource(parts[body.partIndex].modelId);
+    const sourceLabel=editable?'可编辑模型 .forge.js':wholePartBox(body)?'定位包络 .forge.js':'.forge.js';
     const original=catalogPart&&safeUrl(parts[body.partIndex].metadata?.manufacturerCadUrl);
     const manufacturer=original?`<small><a href="${esc(original)}" target="_blank" rel="noopener noreferrer">原厂 CAD 下载 ↗</a></small>`:'';
     return `<div class="cc-file"><div><strong>${label}</strong><small>${role}</small>${manufacturer}</div><div class="cc-file-actions">${body.exact||catalogPart?`<button type="button" data-cc-body-stl="${index}" aria-label="下载 ${label} 的 ${role} STL">STL</button>`:''}<button type="button" data-cc-body-forge="${index}" aria-label="下载 ${label} 的 ${sourceLabel}">${sourceLabel}</button></div></div>`;
@@ -727,7 +723,7 @@ export function mountConsumerCad(container,design,options={}){
  }
  function home(){setOverview(mode==='inside')}
  function download(bytes,name,type){const href=URL.createObjectURL(new Blob([bytes],{type})),anchor=document.createElement('a');anchor.href=href;anchor.download=name;document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(href),1500)}
- root.onclick=e=>{
+ root.onclick=async e=>{
   const button=e.target.closest('button');if(!button)return;
   if(button.hasAttribute('data-cc-retry')){if(compileFailed)buildExact();return}
   if(button.hasAttribute('data-cc-reset-focus')){setOverview(false);return}
@@ -741,7 +737,15 @@ export function mountConsumerCad(container,design,options={}){
    const bytes=item?.source==='catalog'?encodeSTL(item.meshes.flatMap(mesh=>mesh.triangles),'Formwork reference part in mm'):body?.stlBytes;
    if(bytes)download(bytes,cadDownloadName(body.name),'model/stl');
   }
-  if(button.dataset.ccBodyForge!==undefined){const body=activePlan?.bodies[Number(button.dataset.ccBodyForge)];if(body)download(cadBodyToForgeScript(body),cadDownloadName(body.name,'forge.js'),'text/javascript')}
+  if(button.dataset.ccBodyForge!==undefined){
+   const index=Number(button.dataset.ccBodyForge),body=activePlan?.bodies[index];if(!body)return;
+   button.disabled=true;
+   try{
+    const source=await editableForgeSource(activePlan,parts,index);
+    if(!disposed)download(source,cadDownloadName(body.name,'forge.js'),'text/javascript');
+   }catch(error){if(!disposed)status.textContent=error.message||'零件模型下载失败。'}
+   finally{button.disabled=false}
+  }
  };
  root.oninput=e=>{
   if(e.target.dataset.ccTravel===undefined)return;

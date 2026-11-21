@@ -135,6 +135,18 @@ test('prompt, immutable regeneration, truthful backend model receipts, old proje
     await publicPage.locator('#geometry-state[data-phase=ready]').waitFor();
     assert.ok(meshFiles.includes(version===1?'/samples/fist-bump.v1-cad.json':'/samples/fist-bump-cad.json'));
     if(version===2){
+      const readDownload=async button=>{
+        const [download]=await Promise.all([publicPage.waitForEvent('download'),button.click()]);
+        assert.ok(download.suggestedFilename().endsWith('.forge.js'));
+        return readFile(await download.path(),'utf8');
+      };
+      const assembly=await readDownload(publicPage.locator('#download-forge'));
+      await publicPage.locator('[data-cc-files] summary').click();
+      const board=await readDownload(publicPage.getByRole('button',{name:/固定交互控制板.*可编辑模型/}));
+      for(const source of [assembly,board]){
+        assert.match(source,/xiao-esp32s3/);assert.match(source,/const portSolid=/);assert.match(source,/castellated/);
+      }
+      assert.match(assembly,/stroke0/);assert.doesNotMatch(board,/stroke0/);
       const latestFeedback=latest.iteration.conversation.filter(t=>t.role==='user').at(-1).text;
       assert.ok(latestFeedback.trim());await publicPage.locator('.iteration-history summary').click();
       assert.ok((await publicPage.locator('.iteration-history ol').innerText()).includes(latestFeedback));
