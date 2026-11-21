@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import {delimiter,dirname,isAbsolute,join,resolve} from 'node:path';
 import {promisify} from 'node:util';
 import {cadBodyToForgeScript} from '../forge-source.js';
+import {cadBodyProgress} from '../cad-plan.js';
 
 const run = promisify(execFile);
 export const researchVersion = '0.8.2';
@@ -66,7 +67,7 @@ async function readExport(file,remaining) {
   return data;
 }
 
-export async function compileWithForge(plan,env,mode,requestSignal) {
+export async function compileWithForge(plan,env,mode,requestSignal,onProgress) {
   const binary = env.FORGECAD_BIN || 'forgecad';
   const deadline = AbortSignal.timeout(80_000);
   const signal = AbortSignal.any([requestSignal,deadline]);
@@ -89,6 +90,7 @@ export async function compileWithForge(plan,env,mode,requestSignal) {
     let remaining = maxBytes;
     for (const [i,body] of plan.bodies.entries()) {
       signal.throwIfAborted();
+      onProgress?.(cadBodyProgress(plan,i,'start'));
       const fileName = `part-${body.partIndex+1}-body-${i+1}.stl`;
       const source = join(dir,`part-${i+1}.forge.js`), output = join(dir,fileName);
       await writeFile(source,cadBodyToForgeScript(body));
@@ -97,6 +99,7 @@ export async function compileWithForge(plan,env,mode,requestSignal) {
       remaining -= stl.length;
       const {partIndex,name,role,positionMm} = body;
       bodies.push({partIndex,name,role,positionMm,fileName,stlBase64:stl.toString('base64')});
+      onProgress?.(cadBodyProgress(plan,i,'finish'));
     }
     return {engine:`ForgeCAD CLI ${version}`,version,units:'mm',bodies};
   } catch(e) {

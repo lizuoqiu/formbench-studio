@@ -22,17 +22,50 @@ const triplet=/(\d+(?:\.\d+)?)\s*[x×*＊]\s*(\d+(?:\.\d+)?)\s*[x×*＊]\s*(\d+(
 function specified(p,prompt){const q=p.dimensionQuote;return str(q,500)&&prompt.includes(q)&&(q.toLowerCase().includes(p.name.toLowerCase())||q.toLowerCase().includes(p.model.toLowerCase()))&&Array.from(q.matchAll(triplet)).some(m=>p.sizeMm.every((v,k)=>v===Number(m[k+1])));}
 class AssemblyError extends Error {}
 
+const strokeAxes={
+ up:{label:'垂直向上伸出（+Z）',accepts:([x,y,z])=>Math.hypot(x,y)<=0.001&&z>0},
+ vertical:{label:'沿竖直轴伸缩',accepts:([x,y])=>Math.hypot(x,y)<=0.001},
+ horizontal:{label:'沿水平面伸出',accepts:([,,z])=>Math.abs(z)<=0.001}
+};
+
+// Enforce only an unambiguous extension direction in the user's own instructions.
+// Ambiguous language, orientation of the housing, and multi-axis design stay with the model.
+function requestedStrokeDirection(turns){
+ const note=turns.findLast(text=>/伸出|伸缩|推出|顶出|轴向|方向|上升|倾斜|斜上|斜向|固定|静止|不动|手动|手摇|向前|旋转|停止运动|extend|extension|stationary|rotat/i.test(text));
+ if(!note||/多轴|双轴|两轴|自由度|多方向|多种方向|(?:改用|改为|改成|采用)手[动摇推]|multi.axis|degrees? of freedom/i.test(note))return null;
+ const directions=new Set();
+ for(const clause of note.split(/[，,。.!！;；\n]|而是|而要|\bbut\b/i)){
+  if(/[？?或]|是否|选择|考虑|也许|可能|如果|不要|避免|不应|不想|不用|禁止|不能|不是|不再|无需|手动|(?:用户|人|我)(?:的手|的手臂|用手|把手|本人)?(?:沿|朝|向|垂直|竖直|水平)|\b(?:not|never|without|if|or|manual(?:ly)?|my hand)\b/i.test(clause))continue;
+  const revision=clause.split(/改成|改为|调整为/);
+  const action=revision.at(-1).replace(/[（(](?:世界坐标|重力|[+-]Z)[^()（）]{0,40}[)）]/gi,'');
+  // Keep the direction adjacent to the extension verb. A face pointing up can still slide forward.
+  const compact=action.replace(/重力的?反方向|\+Z轴?/gi,'竖直向上').replaceAll('垂直','竖直')
+   .replace(/的?方向|缓慢|慢慢|主动|直线|地|\s+/g,'');
+  const motion=compact.match(/(竖直向上|竖直|水平(?:向前|向外)?)(?=伸出|伸缩|顶出|推出)/);
+  const english=action.match(/\bextends?\s+(vertically(?:\s+up(?:wards?)?)?|horizontally)\b/i);
+  const direction=motion?.[1]??english?.[1];
+  if(direction){
+   if(revision.length>1)directions.clear();
+   if(/水平|horizontally/i.test(direction))directions.add('horizontal');
+   else directions.add(/向上|up/i.test(direction)?'up':'vertical');
+  }
+ }
+ // An upward extension also satisfies an unsigned vertical constraint.
+ if(directions.has('up'))directions.delete('vertical');
+ return directions.size===1?[...directions][0]:null;
+}
+
 // Catch explicit device-driven extension even if the model labels the design stationary.
 // The model handles relational cues such as reciprocal greetings in the interaction skill.
 function explicitlyExtends(text){
  const clauses=text.split(/[，。！？；,.!?;\n]|但是|而是|\bbut\b/i);
  return clauses.some(clause=>{
-  if(/不要|不需要|不能|无需|不应|不会|不想|不主动|禁止|\b(?:never|not|without)\b|n['’]t\b/i.test(clause))return false;
-  return /(?<!向|朝|朝着|对着|给|面向)(?:AI|装置|设备|机器人|机构|它|执行器|电机|机械臂)\s*(?:本身|自己|应该|应当|需要|能够|应|要|先|再|会|主动|自动|自行|缓慢|慢慢|向前|向外|向我|向人|轻轻|水平|直线|地|可以)*(?:伸出|伸展|伸缩|推出)|\b(?:device|robot|actuator|it)\s+(?:(?:itself|should|will|can|automatically|actively|slowly|gently|first)\s+)*(?:extend|retract)s?\b/i.test(clause);
+  if(/不要|不需要|不能|无需|不应|不会|不想|不主动|禁止|手动|手摇|手推|\b(?:never|not|without|manual(?:ly)?)\b|n['’]t\b/i.test(clause))return false;
+  return /(?<!向|朝|朝着|对着|给|面向)(?:AI|装置|设备|机器人|机构|它|执行器|电机|机械臂)\s*(?:本身|自己|应该|应当|需要|能够|应|要|先|再|会|主动|自动|自行|缓慢|慢慢|向前|向外|向我|向人|向上|向下|轻轻|垂直|竖直|水平|直线|地|可以)*(?:伸出|伸展|伸缩|推出)|\b(?:device|robot|actuator|it)\s+(?:(?:itself|should|will|can|automatically|actively|slowly|gently|first)\s+)*(?:extend|retract)s?\b/i.test(clause);
  });
 }
 
-function validateInstallation(raw,prompt){
+function validateInstallation(raw,prompt,strokeDirection,changingPoweredStroke){
  let plan;
  try {plan=validateCadPlan(raw.cadPlan,raw.parts.length);}
  catch(error){
@@ -41,10 +74,14 @@ function validateInstallation(raw,prompt){
  }
  const hasTravel=Boolean(plan.motions?.length);
  if(raw.deviceMotion!==undefined&&!deviceMotion.includes(raw.deviceMotion))throw new AssemblyError('设计缺少有效的设备动作说明。');
- if(!hasTravel&&(raw.deviceMotion==='powered-linear'||explicitlyExtends(prompt)||explicitlyExtends(raw.summary)))
+ if(!hasTravel&&(changingPoweredStroke||raw.deviceMotion==='powered-linear'||explicitlyExtends(prompt)||explicitlyExtends(raw.summary)))
   throw new AssemblyError('方案描述了装置主动伸缩，但 CAD 缺少驱动、导向、随动件或行程。请重新生成。');
  if(hasTravel&&raw.deviceMotion&&raw.deviceMotion!=='powered-linear')
   throw new AssemblyError('设计说明与 CAD 中的主动直线运动不一致。请重新生成。');
+ if(strokeDirection&&plan.motions?.length===1){
+  const {label,accepts}=strokeAxes[strokeDirection],axis=plan.motions[0].axis;
+  if(!accepts(axis))throw new AssemblyError('要求'+label+'，当前 CAD 伸出方向为 ['+axis.join(', ')+']。请重新生成机构。');
+ }
  const placedParts=new Set(plan.bodies.map(body=>body.partIndex));
  for(const [index,part] of raw.parts.entries()){
   if(part.placement==='mounted'&&!placedParts.has(index))
@@ -52,14 +89,14 @@ function validateInstallation(raw,prompt){
  }
  return plan;
 }
-export function normalizeDesign(raw,prompt,latestIntent=prompt){if(!str(raw?.name,200)||!str(raw.summary,5000)||!Array.isArray(raw.parts)||!raw.parts.length||raw.parts.length>60||!Array.isArray(raw.steps)||!raw.steps.length||raw.steps.length>60||!raw.steps.every(s=>str(s,2000)))throw Error('invalid design');
+export function normalizeDesign(raw,prompt,latestIntent=prompt,strokeDirection=requestedStrokeDirection([latestIntent]),changingPoweredStroke=false){if(!str(raw?.name,200)||!str(raw.summary,5000)||!Array.isArray(raw.parts)||!raw.parts.length||raw.parts.length>60||!Array.isArray(raw.steps)||!raw.steps.length||raw.steps.length>60||!raw.steps.every(s=>str(s,2000)))throw Error('invalid design');
  const parts=raw.parts.map(p=>{if(!str(p?.name,200)||!str(p.spec,800)||!str(p.model,240)||!Number.isInteger(p.qty)||p.qty<1||p.qty>999||!role.includes(p.role)||!sizes(p.sizeMm)||!str(p.purpose,500))throw Error('invalid part');
  const result={name:p.name.trim(),spec:p.spec.trim(),model:p.model.trim(),qty:p.qty,role:p.role,purpose:p.purpose.trim(),modelId:'',sizeMm:p.sizeMm,dimensionSource:'estimated',dimensionNote:'AI 估算的设计包络；采购和制作前须核对实物。',dimensionSourceUrl:'',...(['mounted','loose'].includes(p.placement)?{placement:p.placement}:{})};
  if(p.dimensionSource==='specified'&&specified(p,prompt))return {...result,dimensionSource:'specified',dimensionQuote:p.dimensionQuote,dimensionNote:'需求原文：'+p.dimensionQuote};
  const id=matchHardware({...p,spec:p.spec+' '+p.model}),meta=id&&id===p.modelId&&refs[id];if(!meta)return result;
  const b=meta.boundsMm,dim=meta.sizeMm??(Array.isArray(b)?b[0].map((x,k)=>Number((b[1][k]-x).toFixed(3))):null);
  if(!sizes(dim))return result;return {...result,modelId:id,sizeMm:dim,dimensionSource:'catalog',dimensionNote:`目录参考模型外廓：${meta.label}；${meta.modelType==='dimensioned-approximation'?meta.description+' ':''}不代表已核对购买规格。`,dimensionSourceUrl:meta.measurementSourceUrl||meta.sourceUrl};});
- return {name:raw.name.trim(),summary:raw.summary.trim(),parts,steps:raw.steps.map(s=>s.trim()),cadPlan:validateInstallation(raw,latestIntent),...(raw.deviceMotion?{deviceMotion:raw.deviceMotion}:{})};}
+ return {name:raw.name.trim(),summary:raw.summary.trim(),parts,steps:raw.steps.map(s=>s.trim()),cadPlan:validateInstallation(raw,latestIntent,strokeDirection,changingPoweredStroke),...(raw.deviceMotion?{deviceMotion:raw.deviceMotion}:{})};}
 export async function design(request,env,send=fetch){const reply=(body,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'no-store'}});
  if(request.method!=='POST')return reply({error:'只支持 POST。'},405);
  if(!env.OPENAI_API_KEY||!env.OPENAI_MODEL)return reply({error:'设计服务尚未连接。'},503);
@@ -71,7 +108,11 @@ export async function design(request,env,send=fetch){const reply=(body,status=20
   discussing=ctx.action==='discuss';
   if(discussing&&ctx.history.slice(ctx.discussionStart).filter(turn=>turn.role==='assistant').length>=2)return reply(ready());
   const guide=discussing?null:await modelingGuide(env);
-  const designInstructions=[instructions,...(ctx.history.length||ctx.baseDesign?[revisionInstructions]:[]),guide?.text].join('\n');
+  const userMessages=[ctx.prompt,...ctx.history.filter(turn=>turn.role==='user').map(turn=>turn.text)];
+  const currentTurns=ctx.baseDesign?ctx.history.slice(ctx.discussionStart).filter(turn=>turn.role==='user').map(turn=>turn.text):userMessages;
+  const strokeDirection=requestedStrokeDirection(currentTurns.length?currentTurns:[ctx.prompt]);
+  const axisNote=strokeDirection?'本轮用户指定所述部件'+strokeAxes[strokeDirection].label+'。按装配世界坐标布置机构和回程。':'';
+  const designInstructions=[instructions,...(ctx.history.length||ctx.baseDesign?[revisionInstructions]:[]),axisNote,guide?.text].join('\n');
   const input={model:env.OPENAI_MODEL,store:false,instructions:discussing?discussionInstructions:designInstructions,input:modelInput(ctx),
    text:{format:{type:'json_schema',name:discussing?'hardware_clarification':'hardware_design',strict:true,schema:discussing?discussionSchema:schema}}};
   const r=await send('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify(input),signal});
@@ -84,8 +125,8 @@ export async function design(request,env,send=fetch){const reply=(body,status=20
   const txt=data.output.filter(i=>i.type==='message').flatMap(i=>i.content??[]).filter(c=>c.type==='output_text').map(c=>c.text).join('');
   const value=JSON.parse(txt);
   if(discussing)return reply(readDecision(value));
-  const userMessages=[ctx.prompt,...ctx.history.filter(turn=>turn.role==='user').map(turn=>turn.text)];
-  const result=normalizeDesign(value,userMessages.join('\n'),userMessages.at(-1));
+  const changingPoweredStroke=Boolean(strokeDirection)&&ctx.baseDesign?.cadPlan?.motions?.length===1;
+  const result=normalizeDesign(value,userMessages.join('\n'),userMessages.at(-1),strokeDirection,changingPoweredStroke);
   return reply({design:{...result,generation:generation('openai-api',data.model??env.OPENAI_MODEL,data.model?'response':'configured',guide.skill)}});
  }catch(error){
   if(error instanceof DesignInputError)return reply({error:error.message},error.status);

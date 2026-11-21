@@ -106,3 +106,72 @@ test('installed research ForgeCAD produces a measured through-hole and reference
     assert.deepEqual(shell.lo,[-6,-5,-4]);assert.deepEqual(shell.hi,[6,5,4]);assert.ok(Math.abs(shell.volume-832)<.001);
     assert.deepEqual(reference.lo,[-1,-1,1]);assert.deepEqual(reference.hi,[7,9,9]);assert.ok(reference.n>300);
 });
+
+test('Manifold reports actual per-body work and returns a terminal failure for an invalid second solid',async()=>{
+  const zero=body([feature('add','box',[1,1,1]),feature('cut','box',[5,5,5])],{name:'被完全切除'});
+  const request=req({cadPlan:{version:1,bodies:[plan.bodies[0],zero]}});
+  request.headers.set('Accept','application/x-ndjson');
+  const res=await forgePlan(request);
+  assert.equal(res.status,200);assert.match(res.headers.get('content-type'),/x-ndjson/);
+  const rows=(await res.text()).trim().split('\n').map(line=>JSON.parse(line));
+  assert.deepEqual(rows.filter(v=>v.type==='progress').map(v=>[v.phase,v.bodyIndex,v.partIndex,v.name,v.completed,v.total]),[
+    ['start',0,0,'试件',0,2],['finish',0,0,'试件',1,2],['start',1,0,'被完全切除',1,2]]);
+  assert.equal(rows.at(-1).type,'error');assert.equal(rows.at(-1).status,422);
+  assert.ok(rows.at(-1).error);assert.ok(!rows.some(v=>v.result));
+});
+
+test('loopback streams ForgeCAD work, cancels the exporter on disconnect, and accepts the next revision',async()=>{
+  const {mkdtemp,readFile,writeFile,rm}=await import('node:fs/promises');
+  const {setTimeout:delay}=await import('node:timers/promises');
+  const {join}=await import('node:path'),{tmpdir}=await import('node:os');
+  const {Readable}=await import('node:stream'),{createInterface}=await import('node:readline');
+  const {createServer}=await import('node:net');
+  const dir=await mkdtemp(join(tmpdir(),'formbench-live-forge-')),bin=join(dir,'forgecad.cjs'),gate=join(dir,'allow-export');
+  const probe=createServer().listen(0,'127.0.0.1');await once(probe,'listening');
+  const port=probe.address().port,origin='http://127.0.0.1:'+port;await new Promise(r=>probe.close(r));
+  let child,reader;
+  try{
+    await writeFile(bin,`#!${process.execPath}
+      const fs=require('node:fs');const args=process.argv.slice(2);
+      if(args[0]==='--version'){console.log('0.99.0-test');process.exit(0)}
+      fs.writeFileSync(${JSON.stringify(gate+'.pid')},String(process.pid));
+      const deadline=Date.now()+6000;
+      (function wait(){if(Date.now()>deadline)process.exit(1);
+       if(!fs.existsSync(${JSON.stringify(gate)})){setTimeout(wait,10);return}
+       const bytes=Buffer.alloc(134);bytes.writeUInt32LE(1,80);bytes.writeFloatLE(1,108);bytes.writeFloatLE(1,124);
+       fs.writeFileSync(args[4],bytes)})();`,{mode:0o700});
+    child=spawn(process.execPath,['server/local.mjs'],{cwd:new URL('../',import.meta.url),
+      env:{...process.env,PORT:String(port),FORGECAD_ENTERPRISE_AUTOMATION:'true',FORGECAD_RESEARCH_AUTOMATION:'false',FORGECAD_BIN:bin},stdio:['ignore','pipe','pipe']});
+    await Promise.race([once(child.stdout,'data'),once(child,'exit').then(()=>{throw Error('server exited')})]);
+    const opts={method:'POST',headers:{origin,accept:'application/x-ndjson','content-type':'application/json'},body:JSON.stringify({cadPlan:plan,engine:'forgecad'}),signal:AbortSignal.timeout(8000)};
+    const endpoint=origin+'/api/forge/plan';
+    const disconnect=new AbortController();
+    const abandoned=await fetch(endpoint,{...opts,signal:AbortSignal.any([opts.signal,disconnect.signal])});
+    const abandonedReader=abandoned.body.getReader();
+    assert.equal((await abandonedReader.read()).done,false);
+    const deadline=Date.now()+3500;
+    let pid=0;
+    while(!pid && Date.now()<deadline){
+      try{pid=Number(await readFile(gate+'.pid','utf8'))}catch(e){if(e.code!=='ENOENT')throw e}
+      if(!pid)await delay(10);
+    }
+    assert.ok(pid,'exporter started and is waiting for a mesh');
+    disconnect.abort();
+    // The exporter is blocked on a file nobody has released. Only disconnect can stop it here.
+    let stopped=false;
+    while(!stopped && Date.now()<deadline){
+      try{process.kill(pid,0)}catch(e){if(e.code!=='ESRCH')throw e;stopped=true}
+      if(!stopped)await delay(10);
+    }
+    assert.ok(stopped,'disconnect terminated the in-flight exporter');
+    const response=await fetch(endpoint,opts);
+    assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/x-ndjson/);
+    reader=createInterface({input:Readable.fromWeb(response.body),crlfDelay:Infinity});
+    const iterator=reader[Symbol.asyncIterator](),first=JSON.parse((await iterator.next()).value);
+    assert.deepEqual(first,{type:'progress',phase:'start',bodyIndex:0,partIndex:0,name:'试件',completed:0,total:2});
+    assert.equal((await fetch(origin+'/api/forge/plan',opts)).status,429);
+    await writeFile(gate,'');const rest=[];for await(const line of iterator)rest.push(JSON.parse(line));
+    assert.deepEqual(rest.slice(0,-1).map(v=>[v.phase,v.bodyIndex,v.completed]),[['finish',0,1],['start',1,1],['finish',1,2]]);
+    const end=rest.at(-1);assert.equal(end.type,'result');assert.equal(end.result.engine,'ForgeCAD CLI 0.99.0-test');assert.equal(end.result.bodies.length,2);
+  }finally{reader?.close();child?.kill();await rm(dir,{recursive:true,force:true})}
+});

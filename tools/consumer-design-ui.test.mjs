@@ -103,23 +103,65 @@ test('prompt, immutable regeneration, truthful backend model receipts, old proje
   assert.equal(await previousCanvas.evaluate(canvas=>canvas.isConnected),false);
   assert.equal(await p.locator('#revision-prompt').inputValue(),'保留这个修改意见');
   assert.equal(requests.length,requestsBeforeRetry);
-  const handoff=await b.newContext({reducedMotion:'reduce'}),designRequests=[];
+  const handoff=await b.newContext({reducedMotion:'reduce'}),designRequests=[],meshFiles=[];
+  let verifyPrivateBranch=false;
   await handoff.route(/https:\/\/formwork-ui-test\.github\.io\/|http:\/\/127\.0\.0\.1:4173\//,async route=>{
     const pathname=new URL(route.request().url()).pathname;
     if(pathname.startsWith('/api/')){
-      if(pathname==='/api/design')designRequests.push(route.request().url());
+      if(pathname==='/api/design'){
+        const body=route.request().postDataJSON();designRequests.push(body);
+        if(!verifyPrivateBranch)return route.fulfill({status:500,json:{error:'Unexpected design request'}});
+        return route.fulfill({json:body.action==='discuss'?{decision:'ready',question:'',options:[]}:{design:{...fixture,name:'从水平示例另存'}}});
+      }
       return route.fulfill({json:pathname==='/api/capabilities'?{ai:true,aiProvider:'openai-api'}:pathname==='/api/catalog'?{candidates:[]}:{configured:false,authenticated:false}});
     }
+    if(pathname.startsWith('/samples/fist-bump')&&pathname.endsWith('-cad.json'))meshFiles.push(pathname);
     const response=await fetch(url+pathname);
     await route.fulfill({status:response.status,contentType:response.headers.get('content-type'),body:Buffer.from(await response.arrayBuffer())});
   });
+  const latest=JSON.parse(await readFile(path.join(root,'samples/fist-bump.json'),'utf8'));
+  const history=JSON.parse(await readFile(path.join(root,'samples/fist-bump.v1.json'),'utf8'));
+  assert.equal(latest.iteration.previousId,'builtin:fist-bump:v1');
+  assert.notDeepEqual(latest.design.cadPlan.motions[0].axis,history.design.cadPlan.motions[0].axis);
   const publicPage=await handoff.newPage();await publicPage.goto('https://formwork-ui-test.github.io/?example=fist');
-  const transfer=publicPage.getByRole('button',{name:'在本机继续修改'});
-  await transfer.waitFor();await publicPage.locator('#revision-prompt').fill('行程缩短至 12 mm，保留拳面');
-  const opened=handoff.waitForEvent('page');await transfer.click();const localPage=await opened;
-  await localPage.waitForFunction(()=>document.querySelector('#revision-prompt')?.value==='行程缩短至 12 mm，保留拳面');
-  assert.equal(localPage.url(),'http://127.0.0.1:4173/?example=fist');
-  assert.equal(await localPage.locator('#version-label').innerText(),'第 1 版');
-  assert.deepEqual(designRequests,[]);await handoff.close();
+  for(const version of [2,1]){
+    if(version===1){
+      await publicPage.locator('#previous-version').click();
+      await publicPage.waitForURL('**/?example=fist&version=1');
+      await publicPage.reload();
+    }
+    const transfer=publicPage.getByRole('button',{name:'在本机继续修改'});
+    await transfer.waitFor();assert.equal(await publicPage.locator('#version-label').innerText(),'第 '+version+' 版');
+    await publicPage.locator('#geometry-state[data-phase=ready]').waitFor();
+    assert.ok(meshFiles.includes(version===1?'/samples/fist-bump.v1-cad.json':'/samples/fist-bump-cad.json'));
+    if(version===2){
+      const latestFeedback=latest.iteration.conversation.filter(t=>t.role==='user').at(-1).text;
+      assert.ok(latestFeedback.trim());await publicPage.locator('.iteration-history summary').click();
+      assert.ok((await publicPage.locator('.iteration-history ol').innerText()).includes(latestFeedback));
+    }else assert.equal(await publicPage.locator('#previous-version').count(),0);
+    const feedback='第 '+version+' 版的行程缩短至 12 mm，保留拳面';
+    await publicPage.locator('#revision-prompt').fill(feedback);
+    const opened=handoff.waitForEvent('page');await transfer.click();const localPage=await opened;
+    await localPage.waitForFunction(v=>document.querySelector('#revision-prompt')?.value===v,feedback);
+    assert.equal(localPage.url(),'http://127.0.0.1:4173/?example=fist&version='+version);
+    assert.equal(await localPage.locator('#version-label').innerText(),'第 '+version+' 版');
+    await localPage.close();
+  }
+  assert.deepEqual(designRequests,[]);
+  verifyPrivateBranch=true;
+  const branch=await handoff.newPage();await branch.goto('http://127.0.0.1:4173/?example=fist&version=1');
+  await branch.locator('#revision-prompt').fill('保留水平方向，缩短行程');
+  await branch.locator('#revise-design').click();await branch.getByRole('heading',{name:'从水平示例另存',exact:true}).first().waitFor();
+  assert.equal(await branch.locator('#version-label').innerText(),'第 2 版');
+  assert.deepEqual(designRequests.map(req=>req.action),['discuss','generate']);
+  assert.deepEqual(designRequests.at(-1).baseDesign.cadPlan.motions[0].axis,history.design.cadPlan.motions[0].axis);
+  assert.equal(designRequests.at(-1).prompt,history.prompt);
+  await branch.locator('#previous-version').click();await branch.getByRole('heading',{name:history.design.name,exact:true}).first().waitFor();
+  assert.equal(await branch.locator('#version-label').innerText(),'第 1 版');
+  const fromGuest=await branch.evaluate(()=>JSON.parse(localStorage.getItem('formbench.consumer.guest.v1')));
+  const savedBranch=fromGuest.find(record=>record.design.name==='从水平示例另存');
+  assert.ok(savedBranch,JSON.stringify(fromGuest.map(record=>({id:record.id,name:record.design.name,iteration:record.iteration}))));
+  assert.ok(savedBranch.iteration.previousId&&fromGuest.some(record=>record.id===savedBranch.iteration.previousId));
+  await handoff.close();
  }finally{await b?.close();await new Promise(r=>server.close(r))}
 });

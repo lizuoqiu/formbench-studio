@@ -77,9 +77,12 @@ function boundsOf(meshes){
  const size=max.map((n,k)=>n-min[k]);if(!validSize(size))throw Error('资料模型没有有效的包络。');
  return {min,size};
 }
-export async function resolveConsumerGeometry(design){
+export async function resolveConsumerGeometry(design,options={}){
  const normalized=normalizedParts(design),parts=[];
  for(const part of normalized){
+  options.signal?.throwIfAborted();
+  const record={stage:'prepare',partIndex:part.index,name:part.name,total:normalized.length};
+  options.onProgress?.({...record,phase:'start',completed:part.index});
   // A missing modelId can be an intentional result of changing the purchase.
   // Never reconstruct that identity from a familiar BOM name.
   const id=!part.modelSourceInvalidated&&Object.hasOwn(catalog,part.modelId||'')?part.modelId:null;
@@ -106,6 +109,7 @@ export async function resolveConsumerGeometry(design){
   if(part.role==='enclosure')geometryNote=planned?'按声明式结构生成形体，不代表原厂外壳或已验证的制造设计':'作为目标外包络下限；当前显示重新计算的概念壳体';
   if(planned&&part.modelSourceInvalidated)geometryNote='型号或尺寸已更改，旧形体与安装位置已撤下；当前为新尺寸包络，请重新生成结构。';
   parts.push({...part,sizeMm:[...part.sizeMm],dimensionSource:actualSize?'catalog':meshes&&part.dimensionSource==='catalog'?'specified':part.dimensionSource,meshes,metadata,geometryKind:actualSize?'catalog':'envelope',geometryNote});
+  options.onProgress?.({...record,phase:'finish',completed:part.index+1});
  }
  return parts;
 }
@@ -179,12 +183,20 @@ export function declaredExplosionOffset(item,concept){
  return [0,0,0].map((_,k)=>k===axis?Math.sign(delta[k])*length:0);
 }
 
-export function visibleAssemblyInstances(concept,mode,includeInterior=false){
+export function visibleAssemblyInstances(concept,mode,includeInterior=false,motions=[]){
+ const hasEnclosure=mode==='closed'&&concept.instances.some(item=>item.placed&&item.role==='enclosure');
  return concept.instances.filter(item=>{
   if(mode==='references')return !item.placed;
   if(!item.placed)return false;
   if(mode==='inside')return item.role==='internal'||(item.kind==='reference'&&item.role==='panel');
-  if(mode==='closed')return includeInterior||item.role!=='internal';
+  if(mode==='closed'&&!includeInterior&&item.role==='internal'){
+   // The enclosure's depth buffer hides the covered length. A shaft can
+   // cross the enclosure even though its BOM location is marked internal.
+   return hasEnclosure&&(item.kind==='printed'||motions.some(motion=>
+    motion.movingBodyIndices.includes(item.bodyIndex)&&
+    (item.partIndex===motion.actuatorPartIndex||item.partIndex===motion.guidePartIndex)
+   ));
+  }
   return true;
  });
 }
@@ -263,10 +275,15 @@ export function mountConsumerCad(container,design,options={}){
      <button type="button" data-cc-mode="inside" aria-label="内部布局">内部</button>
      <button type="button" data-cc-mode="references" hidden>未定位件</button>
     </div>
-    <span class="cc-size" data-cc-size aria-label="整机包络尺寸"></span>
+    <span class="cc-size" data-cc-size></span>
    </div>
    <canvas tabindex="0" aria-label="三维装配模型。拖动或使用方向键旋转，滚轮或加减键缩放，按 0 归位。"></canvas>
    <span class="cc-empty" data-cc-empty hidden></span>
+   <div class="cc-progress" data-cc-progress data-phase="loading">
+    <span class="cc-progress-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+    <div class="cc-progress-copy" role="status" aria-live="polite" aria-atomic="true"><strong data-cc-progress-title>正在读取模型</strong><span data-cc-progress-detail></span></div>
+    <button type="button" data-cc-retry hidden>重试</button>
+   </div>
    <div class="cc-camera" role="group" aria-label="相机控制">
     <button type="button" data-cc-camera="out" aria-label="缩小" title="缩小">${viewerIcon('minus')}</button>
     <button type="button" data-cc-camera="in" aria-label="放大" title="放大">${viewerIcon('plus')}</button>
@@ -274,7 +291,7 @@ export function mountConsumerCad(container,design,options={}){
    </div>
   </div>
   <div class="cc-footer">
-   <p class="cc-status" data-cc-status role="status">正在加载零件几何…</p>
+   <p class="cc-status" data-cc-status>正在加载零件几何…</p>
    <div class="cc-motion" data-cc-motion></div>
    <div class="cc-context" data-cc-context></div>
    ${allowDownloads?`<details class="cc-inspector cc-files" data-cc-files hidden>
@@ -292,6 +309,65 @@ export function mountConsumerCad(container,design,options={}){
   </div>
  </section>`;
  const root=container.querySelector('.cc'),canvas=root.querySelector('canvas'),status=root.querySelector('[data-cc-status]'),raster=createRaster(canvas),aborter=new AbortController();
+ const bubble=root.querySelector('[data-cc-progress]'),bubbleTitle=bubble.querySelector('[data-cc-progress-title]'),bubbleDetail=bubble.querySelector('[data-cc-progress-detail]'),retry=bubble.querySelector('[data-cc-retry]');
+ const partWork=new Map();
+ let progressStage='',confirmationTimer=0,jobBusy=false,compileFailed=false,pendingComplete=false,existingGeometry=false,partAnimation=null;
+ function refreshRowWork(){
+  if(!partsPanel)return;
+  for(const badge of partsPanel.querySelectorAll('[data-cc-part-work]')){
+   const value=partWork.get(Number(badge.dataset.ccPartWork))||'';
+   if(value!==badge.textContent)badge.textContent=value;
+  }
+ }
+ function showBubble(phase,title,detail=''){
+  clearTimeout(confirmationTimer);
+  bubble.hidden=false;bubble.dataset.phase=phase;
+  if(bubbleTitle.textContent!==title)bubbleTitle.textContent=title;
+  if(bubbleDetail.textContent!==detail)bubbleDetail.textContent=detail;
+  retry.hidden=phase!=='error'||!compileFailed;
+ }
+ function progress(event){
+  if(disposed||!root.isConnected)return;
+  const {stage,phase,partIndex,bodyIndex,name,total,completed}=event;
+  if(stage!==progressStage||phase==='request'){partWork.clear();progressStage=stage}
+  existingGeometry=stage==='load'||(existingGeometry&&stage!=='generate');
+  let title={prepare:'正在读取零件',load:'正在加载已有 CAD',generate:'正在生成 CAD',decode:'正在读取生成的实体',assemble:'正在放置模型'}[stage];
+  const counted=Number.isInteger(completed)&&total>0;
+  if(stage==='generate'&&phase==='finish'&&completed===total)title='实体已生成，正在接收模型';
+  if(counted)title+=' · '+completed+' / '+total;
+  showBubble('loading',title,name||'');
+  bubble.dataset.stage=stage;
+  if(phase==='start'&&Number.isInteger(bodyIndex)&&!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches){
+   partAnimation?.cancel();
+   partAnimation=bubble.animate?.([{transform:'translateY(3px) scale(.975)'},{transform:'translateY(0) scale(1)'}],{duration:185,easing:'ease-out'});
+  }
+  if(Number.isInteger(partIndex)){
+   if(phase==='start')partWork.set(partIndex,{prepare:'读取中',load:'加载中',generate:'生成中',decode:'读取中'}[stage]);
+   else if(phase==='finish'){
+    const remaining=activePlan?.bodies.slice(bodyIndex+1).some(body=>body.partIndex===partIndex);
+    partWork.set(partIndex,stage==='prepare'?'已读取':remaining?'部分完成':stage==='generate'?'已生成':'已加载');
+   }
+  }
+  refreshRowWork();
+ }
+ function completeProgress(){
+  if(!pendingComplete)return;
+  pendingComplete=false;compileFailed=false;
+  const count=geometry?.bodies.length||0;
+  if(geometry?.exact){
+   for(const body of geometry.bodies)partWork.set(body.partIndex,'就绪');
+   refreshRowWork();
+  }
+  const title=declared?(existingGeometry?'已有 CAD 已加载':'模型已生成'):'布局已加载';
+  showBubble('complete',title,count?count+' 个实体':'');
+  confirmationTimer=setTimeout(()=>{bubble.hidden=true;partWork.clear();refreshRowWork()},1800);
+ }
+ function failProgress(message){
+  pendingComplete=false;
+  for(const [key,value] of partWork)if(value.endsWith('中'))partWork.set(key,'未完成');
+  refreshRowWork();
+  showBubble('error',existingGeometry?'CAD 加载未完成':'模型未完成',message);
+ }
  const partsPanel=options.partsPanel,hiddenParts=new Set();
  let partsSignature='';
  if(partsPanel)partsPanel.innerHTML=`<section class="cc-parts" aria-label="模型部件">
@@ -302,7 +378,7 @@ export function mountConsumerCad(container,design,options={}){
  function emit(phase,message){
   const busy=phase==='parts'||phase==='enclosure';
   root.dataset.ccState=busy?'loading':phase==='error'?'error':'ready';
-  if(busy)status.textContent=phase==='parts'?'正在加载零件几何…':'正在计算内外部件的形体…';
+  if(phase==='ready'||phase==='view'||phase==='empty')completeProgress();
   try{options.onStatus?.({phase,mode,message,exact:geometry?.exact??false,engine:geometry?.engine??null,instances:concept?.instances.length??0})}catch{}
  }
  function paint(){
@@ -320,11 +396,12 @@ export function mountConsumerCad(container,design,options={}){
   if(signature!==partsSignature){
    partsSignature=signature;
    list.innerHTML=available.size?[...available].map(([key,name])=>
-    `<label class="cc-part"><input type="checkbox" data-cc-part="${esc(key)}" aria-label="显示${esc(name)}"><span>${esc(name)}</span></label>`
+    `<label class="cc-part"><input type="checkbox" data-cc-part="${esc(key)}" aria-label="显示${esc(name)}"><span>${esc(name)}</span><small data-cc-part-work="${esc(key)}"></small></label>`
    ).join(''):'<p>当前视图没有可单独显示的部件。</p>';
   }
   list.querySelectorAll('input').forEach(input=>{input.checked=!hiddenParts.has(input.dataset.ccPart)});
   partsPanel.querySelector('[data-cc-show-all]').disabled=!hiddenParts.size;
+  refreshRowWork();
  }
  function togglePart(event){
   const key=event.target.dataset.ccPart;
@@ -345,15 +422,14 @@ export function mountConsumerCad(container,design,options={}){
   if(concept.declared){
    // Opaque shell surfaces occlude actual contained hardware in an assembled
    // view. Removing an outer panel can therefore reveal the parts beneath.
-   const items=visibleAssemblyInstances(concept,mode,Boolean(partsPanel));
-   const revealInterior=mode!=='closed'||items.some(item=>item.role!=='internal'&&hiddenParts.has(String(item.partIndex)));
    const motions=(mode==='inside'||mode==='closed')?activePlan.motions||[]:[];
+   const items=visibleAssemblyInstances(concept,mode,Boolean(partsPanel),motions);
+   const closedExterior=mode==='closed'&&!items.some(item=>item.role!=='internal'&&hiddenParts.has(String(item.partIndex)))
+    ?new Set(visibleAssemblyInstances(concept,mode,false,motions)):null;
    const shell=mode==='inside'&&items.length?concept.instances.filter(item=>item.placed&&item.kind==='printed'&&item.role!=='internal'):[];
    function place(item,layer){
     const enabled=visible(String(item.partIndex),parts[item.partIndex].name);
-    // A board or contact reference may deliberately intersect a covering part.
-    // Keep the exterior intact until the user removes an outer body.
-    const show=enabled&&(item.role!=='internal'||revealInterior);
+    const show=enabled&&(!closedExterior||closedExterior.has(item));
     const offset=mode==='open'?declaredExplosionOffset(item,concept).map((v,k)=>item.positionMm[k]+v):bodyPose(item,motions,motionProgress);
     const range=motions.find(motion=>motion.movingBodyIndices.includes(item.bodyIndex));
     for(const mesh of item.prepared){
@@ -440,7 +516,9 @@ export function mountConsumerCad(container,design,options={}){
    if(concept.shell)shellMeshes={base:prepareMesh(concept.shell.base,[143,170,183]),lid:prepareMesh(concept.shell.lid,[191,208,215])};
    const prepared=new Map();for(const part of parts)if(part.meshes)prepared.set(part.index,part.meshes.map(mesh=>prepareMesh(mesh.triangles,mesh.color||colors[part.index%colors.length])));concept.instances.forEach(instance=>instance.prepared=prepared.get(instance.partIndex)||[]);
   }
-  const size=concept.declared?concept.sizeMm:concept.shell?.sizeMm;root.querySelector('[data-cc-size]').textContent=size?sizeText(size):'暂无壳内零件';
+  const size=concept.declared?concept.sizeMm:concept.shell?.sizeMm;
+  const poseLabel=concept.declared&&activePlan?.motions?.length?'收回时 ':'';
+  root.querySelector('[data-cc-size]').textContent=size?poseLabel+sizeText(size):'暂无壳内零件';
   root.querySelector('[data-cc-engine]').textContent=geometry?.exact?geometry.engine:declared?'近似形体预览':'按尺寸排布的概念模型';
   root.querySelector('[data-cc-mode=references]').hidden=!concept.unplacedCount;
   if(concept.declared){
@@ -465,30 +543,57 @@ export function mountConsumerCad(container,design,options={}){
   if(concept.declared){const invalid=design.cadPlan.bodies.length-activePlan.bodies.length;return `${geometry.notice} ${invalid?`${invalid} 个旧形体因型号或尺寸变动已撤下，请重新生成。`:''}${concept.unplacedCount?`${concept.unplacedCount} 个零件可在「未定位件」中查看。`:''}${concept.omittedCount?`${concept.omittedCount} 个线材或附件仅在清单记录。`:''}`}
   return concept.shell?`${concept.instances.length} 个内部／顶面实例已自动排布${concept.external.length?`；${concept.external.reduce((n,part)=>n+part.qty,0)} 个外接附件不计入外壳`:'。'} 默认壁厚 ${concept.defaults.wall} mm，部件间距 ${concept.defaults.gap} mm。`:'当前清单为外接附件，尚无需要包裹的部件。';
  }
+ async function buildExact(){
+  if(jobBusy||disposed)return;
+  jobBusy=true;compileFailed=false;pendingComplete=false;existingGeometry=false;
+  buildState='compiling';emit('enclosure','正在准备 CAD 实体。');
+  try{
+   const exact=await compileCadPlan(activePlan,{
+    partCount:parts.length,engine:options.engine,exampleAsset:options.exampleAsset,baseUrl:options.baseUrl,
+    fetcher:options.fetcher,WorkerClass:options.WorkerClass,signal:aborter.signal,onProgress:progress
+   });
+   if(disposed||!root.isConnected)return;
+   progress({stage:'assemble',phase:'request',total:exact.bodies.length});
+   geometry=exact;buildState='exact';prepareConcept();status.textContent=assemblyMessage();
+   pendingComplete=true;updateScene('ready');
+  }catch(error){
+   if(disposed||!root.isConnected)return;
+   buildState='fallback';compileFailed=true;
+   geometry.notice=String(error.message||error)+' 当前保留近似形体。';
+   status.textContent=assemblyMessage();renderSources();failProgress(geometry.notice);updateScene('error');
+  }finally{jobBusy=false}
+ }
  async function load(){
   try{
-   emit('parts','正在读取零件尺寸与来源。');parts=await resolveConsumerGeometry(design);if(disposed||!root.isConnected)return;
-   emit('enclosure',declared?'正在生成声明式形体。':'正在计算外壳与内部布局。');
+   emit('parts','正在读取零件尺寸与来源。');
+   parts=await resolveConsumerGeometry(design,{onProgress:progress,signal:aborter.signal});
+   if(disposed||!root.isConnected)return;
+   emit('enclosure','正在准备装配视图。');
    if(declared){
     activePlan=currentCadPlan(design);
     geometry=previewCadPlan(activePlan,parts.length);
-    if(!activePlan.bodies.length){buildState='fallback';mode='references';geometry.notice='当前仅显示修改后的尺寸包络。'}
+    if(!activePlan.bodies.length){
+     buildState='fallback';mode='references';geometry.notice='型号或尺寸已变更，请重新生成结构。';
+     failProgress(geometry.notice);
+    }
    }
-   prepareConcept(true);status.textContent=assemblyMessage();updateScene('ready');
-   if(declared&&activePlan.bodies.length){
-    emit('enclosure','正在生成内外部件的实体与切削特征。');
-    try{
-     const exact=await compileCadPlan(activePlan,{partCount:parts.length,engine:options.engine,exampleAsset:options.exampleAsset,baseUrl:options.baseUrl,fetcher:options.fetcher,WorkerClass:options.WorkerClass,signal:aborter.signal});
-     if(disposed||!root.isConnected)return;geometry=exact;buildState='exact';prepareConcept();status.textContent=assemblyMessage();updateScene('ready');
-    }catch(error){if(disposed||!root.isConnected)return;buildState='fallback';geometry.notice=String(error.message||error)+' 当前显示近似形体，未完成实体布尔，不能导出实体 STL。';status.textContent=assemblyMessage();renderSources();updateScene('error')}
-   }
-  }catch(error){if(disposed||!root.isConnected)return;root.querySelector('[data-cc-size]').textContent='尺寸信息待补充';status.textContent=String(error.message||error);root.querySelector('[data-cc-sources]').textContent='补齐有效尺寸或形体信息后会重新计算。';renderPartsPanel(new Map());emit('error',status.textContent)}
+   prepareConcept(true);status.textContent=assemblyMessage();
+   if(!declared)pendingComplete=true;
+   updateScene('ready');
+   if(declared&&activePlan.bodies.length)await buildExact();
+  }catch(error){
+   if(disposed||!root.isConnected)return;
+   root.querySelector('[data-cc-size]').textContent='尺寸信息待补充';status.textContent=String(error.message||error);
+   root.querySelector('[data-cc-sources]').textContent='补齐有效尺寸或形体信息后会重新计算。';
+   renderPartsPanel(new Map());failProgress(status.textContent);emit('error',status.textContent);
+  }
  }
  function scale(by){zoom=Math.max(.3,Math.min(5,zoom*by));schedule()}
  function home(){yaw=homePose.yaw;pitch=homePose.pitch;zoom=1;schedule()}
  function download(bytes,name,type){const href=URL.createObjectURL(new Blob([bytes],{type})),anchor=document.createElement('a');anchor.href=href;anchor.download=name;document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(href),1500)}
  root.onclick=e=>{
   const button=e.target.closest('button');if(!button)return;
+  if(button.hasAttribute('data-cc-retry')){if(compileFailed)buildExact();return}
   if(button.dataset.ccMode){mode=button.dataset.ccMode;zoom=1;updateScene('view')}
   if(button.dataset.ccCamera==='in')scale(1.2);if(button.dataset.ccCamera==='out')scale(1/1.2);if(button.dataset.ccCamera==='home')home();
   const part=button.dataset.ccDownload;if(part&&concept?.shell)download(encodeSTL(concept.shell[part],'FormBench concept enclosure; mm; no fit or manufacturing validation'),`concept-${part}-${concept.shell.sizeMm.map(n=>Number(n.toFixed(1))).join('x')}-mm.stl`,'model/stl');
@@ -507,5 +612,5 @@ export function mountConsumerCad(container,design,options={}){
  const wheel=e=>{e.preventDefault();scale(Math.exp(-e.deltaY*.0018))};canvas.addEventListener('wheel',wheel,{passive:false});
  canvas.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','=','-','0'].includes(e.key))return;e.preventDefault();if(e.key==='ArrowLeft')yaw-=.12;if(e.key==='ArrowRight')yaw+=.12;if(e.key==='ArrowUp')pitch=Math.min(1.5,pitch+.12);if(e.key==='ArrowDown')pitch=Math.max(-1.5,pitch-.12);if(e.key==='+'||e.key==='=')scale(1.2);if(e.key==='-')scale(1/1.2);if(e.key==='0')home();schedule()};
  const observer=new ResizeObserver(schedule);observer.observe(canvas);load();
- return ()=>{disposed=true;aborter.abort();observer.disconnect();cancelAnimationFrame(frame);canvas.removeEventListener('wheel',wheel);partsPanel?.removeEventListener('change',togglePart);partsPanel?.removeEventListener('click',showAll);partsPanel?.replaceChildren();root.oninput=root.onclick=null;canvas.onpointerdown=canvas.onpointermove=canvas.onpointerup=canvas.onpointercancel=canvas.onkeydown=null;scene=[]};
+ return ()=>{disposed=true;aborter.abort();clearTimeout(confirmationTimer);partAnimation?.cancel();observer.disconnect();cancelAnimationFrame(frame);canvas.removeEventListener('wheel',wheel);partsPanel?.removeEventListener('change',togglePart);partsPanel?.removeEventListener('click',showAll);partsPanel?.replaceChildren();root.oninput=root.onclick=null;canvas.onpointerdown=canvas.onpointermove=canvas.onpointerup=canvas.onpointercancel=canvas.onkeydown=null;scene=[]};
 }

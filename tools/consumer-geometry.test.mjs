@@ -11,6 +11,18 @@ const part=(fields={})=>({name:'打印拳部',spec:'定制',model:'自建结构'
 const near=(a,b)=>a.forEach((v,k)=>assert.ok(Math.abs(v-b[k])<1e-5,`${a} != ${b}`));
 const volume=faces=>Math.abs(faces.reduce((sum,[a,b,c])=>sum+(a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]))/6,0));
 
+test('closed enclosure submits physical shafts to depth testing while keeping embedded reference pads inside',()=>{
+ const items=[
+  ['enclosure','printed'],['internal','printed'],['internal','reference'],
+  ['external','printed'],['internal','reference'],['internal','reference']
+ ].map(([role,kind],index)=>({role,kind,placed:true,bodyIndex:index,partIndex:index}));
+ const motions=[{movingBodyIndices:[1,2,3,4],actuatorPartIndex:2,guidePartIndex:0}];
+ const view=(mode,reveal=false)=>visibleAssemblyInstances({instances:items},mode,reveal,motions).map(b=>b.bodyIndex);
+ assert.deepEqual(view('closed'),[0,1,2,3]);
+ assert.deepEqual(view('closed',true),[0,1,2,3,4,5]);
+ assert.deepEqual(view('inside'),[1,2,4,5]);
+});
+
 test('the static built-in example reads a saved export only for the exact complete plan',async()=>{
  const baseUrl='https://example.test/project/workbench.html',exampleAsset='fist-bump';
  const p=plan([body('缓存契约试件',[feature('box',[5,4,3])])]);
@@ -185,4 +197,112 @@ test('Forge source contains only supported numeric construction and handles rota
  const source=cadBodyToForgeScript(p);assert.ok(!source.includes('malicious'));assert.match(source,/rotate\(\[1,0,0\], 90\)\.rotate\(\[0,1,0\], 90\)\.translate\(11, 5, 3\)/);assert.match(source,/difference\(body, feature1\)/);
  assert.throws(()=>cadBodyToForgeScript({...p,code:'evil()'}),/Invalid CAD/);
  assert.equal(cadDownloadName('../../拳部','forge.js'),'拳部-concept-mm.forge.js');
+});
+
+const wireRecord=value=>Buffer.from(JSON.stringify(value)+'\n');
+const streamHeaders={'Content-Type':'application/x-ndjson; charset=utf-8'};
+function bodyProgress(p,index,phase){
+ const {partIndex,name}=p.bodies[index];
+ return {type:'progress',phase,bodyIndex:index,partIndex,name,completed:index+(phase==='finish'?1:0),total:p.bodies.length};
+}
+function observedBodies(events,stage){
+ return events.filter(event=>event.stage===stage&&Number.isInteger(event.bodyIndex)).map(({bodyIndex,partIndex,name,phase,completed,total})=>({bodyIndex,partIndex,name,phase,completed,total}));
+}
+function expectedBodies(p){
+ return p.bodies.flatMap((_,i)=>['start','finish'].map(phase=>{
+  const {type,...event}=bodyProgress(p,i,phase);
+  return event;
+ }));
+}
+
+test('progress reaches the viewer before the final solid, including across a split UTF-8 name',async()=>{
+ const p=plan([body('伸缩杆测试',[feature('box',[2,3,4])]),body('导向体',[feature('box',[5,6,7])])]);
+ const result=await compileSolid(p),events=[];
+ let wire,accept;
+ const response=new Response(new ReadableStream({start(controller){wire=controller}}),{headers:streamHeaders});
+ const job=compileCadPlan(p,{baseUrl:'http://127.0.0.1/',fetcher:async(_url,request)=>{
+  accept=new Headers(request.headers).get('accept');return response;
+ },onProgress:event=>events.push(event)});
+ const first=wireRecord(bodyProgress(p,0,'start')),split=first.indexOf(Buffer.from(p.bodies[0].name))+1;
+ wire.enqueue(first.subarray(0,split));wire.enqueue(first.subarray(split));
+ await new Promise(resolve=>setImmediate(resolve));
+ const beforeResult=observedBodies(events,'generate');
+ wire.enqueue(Buffer.concat([
+  wireRecord(bodyProgress(p,0,'finish')),wireRecord(bodyProgress(p,1,'start')),
+  wireRecord(bodyProgress(p,1,'finish')),wireRecord({type:'result',result})
+ ]));
+ wire.close();
+ assert.equal((await job).bodies.length,2);
+ assert.match(accept,/application\/x-ndjson/);
+ assert.deepEqual(beforeResult,expectedBodies(p).slice(0,1));
+ assert.deepEqual(observedBodies(events,'generate'),expectedBodies(p));
+ assert.deepEqual(observedBodies(events,'decode'),expectedBodies(p));
+});
+
+test('interrupted streams, wrong body identity and failed jobs cannot fall back to a different engine',async()=>{
+ const p=plan([body('连接中断试件',[feature('box',[2,2,2])])]),result=await compileSolid(p);
+ const start=bodyProgress(p,0,'start'),finished=bodyProgress(p,0,'finish'),terminal={type:'result',result};
+ const mismatched={...result,bodies:result.bodies.map(b=>({...b,name:'其它方案'}))};
+ let workers=0;
+ class UnexpectedWorker{constructor(){workers++;throw Error('unexpected fallback')}}
+ const cases=[
+  [start],
+  [start,finished],
+  [{...start,name:'错误的形体'},finished,terminal],
+  [start,{type:'error',status:503,error:'编译连接故障'}],
+  [start,finished,{type:'result',result:mismatched}]
+ ];
+ for(const records of cases){
+  const events=[];
+  await assert.rejects(compileCadPlan(p,{baseUrl:'http://127.0.0.1/',WorkerClass:UnexpectedWorker,
+   fetcher:async()=>new Response(Buffer.concat(records.map(wireRecord)),{headers:streamHeaders}),
+   onProgress:event=>events.push(event)
+  }));
+  assert.equal(observedBodies(events,'decode').filter(event=>event.phase==='finish').length,0);
+ }
+ assert.equal(workers,0);
+});
+
+test('a saved export reports loading and an old JSON compiler reports decoding without made-up generation events',async()=>{
+ const p=plan([body('静态零件加载测试',[feature('box',[3,4,5])]),body('独立控制板',[feature('box',[6,7,8])],{partIndex:1})]);
+ const result=await compileSolid(p),loadEvents=[],decodeEvents=[];
+ const saved={...result,engine:'ForgeCAD CLI 0.0.0-test',version:'0.0.0-test',units:'mm',cadPlan:p};
+ const asset=await compileCadPlan(p,{baseUrl:'https://example.test/',exampleAsset:'fist-bump',fetcher:async()=>Response.json(saved),onProgress:event=>loadEvents.push(event)});
+ assert.equal(asset.engine,saved.engine);
+ assert.deepEqual(observedBodies(loadEvents,'load'),expectedBodies(p));
+ assert.deepEqual(observedBodies(loadEvents,'generate'),[]);
+ const cachedEvents=[];
+ const warm=await compileCadPlan(p,{baseUrl:'https://example.test/',exampleAsset:'fist-bump',
+  fetcher:()=>{throw Error('warm mesh cache should not fetch')},onProgress:event=>cachedEvents.push(event)
+ });
+ assert.equal(warm.engine,saved.engine);
+ assert.deepEqual(observedBodies(cachedEvents,'generate'),[]);
+ assert.deepEqual(observedBodies(cachedEvents,'decode'),[]);
+
+ const legacy=await compileCadPlan(p,{baseUrl:'http://localhost:8100/',fetcher:async()=>Response.json(result),onProgress:event=>decodeEvents.push(event)});
+ assert.equal(legacy.engine,result.engine);
+ assert.deepEqual(observedBodies(decodeEvents,'decode'),expectedBodies(p));
+ assert.deepEqual(observedBodies(decodeEvents,'generate'),[]);
+});
+
+test('browser worker body events pass through before decoding its final mesh',async()=>{
+ const p=plan([body('离线工作线程试件',[feature('box',[4,4,6])])]);
+ const result=await compileSolid(p),events=[];
+ let requestedProgress,terminated=0;
+ class WorkerMock{
+  postMessage(request){
+   requestedProgress=request.progress;
+   for(const phase of ['start','finish']){
+    this.onmessage({data:{progress:bodyProgress(p,0,phase)}});
+   }
+   this.onmessage({data:{result}});
+  }
+  terminate(){terminated++}
+ }
+ const solid=await compileCadPlan(p,{baseUrl:'https://static.example.test/',WorkerClass:WorkerMock,onProgress:event=>events.push(event)});
+ assert.equal(requestedProgress,true);
+ assert.equal(terminated,1);
+ assert.equal(solid.exact,true);
+ assert.deepEqual(observedBodies(events,'generate'),expectedBodies(p));
+ assert.deepEqual(observedBodies(events,'decode'),expectedBodies(p));
 });

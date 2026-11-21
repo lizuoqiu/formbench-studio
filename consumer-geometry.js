@@ -84,15 +84,26 @@ function bytesFromBase64(text){
  if(!count||count>250_000||84+count*50!==bytes.length)throw Error('实体网格格式无效。');
  return bytes;
 }
-function decodeSolidResult(plan,data,requireForge){
+async function decodeSolidResult(plan,data,requireForge,stage,options){
   if(typeof data?.engine!=='string'||!Array.isArray(data.bodies)||data.bodies.length!==plan.bodies.length)throw Error('实体计算返回的零件不完整。');
   if(requireForge&&!/^ForgeCAD\b/i.test(data.engine))throw Error('所选的 ForgeCAD 引擎没有生成本次实体。');
-  const bodies=data.bodies.map((body,index)=>{
+  const bodies=[];
+  for(const [index,body] of data.bodies.entries()){
+   options.signal?.throwIfAborted();
    const expected=plan.bodies[index];
    if(body.partIndex!==expected.partIndex||body.name!==expected.name||body.role!==expected.role||JSON.stringify(body.positionMm)!==JSON.stringify(expected.positionMm))throw Error('实体计算返回的零件与当前设计不一致。');
+   const record={stage,bodyIndex:index,partIndex:body.partIndex,name:body.name,total:plan.bodies.length};
+   options.onProgress?.({...record,phase:'start',completed:index});
+   // Yield the UI thread between potentially large STL decodes.
+   if(options.onProgress&&typeof document!=='undefined'){
+    if(globalThis.scheduler?.yield)await globalThis.scheduler.yield();
+    else await new Promise(resolve=>setTimeout(resolve,0));
+    options.signal?.throwIfAborted();
+   }
    const bytes=bytesFromBase64(body.stlBase64),triangles=decodeSTL(bytes.buffer),meshes=[{triangles,color:solidColors[index%solidColors.length],label:body.name}];meshBounds(meshes);
-   return {...expected,meshes,stlBytes:bytes,exact:true};
-  });
+   bodies.push({...expected,meshes,stlBytes:bytes,exact:true});
+   options.onProgress?.({...record,phase:'finish',completed:index+1});
+  }
   return {engine:data.engine,exact:true,bodies,notice:`${data.engine} 已完成实体布尔计算；制造和装配仍需验证。`};
 }
 
@@ -103,14 +114,15 @@ function planKey(plan){
   ?Object.fromEntries(Object.keys(value).sort().map(key=>[key,value[key]])):value);
 }
 
-async function savedExample(plan,base,fetcher,signal){
+const sampleExportFiles={'fist-bump':'fist-bump-cad.json','fist-bump-v1':'fist-bump.v1-cad.json'};
+async function savedExample(plan,base,fetcher,signal,exampleAsset,onProgress){
  try{
-  const url=new URL('./samples/fist-bump-cad.json',base);
+  const url=new URL('./samples/'+sampleExportFiles[exampleAsset],base);
   const response=await fetcher(url,{credentials:'same-origin',mode:'same-origin',redirect:'error',signal});
   if(!response.ok)return null;
   const data=await response.json();
   if(!/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(data.version)||data.engine!=='ForgeCAD CLI '+data.version||data.units!=='mm'||planKey(data.cadPlan)!==planKey(plan))return null;
-  const result=decodeSolidResult(plan,data,true);
+  const result=await decodeSolidResult(plan,data,true,'load',{signal,onProgress});
   result.notice='已加载示例保存的 '+data.engine+' 实体。制造和装配仍需验证。';
   return result;
  }catch{
@@ -119,40 +131,103 @@ async function savedExample(plan,base,fetcher,signal){
  }
 }
 
+function generationProgress(plan,onProgress){
+ let events=0;
+ return {
+  accept({bodyIndex,partIndex,name,phase,completed,total}){
+   const expected=plan.bodies[bodyIndex];
+   if(!expected||bodyIndex!==Math.floor(events/2)||partIndex!==expected.partIndex||name!==expected.name||
+      phase!==(events%2?'finish':'start')||total!==plan.bodies.length||completed!==bodyIndex+Number(phase==='finish'))
+    throw Error('建模进度与当前设计不一致。');
+   events++;
+   onProgress?.({stage:'generate',bodyIndex,partIndex,name,phase,completed,total});
+  },
+  finish(){
+   if(events&&events!==plan.bodies.length*2)throw Error('实体生成过程不完整。');
+  }
+ };
+}
+
+async function readCompilation(response,plan,onProgress,signal){
+ const reader=response.body.getReader(),decoder=new TextDecoder(),progress=generationProgress(plan,onProgress);
+ let pieces=[],bytes=0,result=null;
+ function consume(text){
+  if(!text.trim())return;
+  if(result)throw Error('建模结果之后出现多余的数据。');
+  const event=JSON.parse(text);
+  if(event.type==='progress')progress.accept(event);
+  else if(event.type==='result'&&event.result){progress.finish();result=event.result}
+  else throw Error(event.error||'无法读取建模结果。');
+ }
+ function readLines(text){
+  const lines=text.split('\n');
+  for(let i=0;i<lines.length-1;i++){
+   pieces.push(lines[i]);consume(pieces.join(''));pieces=[];
+  }
+  if(lines.at(-1))pieces.push(lines.at(-1));
+ }
+ const stop=()=>{reader.cancel().catch(()=>{})};
+ signal.addEventListener('abort',stop,{once:true});
+ try{
+  for(;;){
+   signal.throwIfAborted();
+   const {value,done}=await reader.read();
+   if(done)break;
+   if((bytes+=value.byteLength)>32*1024*1024)throw Error('实体文件过大。');
+   readLines(decoder.decode(value,{stream:true}));
+  }
+  signal.throwIfAborted();readLines(decoder.decode());consume(pieces.join(''));
+  if(!result)throw Error('建模连接中断，未收到完整实体。');
+  return result;
+ }catch(error){stop();throw error}
+ finally{signal.removeEventListener('abort',stop);reader.releaseLock()}
+}
+
 export async function compileCadPlan(raw,options={}){
  const plan=validateCadPlan(raw,options.partCount??60),base=options.baseUrl??globalThis.location?.href;
  let url;try{url=new URL('./api/forge/plan',base)}catch{}
  const requireForge=/^forgecad\b/i.test(options.engine||'');
  const useEndpoint=url&&(requireForge||localHosts.has(url.hostname));
- const useSavedExample=options.exampleAsset==='fist-bump'&&url&&!localHosts.has(url.hostname);
+ const useSavedExample=Object.hasOwn(sampleExportFiles,options.exampleAsset)&&url&&!localHosts.has(url.hostname);
  const key=(useSavedExample?'example:':'design:')+JSON.stringify(plan);
  // The server's selected engine can change between requests.
- if(!useEndpoint&&!requireForge&&meshCache.has(key))return meshCache.get(key);
+ options.signal?.throwIfAborted();
+ if(!useEndpoint&&!requireForge&&meshCache.has(key)){
+  options.onProgress?.({stage:'load',phase:'cache',completed:plan.bodies.length,total:plan.bodies.length});
+  return meshCache.get(key);
+ }
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),90_000);
  const cancel=()=>controller.abort();options.signal?.addEventListener('abort',cancel,{once:true});
  if(options.signal?.aborted)controller.abort();
  try{
   if(useSavedExample){
-   const result=await savedExample(plan,base,options.fetcher??globalThis.fetch,controller.signal);
+   options.onProgress?.({stage:'load',phase:'request',total:plan.bodies.length});
+   const result=await savedExample(plan,base,options.fetcher??globalThis.fetch,controller.signal,options.exampleAsset,options.onProgress);
    if(result){
     if(meshCache.size>=12)meshCache.delete(meshCache.keys().next().value);
     meshCache.set(key,result);return result;
    }
   }
   let data;
+  options.onProgress?.({stage:'generate',phase:'request',total:plan.bodies.length});
   if(requireForge&&!url)throw Error('当前缺少 ForgeCAD 服务地址。');
   if(useEndpoint){
    try{
-    const response=await(options.fetcher??globalThis.fetch)(url,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',mode:'same-origin',redirect:'error',signal:controller.signal,body:JSON.stringify({cadPlan:plan,...(requireForge?{engine:"forgecad"}:{})})});
-    data=await response.json().catch(()=>null);
+    const response=await(options.fetcher??globalThis.fetch)(url,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/x-ndjson, application/json'},credentials:'same-origin',mode:'same-origin',redirect:'error',signal:controller.signal,body:JSON.stringify({cadPlan:plan,...(requireForge?{engine:"forgecad"}:{})})});
     if(!response.ok){
+     data=await response.json().catch(()=>null);
      const error=Error(typeof data?.error==='string'?data.error:'实体计算服务没有完成请求。');
      error.business=/^ForgeCAD\b/i.test(data?.engine||'')||![404,429,503].includes(response.status);
      throw error;
     }
+    if(response.headers?.get('content-type')?.includes('application/x-ndjson')){
+     // Once an engine has started, a broken stream must not select a different kernel.
+     try{data=await readCompilation(response,plan,options.onProgress,controller.signal)}
+     catch(error){error.business=true;throw error}
+    }else data=await response.json();
    }catch(error){if(requireForge||error.business||controller.signal.aborted)throw error;data=await runCadWorker(plan,{...options,signal:controller.signal})}
   }else data=await runCadWorker(plan,{...options,signal:controller.signal});
-  const result=decodeSolidResult(plan,data,requireForge);
+  const result=await decodeSolidResult(plan,data,requireForge,'decode',{onProgress:options.onProgress,signal:controller.signal});
   if(!useEndpoint&&!useSavedExample){meshCache.set(key,result);if(meshCache.size>12)meshCache.delete(meshCache.keys().next().value)}
   return result;
  }catch(error){if(error.name==='AbortError'&&!options.signal?.aborted)throw Error('实体计算超时，当前保留形体预览。');throw error}
@@ -166,12 +241,19 @@ export function runCadWorker(plan,options={}){
   const worker=new WorkerClass(new URL('./cad-worker.js',import.meta.url),{type:'module'});let done=false,timer;
   const finish=(fn,value)=>{if(done)return;done=true;clearTimeout(timer);options.signal?.removeEventListener('abort',abort);worker.terminate();fn(value)};
   const abort=()=>finish(reject,Object.assign(Error('实体计算已取消。'),{name:'AbortError'}));
-  worker.onmessage=({data})=>data?.error?finish(reject,Error(data.error)):data?.result?finish(resolve,data.result):finish(reject,Error('实体内核未返回有效结果。'));
+  const progress=generationProgress(plan,options.onProgress);
+  worker.onmessage=({data})=>{
+   try{
+    if(data?.progress){progress.accept(data.progress);return}
+    if(data?.result){progress.finish();finish(resolve,data.result)}
+    else finish(reject,Error(data?.error||'实体内核未返回有效结果。'));
+   }catch(error){finish(reject,error)}
+  };
   worker.onerror=()=>finish(reject,Error('实体内核未能加载，当前保留形体预览。'));
   timer=setTimeout(()=>finish(reject,Error('实体计算超过 30 秒，当前保留形体预览。')),30_000);
   options.signal?.addEventListener('abort',abort,{once:true});
   if(options.signal?.aborted){abort();return}
-  try{worker.postMessage({cadPlan:plan})}catch(error){finish(reject,error)}
+  try{worker.postMessage({cadPlan:plan,progress:Boolean(options.onProgress)})}catch(error){finish(reject,error)}
  });
 }
 

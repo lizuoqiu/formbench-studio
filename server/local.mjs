@@ -1,3 +1,5 @@
+import {Readable} from 'node:stream';
+import {pipeline} from 'node:stream/promises';
 import {maxDesignRequestBytes} from './design-conversation.mjs';
 import {forgePlan,forgePlanEngine} from './forge-plan.mjs';
 import http from 'node:http';import {forge} from './forge.mjs';import {readFile} from 'node:fs/promises';import {extname,resolve,sep} from 'node:path';import {fileURLToPath} from 'node:url';import {design} from './design.mjs';import {accounts,isAccountRoute,sqliteAdapter} from './accounts.mjs';import {buyerSearch,buyerCart} from './buyer-browser.mjs';import {capabilities,buyerAction} from './runtime.mjs';import {createRequire} from 'node:module';import {mkdirSync} from 'node:fs';import {homedir} from 'node:os';import {handleCart} from './cart.mjs';
@@ -13,5 +15,9 @@ const handler=account?(r,e)=>accounts(r,e,getDb(e)):caps?localCapabilities:({'/a
 if(!account&&(req.method!==(caps?'GET':'POST'))){res.writeHead(405).end();return}if(req.method==='POST'&&!account&&req.headers['content-type']?.split(';')[0]!=='application/json'){res.writeHead(415).end();return}
 const byteLimit=pathname==='/api/design'?maxDesignRequestBytes:account?512000:60000;
 let chunks=[],size=0;for await(const chunk of req){size+=chunk.length;if(size>byteLimit){res.writeHead(413).end();return}chunks.push(chunk)}const headers=new Headers();for(const [k,v] of Object.entries(req.headers))if(typeof v==='string')headers.set(k,v);
-const cancel=new AbortController();res.once('close',()=>{if(!res.writableEnded)cancel.abort()});const out=await handler(new Request(origin+req.url,{method:req.method,headers,signal:cancel.signal,...(!['GET','HEAD'].includes(req.method)?{body:Buffer.concat(chunks)}:{})}),process.env);const responseHeaders=Object.fromEntries(out.headers);if(out.headers.has('set-cookie'))responseHeaders['set-cookie']=out.headers.getSetCookie();res.writeHead(out.status,responseHeaders).end(Buffer.from(await out.arrayBuffer()));return}
+const cancel=new AbortController();res.once('close',()=>{if(!res.writableEnded)cancel.abort()});const out=await handler(new Request(origin+req.url,{method:req.method,headers,signal:cancel.signal,...(!['GET','HEAD'].includes(req.method)?{body:Buffer.concat(chunks)}:{})}),process.env);const responseHeaders=Object.fromEntries(out.headers);if(out.headers.has('set-cookie'))responseHeaders['set-cookie']=out.headers.getSetCookie();if(out.headers.get('content-type')?.startsWith('application/x-ndjson')){
+ res.writeHead(out.status,responseHeaders);res.flushHeaders();
+ try{await pipeline(Readable.fromWeb(out.body),res)}catch(error){if(!res.destroyed)res.destroy(error)}return
+}
+res.writeHead(out.status,responseHeaders).end(Buffer.from(await out.arrayBuffer()));return}
 const path=resolve(root,'.'+(pathname==='/'?'/index.html':pathname));if(!path.startsWith(resolve(root)+sep)||!['HEAD','GET'].includes(req.method)){res.writeHead(404).end();return}const buf=await readFile(path);res.writeHead(200,{'Content-Type':({'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.json':'application/json','.glb':'model/gltf-binary','.wasm':'application/wasm','.txt':'text/plain; charset=utf-8'})[extname(path)]||'application/octet-stream'}).end(req.method==='HEAD'?undefined:buf)}catch(e){res.writeHead(e.code==='ENOENT'?404:500).end()}}).listen(port,'127.0.0.1',()=>console.log(`http://127.0.0.1:${port}`))

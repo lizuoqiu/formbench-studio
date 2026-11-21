@@ -72,3 +72,47 @@ test('invalid history, malformed prior CAD and invalid decisions never publish a
  const legacy=await readDesignRequest(req({prompt:'让它更小',baseDesign:{...base,cadPlan:null}}));
  assert.equal(legacy.baseDesign.cadPlan,undefined);
 });
+
+test('a revised single powered stroke follows the latest unambiguous world direction',async()=>{
+ const build=axis=>{
+  const assembly=structuredClone(base);
+  assembly.deviceMotion='powered-linear';
+  assembly.parts.push({...part,name:'导向驱动模组'});
+  assembly.cadPlan.bodies.push({...body,partIndex:1,name:'固定导向'});
+  assembly.cadPlan.motions=[{type:'prismatic',name:'触面伸缩',axis,travelMm:12,movingBodyIndices:[0],actuatorPartIndex:1,guidePartIndex:1,controllerPartIndex:1}];
+  return assembly;
+ };
+ const old=build([1,0,0]);old.summary='触面水平向前伸出。';
+ const edit=text=>({prompt:'设备原来沿桌面水平向前伸出',baseDesign:old,conversation:[{role:'user',text},{role:'assistant',text:'面层保留吗？'},{role:'user',text:'保留 TPU。'}]});
+ const request=edit('把水平伸出改为垂直向上（世界坐标 +Z）伸出，再向下收回。');
+ const received=await response(request,sendResult(old,input=>assert.match(input.instructions,/本轮用户指定所述部件垂直向上伸出/)));
+ assert.equal(received.status,502);assert.match((await received.json()).error,/\+Z.*\[1, 0, 0\]/);
+ for(const axis of [[0,0,-1],[.6,0,.8]]){
+  assert.equal((await response(request,sendResult(build(axis)))).status,502);
+ }
+ assert.equal((await response(request,sendResult(build([0,0,1])))).status,200);
+ assert.equal((await response({prompt:'改为垂直向上伸出。',baseDesign:old},sendResult(old))).status,502);
+ assert.equal((await response({prompt:'手动让装置垂直向上伸出。'},sendResult({...base,deviceMotion:'stationary'}))).status,200);
+ const vertical=edit('垂直伸缩，而不是水平平移');
+ const actualRevision=edit('请在上一版桌面碰拳装置上修改：把拳头的行程改为竖直方向。桌面和底座保持水平，拳头从底座上方沿竖直方向缓慢向上伸出 16 mm，停在上方等待用户轻碰；用户轻碰后，拳头再缓慢垂直向下收回原位。请让可单独 3D 打印的柔性 TPU 握拳、USB-C 供电、轻触感知和低速等待交互保持可用。请随之重新布置底座内的竖直执行器、导向和限位机构，并调整外壳和顶部通道、让运动件互相对齐，拳头能沿真实安装轴上升，电路板和 USB-C 端口保持固定。不要保留上一版水平推杆、平移滑轨或水平磁拖滑鞋。CAD 和实际交互都应体现竖直行程；高度和底座外形可以为合理安装而调整。');
+ for(const [revision,expectedAxis] of [[vertical,/沿竖直轴伸缩/],[actualRevision,/垂直向上伸出/]]){
+  const bad=await response(revision,sendResult(old,input=>assert.match(input.instructions,expectedAxis)));
+  assert.equal(bad.status,502);assert.match((await bad.json()).error,expectedAxis);
+  const stationary=await response(revision,sendResult({...base,deviceMotion:'stationary'}));
+  assert.equal(stationary.status,502);assert.match((await stationary.json()).error,/主动伸缩/);
+  assert.equal((await response(revision,sendResult(build([0,0,1])))).status,200);
+ }
+ assert.equal((await response(vertical,sendResult(build([0,0,-1])))).status,200);
+ assert.equal((await response(actualRevision,sendResult(build([0,0,-1])))).status,502);
+ const horizontal=edit('改为水平向前伸出。');
+ assert.equal((await response(horizontal,sendResult(build([0,1,0])))).status,200);
+ assert.equal((await response(horizontal,sendResult(build([0,0,1])))).status,502);
+ for(const text of ['想和 AI 碰拳。','拳面垂直朝上，按现在的方向伸出。','不要改为垂直向上伸出。','考虑垂直向上伸出或水平伸出。','请做多轴机构，先垂直向上伸出，再侧移。']){
+  const r=await response(edit(text),sendResult(old,input=>assert.doesNotMatch(input.instructions,/本轮用户指定/)));
+  assert.equal(r.status,200,text);
+ }
+ const multi=build([1,0,0]);
+ multi.cadPlan.bodies.push({...body,partIndex:0,name:'第二滑台'});
+ multi.cadPlan.motions.push({...multi.cadPlan.motions[0],name:'升降',axis:[0,0,1],movingBodyIndices:[2]});
+ assert.equal((await response(request,sendResult(multi))).status,200);
+});

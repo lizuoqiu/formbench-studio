@@ -1,6 +1,6 @@
 // Both the browser and Node workers execute these same bounded CSG operations.
 import initManifold from './assets/manifold-3d/manifold.js';
-import {validateCadPlan} from './cad-plan.js';
+import {validateCadPlan,cadBodyProgress} from './cad-plan.js';
 import {manifoldNativeFeature} from './native-features.js';
 const engine='Manifold 3.5.1',segments=48,maxBytes=12*1024*1024;
 function binaryStl(mesh,remaining) {
@@ -22,11 +22,12 @@ function toBase64(bytes){
   const groups=[];for(let i=0;i<bytes.length;i+=24576)groups.push(btoa(String.fromCharCode(...bytes.subarray(i,i+24576))));
   return groups.join('');
 }
-export async function compileCadPlan(plan){
+export async function compileCadPlan(plan,onProgress){
   validateCadPlan(plan);if(!plan.bodies.length)throw Error('CAD 计划缺少可编译的实体。');
   const lib=await initManifold();lib.setup();const M=lib.Manifold;let remaining=maxBytes;
   const bodies=[];
-  for(const body of plan.bodies){
+  for(const [index,body] of plan.bodies.entries()){
+    onProgress?.(cadBodyProgress(plan,index,'start'));
     let solid=null;
     const {partIndex,name,role,positionMm}=body;
     try{
@@ -49,6 +50,7 @@ export async function compileCadPlan(plan){
       const file=binaryStl(solid.getMesh(),remaining);remaining-=file.length;
       bodies.push({partIndex,name,role,positionMm,fileName:'part-'+(partIndex+1)+'-body-'+(bodies.length+1)+'.stl',stlBase64:toBase64(file)});
     }finally{solid?.delete();}
+    onProgress?.(cadBodyProgress(plan,index,'finish'));
   }
   return {engine,units:'mm',bodies};
 }

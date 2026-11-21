@@ -36,3 +36,10 @@ function validateMotions({motions,bodies}){
   }
  }
 }
+
+// bodyIndex identifies a CAD solid. Several solids may belong to one BOM part.
+export function cadBodyProgress(plan,bodyIndex,phase) {
+  const {partIndex,name}=plan.bodies[bodyIndex];
+  return {type:'progress',phase,bodyIndex,partIndex,name,total:plan.bodies.length,
+    completed:bodyIndex+(phase==='finish'?1:0)};
+}

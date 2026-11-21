@@ -1,135 +1,98 @@
 {
   "prompt": "我想做一个能主动伸出拳头和我碰拳的桌面 AI，USB-C 供电。它慢慢把柔软的拳面伸向我，等我轻轻碰一下，再把手收回来。我想用柔性 TPU 做一个可以单独 3D 打印的拳头，握拳轮廓要看得清楚。",
+  "iteration": {
+    "version": 2,
+    "previousId": "builtin:fist-bump:v1",
+    "conversation": [
+      {
+        "role": "user",
+        "text": "请在上一版桌面碰拳装置上修改：把拳头的行程改为竖直方向。桌面和底座保持水平，拳头从底座上方沿竖直方向缓慢向上伸出 16 mm，停在上方等待用户轻碰；用户轻碰后，拳头再缓慢垂直向下收回原位。请让可单独 3D 打印的柔性 TPU 握拳、USB-C 供电、轻触感知和低速等待交互保持可用。请随之重新布置底座内的竖直执行器、导向和限位机构，并调整外壳和顶部通道、让运动件互相对齐，拳头能沿真实安装轴上升，电路板和 USB-C 端口保持固定。不要保留上一版水平推杆、平移滑轨或水平磁拖滑鞋。CAD 和实际交互都应体现竖直行程；高度和底座外形可以为合理安装而调整。"
+      }
+    ]
+  },
   "design": {
     "name": "桌面碰拳装置",
-    "summary": "收到碰拳指令后，柔性 TPU 拳头缓慢向前伸出 16 mm。轻碰指节或等待约 5 秒，拳头自动收回。装置通过 USB-C 供电，拳头可单独 3D 打印。",
+    "summary": "收到桌面 AI 的碰拳邀约后，柔性 TPU 握拳从水平底座上方缓慢升起 16 mm，停住等你轻碰朝上的指节。碰到后它沿原轴慢慢下降；约 5 秒无人回应也会收回。USB-C 接口固定在底座侧壁，拳套可以拆下单独打印。",
     "parts": [
       {
         "name": "底盒",
-        "spec": "PETG 打印，后侧 USB-C 开口，内置执行器托台",
-        "model": "自制底盒",
+        "spec": "PETG，水平底面，中央竖装执行器承窝和下止挡架，侧壁留 USB-C 口",
+        "model": "自制竖装底盒",
         "qty": 1,
         "role": "enclosure",
-        "purpose": "固定驱动和电子件，遮住硬运动件",
+        "purpose": "承受竖向载荷，固定电源入口和内部组件",
         "modelId": "",
         "sizeMm": [
           142,
           92,
-          36
+          92
         ],
         "dimensionSource": "estimated",
         "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": ""
+        "dimensionSourceUrl": "",
+        "placement": "mounted"
       },
       {
-        "name": "非磁性顶板",
-        "spec": "PETG 打印，中央滑道区厚约 2 mm，两侧设低矮导边",
-        "model": "自制滑道盖",
+        "name": "带竖直导套的顶盖",
+        "spec": "PETG，向盒内延伸的方孔导套，孔口去毛刺；导套下端兼作上止挡面",
+        "model": "自制一体导套盖",
         "qty": 1,
         "role": "enclosure",
-        "purpose": "连续隔离面，同时导向外部滑鞋",
+        "purpose": "在顶部中央导向，限制转动，不设水平滑道",
         "modelId": "",
         "sizeMm": [
           142,
           92,
-          4
+          13
         ],
         "dimensionSource": "estimated",
         "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": ""
+        "dimensionSourceUrl": "",
+        "placement": "mounted"
       },
       {
         "name": "微型直线舵机",
-        "spec": "选 6 V、20 mm 行程、100:1、RC 位置输入版本；含电机、减速、内部导向和闭环驱动，尺寸预留尾线出口，伸出另计",
+        "spec": "6 V、20 mm 行程、100:1、RC 位置输入版本；竖直安装，尺寸为含耳部和出线余量的收回态安装预留，非厂家尺寸图",
         "model": "Actuonix PQ12-100-6-R",
         "qty": 1,
         "role": "internal",
-        "purpose": "按缓变位置命令平移内磁座",
+        "purpose": "向上托起随动柱；下降时撤去支承，不主动向下拉拳头",
         "modelId": "",
         "sizeMm": [
-          59,
           20,
-          17
+          17,
+          59
         ],
         "dimensionSource": "estimated",
         "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": ""
+        "dimensionSourceUrl": "",
+        "placement": "mounted"
       },
       {
-        "name": "内磁座",
-        "spec": "PETG，按实物输出耳配钻销孔，顶部设粘接袋孔",
-        "model": "自制推杆叉座",
+        "name": "升降腕柱",
+        "spec": "PETG，轻量方柱、底部止挡肩、顶部短圆腕芯；底面浅定位窝落在输出耳顶端，不销死",
+        "model": "自制重力随动腕柱",
         "qty": 1,
         "role": "internal",
-        "purpose": "连接输出杆与内磁片",
+        "purpose": "把推力传给拳套，由顶盖导向；退程受阻时允许输出端与腕柱分开",
         "modelId": "",
         "sizeMm": [
-          19,
-          16,
-          15
+          26,
+          26,
+          71
         ],
         "dimensionSource": "estimated",
         "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": ""
-      },
-      {
-        "name": "内磁片",
-        "spec": "轴向充磁钕铁硼圆片；从弱耦合试起，不叠加强磁铁",
-        "model": "可搜索 N35 Φ10×2 mm 圆磁片",
-        "qty": 1,
-        "role": "internal",
-        "purpose": "隔板拖动滑鞋，阻挡时允许错位脱耦",
-        "modelId": "",
-        "sizeMm": [
-          10,
-          10,
-          2
-        ],
-        "dimensionSource": "estimated",
-        "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": ""
-      },
-      {
-        "name": "滑鞋",
-        "spec": "PETG 打印，底部嵌钢片，上部短圆柱插入软拳腕口；底面打磨",
-        "model": "自制被动随动座",
-        "qty": 1,
-        "role": "external",
-        "purpose": "沿顶板滑行，整个拳头可从顶板提起",
-        "modelId": "",
-        "sizeMm": [
-          30,
-          30,
-          12
-        ],
-        "dimensionSource": "estimated",
-        "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": ""
-      },
-      {
-        "name": "随动钢片",
-        "spec": "可被磁铁吸引的低碳钢圆片，粘牢并封边，略低于滑鞋底面",
-        "model": "可搜索 Q235 Φ12×1 mm 圆片",
-        "qty": 1,
-        "role": "external",
-        "purpose": "与内部磁片配合，不在可取下拳头中放置磁铁",
-        "modelId": "",
-        "sizeMm": [
-          12,
-          12,
-          1
-        ],
-        "dimensionSource": "estimated",
-        "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": ""
+        "dimensionSourceUrl": "",
+        "placement": "mounted"
       },
       {
         "name": "软拳头",
-        "spec": "单件 TPU 85A～90A，底开腕口；四个前突指节、卷指腹、斜横拇指与掌体一体打印；低填充",
+        "spec": "TPU 85A～90A，单件底开腕口；四个高低错落的指节朝上，卷指和斜横拇指在前侧，硬腕芯止于掌根",
         "model": "自制握拳皮套",
         "qty": 1,
         "role": "external",
-        "purpose": "提供可辨认、可压缩的碰拳面",
+        "purpose": "形成可辨认、可压缩且可单独更换的接触面",
         "modelId": "",
         "sizeMm": [
           51,
@@ -138,32 +101,34 @@
         ],
         "dimensionSource": "estimated",
         "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": ""
+        "dimensionSourceUrl": "",
+        "placement": "mounted"
       },
       {
         "name": "触摸电极",
-        "spec": "薄导电布胶带，贴于前指节共同内壁，含软尾；不用裸金属接触人",
+        "spec": "薄导电布胶带，按指节内壁裁成连通的四指形，带软尾；尺寸为成形预留",
         "model": "可搜索 镀镍铜导电布单面胶带",
         "qty": 1,
         "role": "internal",
-        "purpose": "检测隔着薄 TPU 的手部电容变化",
+        "purpose": "随拳套移动，隔着 TPU 检测轻碰",
         "modelId": "",
         "sizeMm": [
-          3,
+          12,
           36,
-          15
+          8
         ],
         "dimensionSource": "estimated",
         "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": ""
+        "dimensionSourceUrl": "",
+        "placement": "mounted"
       },
       {
         "name": "交互控制板",
-        "spec": "无排针版，含 USB-C 插座，以 ESP32-S3 原生触摸通道采样；Wi-Fi 接收桌面助手邀约",
+        "spec": "无排针版，含 USB-C 插座，原生触摸输入与 Wi-Fi；固定在盒底",
         "model": "Seeed Studio XIAO ESP32S3",
         "qty": 1,
         "role": "internal",
-        "purpose": "本地控制状态机、触摸基线和舵机脉宽；网络不直接控制电机",
+        "purpose": "接收一次性邀约，读取轻触，控制运动和等待状态",
         "modelId": "",
         "sizeMm": [
           22,
@@ -172,15 +137,16 @@
         ],
         "dimensionSource": "estimated",
         "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": ""
+        "dimensionSourceUrl": "",
+        "placement": "mounted"
       },
       {
         "name": "USB-C 电源入口",
-        "spec": "仅取 5 V，选带独立 CC1/CC2 下拉的母座转接板；含焊线余量",
-        "model": "USB Type-C 16P 双 5.1 kΩ 受电端转接板，待选型",
+        "spec": "仅取 5 V，CC1、CC2 分别带 5.1 kΩ 下拉，含插座及焊线余量",
+        "model": "USB Type-C 16P 双 Rd 受电端转接板，待选型",
         "qty": 1,
         "role": "panel",
-        "purpose": "独立供电入口，不让电机电流穿过控制板",
+        "purpose": "固定供电入口，电机电流不经过控制板",
         "modelId": "",
         "sizeMm": [
           19,
@@ -189,15 +155,16 @@
         ],
         "dimensionSource": "estimated",
         "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": ""
+        "dimensionSourceUrl": "",
+        "placement": "mounted"
       },
       {
         "name": "执行器电源",
-        "spec": "5 V 升至稳压 6 V；含电感、电容和接线的空间预留，连续及瞬态能力按实测电机电流复核",
-        "model": "Pololu U3V16F6 升压板",
+        "spec": "5 V 升至 6 V，含元件和接线预留",
+        "model": "Pololu U3V16F6",
         "qty": 1,
         "role": "internal",
-        "purpose": "单独供给 6 V 舵机支路",
+        "purpose": "供给舵机独立电源支路",
         "modelId": "",
         "sizeMm": [
           23,
@@ -206,15 +173,34 @@
         ],
         "dimensionSource": "estimated",
         "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": ""
+        "dimensionSourceUrl": "",
+        "placement": "mounted"
       },
       {
-        "name": "电源与安装附件包",
-        "spec": "5 V/3 A USB-C 电源及 C-C 线、支路保险、去耦电容、柔软细线、可拔电极接头、固定胶、低摩擦贴、销钉、安装胶带和底部防滑贴；尺寸为收纳估计",
+        "name": "电机支路保护板",
+        "spec": "选覆盖 6 V 的可调限流、带故障指示及使能关断的模块；锁断行为及启动电流窗口需实测",
+        "model": "TPS2595 系列 eFuse 模块，具体版本待选型",
+        "qty": 1,
+        "role": "internal",
+        "purpose": "异常电流时限制供电并让控制器锁断邀约，不以电流代替接触力测试",
+        "modelId": "",
+        "sizeMm": [
+          26,
+          18,
+          10
+        ],
+        "dimensionSource": "estimated",
+        "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
+        "dimensionSourceUrl": "",
+        "placement": "mounted"
+      },
+      {
+        "name": "供电与装配附件",
+        "spec": "5 V/3 A USB-C 电源及 C-C 线、保险、去耦、细软线、可拔电极接头、软护口、防滑脚、衬垫、绑带、盖扣及紧固件；尺寸为收纳预留",
         "model": "通用原型附件，按样件配套",
         "qty": 1,
         "role": "external",
-        "purpose": "供电、固定、布线、应力释放与打样调节",
+        "purpose": "供电、绝缘、抗拔固定和随动线应力释放",
         "modelId": "",
         "sizeMm": [
           120,
@@ -223,24 +209,26 @@
         ],
         "dimensionSource": "estimated",
         "dimensionNote": "AI 估算的设计包络；采购和制作前须核对实物。",
-        "dimensionSourceUrl": ""
+        "dimensionSourceUrl": "",
+        "placement": "loose"
       }
     ],
     "steps": [
-      "定向：+X 是朝人伸出的方向，Z 向上。先在桌上用纸样比对拳面大小和 16 mm 邀约距离。模型显示收回位；外部滑鞋全程都应在平滑顶板上，前面不设会与滑鞋闭合的硬挡块。",
-      "先买执行器并测量收回长度、耳孔、输出轴高、全行程、连接器和线缆弯折，再定托台与销孔。几何中的执行器是安装占位，不是原厂 CAD。将执行器平放固定到托台，输出耳销接到内磁座。磁片粘入袋孔并封住；用薄低摩擦贴支承磁座上表面，不能让磁吸侧载全由细推杆承担。暂用胶带固定可拆顶板，以便调试。 图中执行器采用简化导孔和推杆，16 mm 全伸时仍有 2.5 mm 的名义搭接；以实物行程、轴径和安装点重新核对。",
-      "单独导出软拳 body。腕口向下打印，先试 0.2 mm 层高、两道薄壁、低密度柔性填充；内腔尽量不用无法取出的支撑。四个指节间保留浅谷，不割穿皮层。通过腕口把导电布贴在前内壁，软尾沿腕口后侧引出。用拇指按压每个指节，确认都先发生柔软变形，触不到滑鞋硬柱；过硬就先改壁厚、填充或材料，而非提高驱动力。",
-      "钢片封在滑鞋底部，腕口弹性套住短柱。触摸软线沿顶板侧后方留宽松 U 形服务弯，通过远离滑道的侧壁孔入盒，孔缘做软护口；设可拔接头以便单独取下拳头。手推检查两端都不拉线、不卷线、不磨皮。必要时根据实物调整导边间隙。",
-      "5 V 入口经保险分两路：一路按 XIAO 板卡供电说明接 5 V 输入，另一路经升压板给执行器 6 V；共地，电机支路就近去耦。电极可接 XIAO D0/GPIO1 触摸通道，D1/GPIO2 输出 RC 脉宽；核对所购舵机对 3.3 V 信号的兼容性，不兼容时加缓冲。先限流台架供电，测启动峰值、5 V 压降、6 V 纹波与控制板复位情况；确认电源的 Type-C 电流声明覆盖实测需求，不把普通电脑口按 3 A 使用。调试 USB 与外部 5 V 不得未经隔离同时馈电。 后壁 USB-C 口内侧给板边留出局部凹槽，按所购模块复核开口和余隙。",
-      "固件只接受一次性的“邀请碰拳”事件。上电先检查滑鞋对位并由操作者确认空场复位；标定脉宽与位置，工作区两端避开机械极限。以约 3 mm/s 的目标速度插值伸出 16 mm，停住等候；任意时刻检测到有效轻碰即停止前进，短暂停顿后慢退。等候约 5 秒无人响应也退回；收回后需新邀约才再动。触摸基线只在空闲无人时缓慢更新，阈值以实测噪声加裕量设定；电容检测不是安全限力传感器。",
-      "先不用手测试：空载往返，检查顶盖下磁座、控制板和线束的扫掠净空；以软挡块挡住拳面，用小量程测力计测正常拖动力、滑鞋脱耦峰值及退程。调磁片间隙，使它仅略强于克服摩擦和拖线所需的力；受阻时要能滑脱，不能推着底盒走。脱耦不会被舵机位置反馈发现，测试中一旦错位就断电、重新对位，不自动追赶。若正常拖动和轻力脱耦不能兼得，应减重减摩后重试，不进入手测。",
-      "最后用手持导电软垫分别轻点四个指节，验证早碰、等待中碰、超时、断网、重启和拔除电极等情况；调整电极覆盖与阈值，避免接近未碰就回退。电极异常时禁用邀约。确认停机、回退、断电可移开和磁片封装可靠后，才在有人看护、随时可拔电的情况下做轻触体验。运动预览本身不能验证以上条件。"
+      "以桌面为 Z=0，底盒平放，执行器的实际输出轴、腕柱和顶盖方孔共用穿过 (0,0) 的竖直线。CAD 是收回位；腕口底面在 Z=124 mm，上升后在 Z=140 mm。固定顶面在 Z=96 mm，两位置分别留 28、44 mm 间距，不让拳套底缘与顶盖闭成硬夹口。",
+      "先量 PQ12 收回长度、耳形、轴相对壳体的偏置、尾线方向和两个端点。用输出轴而非壳体中心定位承窝，按实物修窝、开出线缺口，用软衬及绑带固定机身；不要夹住活动杆。将腕柱底窝落在输出耳上：该接口只承压，不装贯穿销。实际输出耳若不是平顶，应做贴合耳形的圆滑承力窝。手动检查撤掉支承时腕柱靠自重即可平顺落下，不会悬住后突然掉落。",
+      "先打印方柱和短导套试片。设计方柱 16×16 mm，孔 16.8×16.8 mm。固定导孔 Z=[83,96]，柱直段收回为 [65,124]，伸出为 [81,140]，两端有效搭接均为 13 mm；暂以至少 12 mm 为试制目标，不是额定值。执行器简化内孔 [31,55]、杆直段 [34,65]，两端名义搭接分别为 21、5 mm；这是占位几何，实物必须以原厂允许行程和内部导向为准，不改造舵机内孔。试装后在侧向轻碰负载下复查歪斜、摩擦和磨屑。",
+      "从下方把腕柱穿入可拆顶盖，再将顶盖扣紧。收回时柱肩底面 Z=62，比固定下挡面 Z=61 高 1 mm；上升 16 mm 后柱肩顶面 Z=82，比导套下端 Z=83 低 1 mm。两挡面仅用于防脱和装配越程，不用撞挡归零。实测并标定舵机 20 mm 总行程中的中间 16 mm，把两端指令存入控制器；若止挡余量小于公差叠加，先调承窝或挡面，不强行驱动。",
+      "只导出“可单印 TPU 握拳”实体，腕口朝下试印。先用 0.2 mm 层高、两道壁、低密度柔性填充；检查内腔能清理、指节之间保留浅谷。从腕口贴入分指电极，用绝缘软尾连接。套在短腕芯上后逐个按四个指节，不应触到硬芯。电极线从腕侧引出，经顶盖偏置软护口入盒，留能消化 16 mm 升降的松弯并固定两端；不要经过方孔。线不能吊住腕柱。",
+      "保持控制板、升压板和后壁接口在盒底原位置。用绝缘安装胶或按实物配做夹具，USB-C 板需有独立抗插拔固定。模型中插座口沿 −X 朝外，中心约 (−71,−28,9)；贯穿口与 PCB 板边让位槽分开。按实物测插座伸出量、插头外被和板背元件，全插再摇动检查，不应顶壁或牵动内部线束。",
+      "USB-C 的 5 V 经保险分两路：一路按 XIAO 说明供电，一路升至 6 V，经保护板接舵机，单点共地、电机侧就近去耦。D0/GPIO1 接触摸布，D1/GPIO2 输出 RC 位置脉宽；核对 3.3 V 信号门限，必要时加缓冲。保护板故障输出按所选型号匹配 3.3 V，使能默认关闭。先用限流台源测启动峰值、待机电流、堵转保护和控制器复位；确认 Type-C 电源声明电流足够。不要把调试 USB 和外部 5 V 未经隔离地并接。",
+      "上电由操作者确认空场和收回位，再启用邀约。每次邀约以约 3 mm/s 上升 16 mm，停住等待；上升中提前碰到也立即停止增加位置指令，短暂停顿后同速下降。上位轻碰或约 5 秒超时后下降，一次邀约只运行一轮。触摸基线只在无人空闲时更新，分别标定移动噪声和静止轻碰；电极脱落、保护动作或复位后禁止自动再启动。",
+      "先不用手：用标尺查实升降距离和轴线，用软挡块在起点、中途、上位阻挡，配小量程测力计记录峰值、持续力和停止距离。PQ12 的减速推力不能靠慢速、软拳或电容检测保证安全；调整支路保护，若不能兼顾可靠启动和轻力停机，须换低推力执行器或增加经验证的机械限力件，不进入手测。模拟退程托住拳头，确认推杆能分离，并检查放开后不会危险下落；再测断电、卡柱、拔线、断网、连续往返及偏心轻碰。各项通过后才在可立即断电的看护条件下试用。几何预览不代表这些测试已通过。"
     ],
     "cadPlan": {
       "version": 1,
       "bodies": [
         {
-          "name": "底盒与执行器托台",
+          "name": "底盒、竖装承窝与下挡架",
           "partIndex": 0,
           "role": "printed",
           "positionMm": [
@@ -255,12 +243,12 @@
               "sizeMm": [
                 142,
                 92,
-                36
+                92
               ],
               "centerMm": [
                 0,
                 0,
-                18
+                46
               ],
               "rotationDeg": [
                 0,
@@ -274,12 +262,12 @@
               "sizeMm": [
                 137,
                 87,
-                36
+                92
               ],
               "centerMm": [
                 0,
                 0,
-                21
+                49
               ],
               "rotationDeg": [
                 0,
@@ -308,44 +296,6 @@
             },
             {
               "op": "cut",
-              "shape": "cylinder",
-              "sizeMm": [
-                5,
-                5,
-                8
-              ],
-              "centerMm": [
-                -20,
-                45,
-                30
-              ],
-              "rotationDeg": [
-                90,
-                0,
-                0
-              ]
-            },
-            {
-              "op": "add",
-              "shape": "box",
-              "sizeMm": [
-                44,
-                21,
-                15
-              ],
-              "centerMm": [
-                -36,
-                0,
-                10
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                0
-              ]
-            },
-            {
-              "op": "cut",
               "shape": "box",
               "sizeMm": [
                 1.8,
@@ -362,17 +312,131 @@
                 0,
                 0
               ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                29,
+                25,
+                16
+              ],
+              "centerMm": [
+                0,
+                0,
+                10
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "box",
+              "sizeMm": [
+                20.6,
+                17.6,
+                14
+              ],
+              "centerMm": [
+                0,
+                0,
+                13
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                4,
+                24,
+                58
+              ],
+              "centerMm": [
+                -17,
+                0,
+                31
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                4,
+                24,
+                58
+              ],
+              "centerMm": [
+                17,
+                0,
+                31
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                38,
+                24,
+                3
+              ],
+              "centerMm": [
+                0,
+                0,
+                59.5
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "box",
+              "sizeMm": [
+                16,
+                16,
+                5
+              ],
+              "centerMm": [
+                0,
+                0,
+                60
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
             }
           ]
         },
         {
-          "name": "连续隔离顶板及导边",
+          "name": "水平顶盖与向下延伸的方导套",
           "partIndex": 1,
           "role": "printed",
           "positionMm": [
             0,
             0,
-            36
+            92
           ],
           "features": [
             {
@@ -381,275 +445,6 @@
               "sizeMm": [
                 142,
                 92,
-                2
-              ],
-              "centerMm": [
-                0,
-                0,
-                1
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                0
-              ]
-            },
-            {
-              "op": "add",
-              "shape": "capsule",
-              "sizeMm": [
-                75,
-                2,
-                3
-              ],
-              "centerMm": [
-                15,
-                16.5,
-                2.5
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                0
-              ]
-            },
-            {
-              "op": "add",
-              "shape": "capsule",
-              "sizeMm": [
-                75,
-                2,
-                3
-              ],
-              "centerMm": [
-                15,
-                -16.5,
-                2.5
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                0
-              ]
-            }
-          ]
-        },
-        {
-          "name": "PQ12 固定本体",
-          "partIndex": 2,
-          "role": "reference",
-          "positionMm": [
-            -35,
-            0,
-            24
-          ],
-          "features": [
-            {
-              "op": "add",
-              "shape": "box",
-              "sizeMm": [
-                49,
-                17,
-                13
-              ],
-              "centerMm": [
-                0,
-                0,
-                0
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                0
-              ]
-            },
-            {
-              "op": "cut",
-              "shape": "cylinder",
-              "sizeMm": [
-                6.4,
-                6.4,
-                20.4
-              ],
-              "centerMm": [
-                15,
-                0,
-                0
-              ],
-              "rotationDeg": [
-                0,
-                90,
-                0
-              ]
-            }
-          ]
-        },
-        {
-          "name": "PQ12 活动输出耳与杆",
-          "partIndex": 2,
-          "role": "reference",
-          "positionMm": [
-            -6,
-            0,
-            24
-          ],
-          "features": [
-            {
-              "op": "add",
-              "shape": "capsule",
-              "sizeMm": [
-                30,
-                6,
-                6
-              ],
-              "centerMm": [
-                -8,
-                0,
-                0
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                0
-              ]
-            }
-          ]
-        },
-        {
-          "name": "随动内磁座",
-          "partIndex": 3,
-          "role": "printed",
-          "positionMm": [
-            6,
-            0,
-            28
-          ],
-          "features": [
-            {
-              "op": "add",
-              "shape": "box",
-              "sizeMm": [
-                19,
-                16,
-                15
-              ],
-              "centerMm": [
-                0,
-                0,
-                0
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                0
-              ]
-            },
-            {
-              "op": "cut",
-              "shape": "box",
-              "sizeMm": [
-                11,
-                6.6,
-                7
-              ],
-              "centerMm": [
-                -6,
-                0,
-                -4
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                0
-              ]
-            },
-            {
-              "op": "cut",
-              "shape": "cylinder",
-              "sizeMm": [
-                2,
-                2,
-                20
-              ],
-              "centerMm": [
-                -6,
-                0,
-                -4
-              ],
-              "rotationDeg": [
-                90,
-                0,
-                0
-              ]
-            },
-            {
-              "op": "cut",
-              "shape": "cylinder",
-              "sizeMm": [
-                10.4,
-                10.4,
-                3
-              ],
-              "centerMm": [
-                0,
-                0,
-                6.8
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                0
-              ]
-            }
-          ]
-        },
-        {
-          "name": "内磁片",
-          "partIndex": 4,
-          "role": "reference",
-          "positionMm": [
-            6,
-            0,
-            34.4
-          ],
-          "features": [
-            {
-              "op": "add",
-              "shape": "cylinder",
-              "sizeMm": [
-                10,
-                10,
-                2
-              ],
-              "centerMm": [
-                0,
-                0,
-                0
-              ],
-              "rotationDeg": [
-                0,
-                0,
-                0
-              ]
-            }
-          ]
-        },
-        {
-          "name": "外滑鞋与腕柱",
-          "partIndex": 5,
-          "role": "printed",
-          "positionMm": [
-            6,
-            0,
-            38
-          ],
-          "features": [
-            {
-              "op": "add",
-              "shape": "roundedPrism",
-              "sizeMm": [
-                30,
-                30,
                 4
               ],
               "centerMm": [
@@ -665,16 +460,35 @@
             },
             {
               "op": "add",
-              "shape": "cylinder",
+              "shape": "box",
               "sizeMm": [
-                20,
-                20,
-                9
+                25,
+                25,
+                10
               ],
               "centerMm": [
                 0,
                 0,
-                7.5
+                -4
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "box",
+              "sizeMm": [
+                16.8,
+                16.8,
+                16
+              ],
+              "centerMm": [
+                0,
+                0,
+                -2.5
               ],
               "rotationDeg": [
                 0,
@@ -686,14 +500,14 @@
               "op": "cut",
               "shape": "cylinder",
               "sizeMm": [
-                12.4,
-                12.4,
-                2
+                5,
+                5,
+                6
               ],
               "centerMm": [
-                0,
-                0,
-                0.2
+                -26,
+                12,
+                2
               ],
               "rotationDeg": [
                 0,
@@ -704,27 +518,77 @@
           ]
         },
         {
-          "name": "滑鞋钢片",
-          "partIndex": 6,
+          "name": "PQ12 固定本体（安装占位）",
+          "partIndex": 2,
           "role": "reference",
           "positionMm": [
-            6,
             0,
-            38.7
+            0,
+            30.5
+          ],
+          "features": [
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                20,
+                17,
+                49
+              ],
+              "centerMm": [
+                0,
+                0,
+                0
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "cylinder",
+              "sizeMm": [
+                6.4,
+                6.4,
+                25
+              ],
+              "centerMm": [
+                0,
+                0,
+                13
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "name": "PQ12 活动输出杆及托头",
+          "partIndex": 2,
+          "role": "reference",
+          "positionMm": [
+            0,
+            0,
+            34
           ],
           "features": [
             {
               "op": "add",
               "shape": "cylinder",
               "sizeMm": [
-                12,
-                12,
-                1
+                6,
+                6,
+                31
               ],
               "centerMm": [
                 0,
                 0,
-                0
+                15.5
               ],
               "rotationDeg": [
                 0,
@@ -735,13 +599,101 @@
           ]
         },
         {
-          "name": "可单印 TPU 握拳 · 腕口朝下",
-          "partIndex": 7,
+          "name": "方导柱、止挡肩及腕芯",
+          "partIndex": 3,
           "role": "printed",
           "positionMm": [
-            6,
             0,
-            42
+            0,
+            62
+          ],
+          "features": [
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                26,
+                26,
+                4
+              ],
+              "centerMm": [
+                0,
+                0,
+                2
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "cylinder",
+              "sizeMm": [
+                6.8,
+                6.8,
+                4
+              ],
+              "centerMm": [
+                0,
+                0,
+                1
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                16,
+                16,
+                59
+              ],
+              "centerMm": [
+                0,
+                0,
+                32.5
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "cylinder",
+              "sizeMm": [
+                20,
+                20,
+                10
+              ],
+              "centerMm": [
+                0,
+                0,
+                66
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "name": "可单印 TPU 握拳",
+          "partIndex": 4,
+          "role": "printed",
+          "positionMm": [
+            0,
+            0,
+            124
           ],
           "features": [
             {
@@ -1014,57 +966,171 @@
               "op": "cut",
               "shape": "ellipsoid",
               "sizeMm": [
-                15,
-                36,
-                17
+                19,
+                11,
+                16
               ],
               "centerMm": [
-                15,
-                0,
-                28
+                10,
+                -16,
+                32
               ],
               "rotationDeg": [
                 0,
-                0,
+                -12,
                 0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "ellipsoid",
+              "sizeMm": [
+                22,
+                11,
+                16
+              ],
+              "centerMm": [
+                12,
+                -5.5,
+                35
+              ],
+              "rotationDeg": [
+                0,
+                -10,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "ellipsoid",
+              "sizeMm": [
+                19,
+                10,
+                15
+              ],
+              "centerMm": [
+                11,
+                5.5,
+                33
+              ],
+              "rotationDeg": [
+                0,
+                -8,
+                0
+              ]
+            },
+            {
+              "op": "cut",
+              "shape": "ellipsoid",
+              "sizeMm": [
+                17,
+                9,
+                13
+              ],
+              "centerMm": [
+                9,
+                15.5,
+                29
+              ],
+              "rotationDeg": [
+                0,
+                -5,
+                -5
               ]
             }
           ]
         },
         {
-          "name": "内贴导电布（贴合曲面前的近似）",
-          "partIndex": 8,
+          "name": "四指节内壁电极（贴片位置示意，软尾未展开）",
+          "partIndex": 5,
           "role": "reference",
           "positionMm": [
-            26,
             0,
-            70
+            0,
+            124
           ],
           "features": [
             {
               "op": "add",
               "shape": "ellipsoid",
               "sizeMm": [
-                2,
-                32,
-                13
+                7,
+                5,
+                0.5
               ],
               "centerMm": [
-                0,
-                0,
-                0
+                10,
+                -16,
+                39.8
               ],
               "rotationDeg": [
                 0,
-                0,
+                -12,
                 0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "ellipsoid",
+              "sizeMm": [
+                7,
+                5,
+                0.5
+              ],
+              "centerMm": [
+                12,
+                -5.5,
+                42.9
+              ],
+              "rotationDeg": [
+                0,
+                -10,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "ellipsoid",
+              "sizeMm": [
+                7,
+                5,
+                0.5
+              ],
+              "centerMm": [
+                11,
+                5.5,
+                40.4
+              ],
+              "rotationDeg": [
+                0,
+                -8,
+                0
+              ]
+            },
+            {
+              "op": "add",
+              "shape": "ellipsoid",
+              "sizeMm": [
+                7,
+                5,
+                0.5
+              ],
+              "centerMm": [
+                9,
+                15.5,
+                35.5
+              ],
+              "rotationDeg": [
+                0,
+                -5,
+                -5
               ]
             }
           ]
         },
         {
-          "name": "触摸与无线控制板",
-          "partIndex": 9,
+          "name": "固定交互控制板",
+          "partIndex": 6,
           "role": "reference",
           "positionMm": [
             5,
@@ -1094,8 +1160,8 @@
           ]
         },
         {
-          "name": "后面板 USB-C 入口",
-          "partIndex": 10,
+          "name": "固定 USB-C 入口板及插座",
+          "partIndex": 7,
           "role": "reference",
           "positionMm": [
             -61,
@@ -1144,8 +1210,8 @@
           ]
         },
         {
-          "name": "舵机升压支路",
-          "partIndex": 11,
+          "name": "固定升压板",
+          "partIndex": 8,
           "role": "reference",
           "positionMm": [
             -27,
@@ -1173,33 +1239,62 @@
               ]
             }
           ]
+        },
+        {
+          "name": "固定支路保护板",
+          "partIndex": 9,
+          "role": "reference",
+          "positionMm": [
+            12,
+            -28,
+            8
+          ],
+          "features": [
+            {
+              "op": "add",
+              "shape": "box",
+              "sizeMm": [
+                26,
+                18,
+                10
+              ],
+              "centerMm": [
+                0,
+                0,
+                0
+              ],
+              "rotationDeg": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
         }
       ],
       "motions": [
         {
           "type": "prismatic",
-          "name": "拳头伸缩",
+          "name": "拳头升降",
           "axis": [
-            1,
             0,
-            0
+            0,
+            1
           ],
           "travelMm": 16,
           "movingBodyIndices": [
             3,
             4,
             5,
-            6,
-            7,
-            8,
-            9
+            6
           ],
           "actuatorPartIndex": 2,
           "guidePartIndex": 1,
-          "controllerPartIndex": 9
+          "controllerPartIndex": 6
         }
       ]
     },
+    "deviceMotion": "powered-linear",
     "generation": {
       "provider": "openai-api",
       "modelId": "gpt-6.2-astra",
@@ -1208,8 +1303,7 @@
         "name": "ForgeCAD · 官方建模指导",
         "revision": "7523f68ce05ec642608c7f2001c5ae7ca7b1bee0",
         "sourceUrl": "https://github.com/ForgeCAD/forgecad-public-kit/blob/7523f68ce05ec642608c7f2001c5ae7ca7b1bee0/skills/forgecad/SKILL.md"
-      },
-      "reviewNote": "工程复核调整了执行器的参考导孔、推杆长度和 USB-C 后壁避让。"
+      }
     }
   }
 }
