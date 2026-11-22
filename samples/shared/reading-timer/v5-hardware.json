@@ -1,0 +1,207 @@
+[
+  {
+    "partIndex": 0,
+    "name": "前壳与隔板夹",
+    "model": "自制 PETG 夹装前壳",
+    "kind": "custom",
+    "items": [
+      {
+        "name": "PETG 一体夹装前壳",
+        "label": "PCBWay 打印服务",
+        "url": "https://www.pcbway.com/rapid-prototyping/3d-printing/plastic/PETG/PETG/"
+      }
+    ],
+    "note": "按本版前壳文件 FDM 打印 1 件，隔板夹、板托和右侧插口一起成型。",
+    "searchTerms": "PETG FDM 3D打印 来图定制 夹装外壳"
+  },
+  {
+    "partIndex": 1,
+    "name": "检修后盖",
+    "model": "自制 PETG 检修盖",
+    "kind": "custom",
+    "items": [
+      {
+        "name": "PETG 可拆检修后盖",
+        "label": "PCBWay 打印服务",
+        "url": "https://www.pcbway.com/rapid-prototyping/3d-printing/plastic/PETG/PETG/"
+      }
+    ],
+    "note": "按后盖的独立文件 FDM 打印 1 件，保留四边定位唇和底缘缺口。",
+    "searchTerms": "PETG FDM 3D打印 来图定制 后盖"
+  },
+  {
+    "partIndex": 2,
+    "name": "乳白扩散片",
+    "model": "乳白扩散 PMMA 圆片",
+    "kind": "material",
+    "items": [
+      {
+        "name": "SME Acrylic SL-A1290",
+        "label": "原厂板材与裁切",
+        "url": "https://www.smeacrylic.com.tw/products-detail.aspx?id=34"
+      }
+    ],
+    "note": "取 1.5 mm PMMA 扩散板裁成 Ø35 mm 圆片。原厂标称透光率 88%、雾度 99%；单灯均匀度待试片。",
+    "searchTerms": "1.5mm PMMA 乳白扩散板 35mm 圆片 定制"
+  },
+  {
+    "partIndex": 3,
+    "name": "柔光提示灯",
+    "model": "T-1¾ 雾面红色低电流直插 LED，具体料号待选型",
+    "kind": "candidate",
+    "items": [
+      {
+        "name": "Vishay TLLR5400",
+        "label": "立创商城 C5985825",
+        "url": "https://www.lcsc.com/product-detail/C5985825.html"
+      }
+    ],
+    "note": "5 mm 低电流红色雾面 LED，法兰 Ø5.8 mm，脚距 2.54 mm。对应前壳 Ø5.2 mm 灯孔；引脚需剪短，灯孔配合与柔光效果待试装。",
+    "searchTerms": "Vishay TLLR5400 红色 5mm"
+  },
+  {
+    "partIndex": 4,
+    "name": "控制板",
+    "model": "Seeed Studio XIAO ESP32S3",
+    "kind": "specified",
+    "items": [
+      {
+        "name": "Seeed Studio XIAO ESP32S3 · 113991114",
+        "label": "Seeed 商品页",
+        "url": "https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html"
+      }
+    ],
+    "note": "选基础版、未焊排针（Un-Soldered），单板 1 块。USB-C 朝右安装。",
+    "searchTerms": "Seeed XIAO ESP32S3 113991114 无排针"
+  },
+  {
+    "partIndex": 5,
+    "name": "面板编码器与旋钮帽",
+    "model": "Adafruit Industries 377 / Bourns PEC11-4215F-S24",
+    "kind": "specified",
+    "items": [
+      {
+        "name": "Adafruit 377 · Bourns PEC11-4215F-S24",
+        "label": "Adafruit 套件",
+        "url": "https://www.adafruit.com/product/377"
+      },
+      {
+        "name": "随附旋钮帽 450-BA761",
+        "label": "旋钮帽尺寸图",
+        "url": "https://cdn-shop.adafruit.com/datasheets/EPD-200732.pdf"
+      }
+    ],
+    "note": "每圈 24 格，带按压开关。套件含 6 mm D 轴旋钮帽，按 1 套采购。",
+    "searchTerms": "Adafruit 377 PEC11 24格 带按压 旋钮帽"
+  },
+  {
+    "partIndex": 6,
+    "name": "LED 限流电阻",
+    "model": "DIN0207 轴向 330 Ω 电阻",
+    "kind": "candidate",
+    "items": [
+      {
+        "name": "YAGEO CFR-25JB-52-330R",
+        "label": "立创商城 C2935230",
+        "url": "https://www.lcsc.com/product-detail/C2935230.html"
+      }
+    ],
+    "note": "330 Ω、¼ W、±5% 轴向电阻，电阻体约 6.3 × Ø2.4 mm。引脚按装配模型的 10.16 mm 跨距弯折。",
+    "searchTerms": "YAGEO CFR-25JB-52-330R 330欧 轴向"
+  },
+  {
+    "partIndex": 7,
+    "name": "内部线材和套管",
+    "model": "细软电子线与热缩管套料",
+    "kind": "material",
+    "items": [
+      {
+        "name": "Adafruit 2514 · 26 AWG 硅胶软线",
+        "label": "Adafruit 商品页",
+        "url": "https://www.adafruit.com/product/2514"
+      },
+      {
+        "name": "TE Raychem RNF-100-3/32-X-STK · 热缩管",
+        "label": "TE 产品页",
+        "url": "https://www.te.com/en/product-5070032034.html"
+      }
+    ],
+    "note": "软线外径约 1.5 mm；透明套管内径由 2.4 mm 热缩至约 1.2 mm。按实际焊点和布线路径裁切。",
+    "searchTerms": "26AWG 硅胶多股线 2.4mm 热缩管"
+  },
+  {
+    "partIndex": 8,
+    "name": "固定胶材",
+    "model": "电子装配绝缘泡棉双面胶",
+    "kind": "material",
+    "items": [
+      {
+        "name": "tesa 88623 · 双面 PE 泡棉胶",
+        "label": "tesa 原厂规格",
+        "url": "https://www.tesa.com/en/industry/tesa-88623.html"
+      }
+    ],
+    "note": "总厚 1.0 mm，按屏板空白边缘、灯座和窗片边缘裁切。编码器用自身螺母固定。",
+    "searchTerms": "tesa 德莎 88623 1mm 泡棉双面胶"
+  },
+  {
+    "partIndex": 9,
+    "name": "USB 供电数据线",
+    "model": "USB 2.0 A 至 Type-C 数据线",
+    "kind": "candidate",
+    "items": [
+      {
+        "name": "StarTech USB2AC1M · 1 m 数据线",
+        "label": "StarTech 商品页",
+        "url": "https://www.startech.com/en-us/cables/usb2ac1m"
+      }
+    ],
+    "note": "USB 2.0，USB-A 公头至 USB-C 公头，支持供电和数据。C 端护套宽 12 mm、厚 6.3 mm；V5 右侧孔为 21 × 12 mm，实际插拔仍待试装。",
+    "searchTerms": "StarTech USB2AC1M 1米 USB A 转 Type C 数据线"
+  },
+  {
+    "partIndex": 10,
+    "name": "正面分钟屏",
+    "model": "Adafruit Industries 938",
+    "kind": "specified",
+    "items": [
+      {
+        "name": "Adafruit 938 · 1.3 英寸 128×64 OLED",
+        "label": "Adafruit 商品页",
+        "url": "https://www.adafruit.com/product/938"
+      }
+    ],
+    "note": "选双 STEMMA QT 插座新版，保留未焊排针。按本设计配置 I²C。",
+    "searchTerms": "Adafruit 938 1.3 OLED 128x64 双 STEMMA QT"
+  },
+  {
+    "partIndex": 11,
+    "name": "夹脚防滑软垫",
+    "model": "背胶 EPDM 软泡棉套料",
+    "kind": "material",
+    "items": [
+      {
+        "name": "Greendale Rubber 4541001ZK · 背胶 EPDM",
+        "label": "材料供应商",
+        "url": "https://www.greendalerubber.nl/en/cellular-rubber-sheet-roll-epdm-roll-selfadhesive-1mm"
+      }
+    ],
+    "note": "取 1 mm 厚闭孔背胶料，裁两片 48 × 28 mm，分别贴到上下夹面。BOM 数量 1 指一套。",
+    "searchTerms": "1mm 背胶闭孔 EPDM 泡棉 48x28 裁切"
+  },
+  {
+    "partIndex": 12,
+    "name": "内侧间隔垫圈",
+    "model": "不锈钢精密调整垫片 7.4×10×0.30 mm",
+    "kind": "custom",
+    "items": [
+      {
+        "name": "SUS304 调整垫片 · 7.4 × 10 × 0.30 mm",
+        "label": "EKIN SUN 垫片定制",
+        "url": "https://www.ekinsun.com/custom-parts/laser-cut-shims-washers/"
+      }
+    ],
+    "note": "按内径 7.4 mm、外径 10 mm、厚 0.30 mm 定制平垫片 1 件。交付前确认厚度公差及双面去毛刺。",
+    "searchTerms": "304 不锈钢 调整垫片 内径7.4 外径10 厚0.3 定制"
+  }
+]

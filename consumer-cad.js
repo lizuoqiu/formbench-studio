@@ -457,7 +457,7 @@ export function mountConsumerCad(container,design,options={}){
  if(partsPanel)partsPanel.innerHTML=`<section class="cc-parts" aria-label="模型部件">
   <div class="cc-parts-head"><h3>模型部件</h3><button type="button" data-cc-show-all disabled>全部显示</button></div>
   <div class="cc-parts-list" data-cc-parts-list>正在读取零件…</div>
-  <details class="cc-list-only" data-cc-bom-only hidden><summary>仅清单</summary><ul></ul></details>
+  <details class="cc-list-only" data-cc-bom-only hidden><summary>仅清单</summary><div data-cc-other-parts></div></details>
  </section>`;
  let disposed=false,concept=null,parts=[],scene=[],backdrop=[],frameScene=[],motionProgress=[],shellMeshes=null,geometry=null,activePlan=null,mode=installationView?'inside':declared?'closed':'open',yaw=-.64,pitch=.56,zoom=1,drag=null,frame=0,pendingPhase='ready',homePose={yaw,pitch},buildState=declared?'compiling':'legacy',interaction=null,wiring=null,bodyOffsets=new Map();
  function emit(phase,message){
@@ -478,21 +478,60 @@ export function mountConsumerCad(container,design,options={}){
   if(pendingPhase){emit(pendingPhase,status.textContent);pendingPhase=null}
  }
  function schedule(){if(!frame)frame=requestAnimationFrame(paint)}
+ const referenceKinds={specified:'指定型号',candidate:'选型参考',custom:'按图定制',material:'材料参考'};
+ function hardwareDetails(row){
+  const {reference,files,name}=row;
+  if(!reference)return '';
+  const sources=reference.items.map(item=>{
+   const href=safeUrl(item.url);
+   const title=esc(item.name),label=esc(item.label||'实物资料');
+   return href?.startsWith('https://')
+    ?`<li><a data-cc-source-link href="${esc(href)}" target="_blank" rel="noopener noreferrer">${title}<small>${label} ↗</small></a></li>`
+    :`<li>${title}</li>`;
+  }).join('');
+  const downloads=files.map(({index,name:bodyName})=>
+   `<button type="button" data-cc-source-stl="${index}" aria-label="下载${esc(bodyName)}的单件 STL">${files.length===1?'单件':esc(bodyName)} STL ↓</button>`
+  ).join('');
+  return `<details class="cc-hardware" data-cc-hardware-kind="${esc(reference.kind)}"><summary aria-label="${esc(name)}的${referenceKinds[reference.kind]}资料">${referenceKinds[reference.kind]}<span>${files.length?'资料与文件':'查看资料'}</span></summary><div class="cc-hardware-content">${sources?`<ul>${sources}</ul>`:''}${reference.note?`<p>${esc(reference.note)}</p>`:''}${downloads}</div></details>`;
+ }
  function renderPartsPanel(available){
   if(!partsPanel)return;
-  const list=partsPanel.querySelector('[data-cc-parts-list]');
-  const rows=[...available].map(([key,name])=>{
+  const list=partsPanel.querySelector('[data-cc-parts-list]'),other=partsPanel.querySelector('[data-cc-bom-only]');
+  function partRow(key,name,inView){
+   const part=parts[Number(key)];
    const items=concept?.instances.filter(item=>String(item.partIndex)===key)||[];
-   const kind=key==='shell'||(!concept?.declared&&parts[Number(key)]?.role==='enclosure')?'概念壳体':partGeometryLabel(parts[Number(key)],items);
-   const model=parts[Number(key)]?.model||parts[Number(key)]?.metadata?.label||'';
-   return {key,name,kind,model};
-  });
-  const signature=JSON.stringify(rows);
+   const shell=key==='shell'||(!concept?.declared&&part?.role==='enclosure');
+   let kind='仅清单';
+   if(inView)kind=shell?'概念壳体':partGeometryLabel(part,items);
+   else if(items.length||shell)kind=items.length&&items.every(item=>item.placed===false)?'未定位件':'其他视图';
+   const ref=part?.hardwareReference;
+   const reference=ref&&!part.modelSourceInvalidated&&Object.hasOwn(referenceKinds,ref.kind)&&Array.isArray(ref.items)&&ref.items.every(item=>typeof item?.name==='string')?ref:null;
+   const referenceName=reference&&[...new Set(reference.items.map(item=>item.name).filter(Boolean))].join(' / ');
+   const model=referenceName||part?.model||part?.metadata?.label||'';
+   const files=allowDownloads&&['custom','material'].includes(reference?.kind)?items.filter(item=>Number.isInteger(item.bodyIndex)&&item.exact).map(item=>({index:item.bodyIndex,name:item.name})):[];
+   return {key,name,kind,model,reference,files,inView};
+  }
+  const rows=[...available].map(([key,name])=>partRow(key,name,true));
+  const rest=parts.filter(part=>!available.has(String(part.index))).map(part=>partRow(String(part.index),part.name,false));
+  const signature=JSON.stringify([rows,rest]);
   if(signature!==partsSignature){
    partsSignature=signature;
-   list.innerHTML=rows.length?rows.map(({key,name,kind,model})=>
-    `<div class="cc-part"><input type="checkbox" data-cc-part="${esc(key)}" aria-label="显示${esc(name)}"><button type="button" data-cc-focus-part="${esc(key)}" aria-label="定位${esc(name)}" title="定位${esc(name)}${model?' · '+esc(model):''}"><span>${esc(name)}${model&&model!==name?`<small class="cc-part-model">${esc(model)}</small>`:''}</span><small>${esc(kind)}</small></button><small data-cc-part-work="${esc(key)}"></small></div>`
-   ).join(''):'<p>当前视图没有可单独显示的部件。</p>';
+   const expanded=new Set([...partsPanel.querySelectorAll('.cc-hardware[open]')].map(details=>details.parentElement.dataset.ccPartRow));
+   function rowMarkup(row){
+    const {key,name,kind,model,inView}=row;
+    const title=`<span>${esc(name)}${model&&model!==name?`<small class="cc-part-model">${esc(model)}</small>`:''}</span><small>${esc(kind)}</small>`;
+    const header=inView
+     ?`<input type="checkbox" data-cc-part="${esc(key)}" aria-label="显示${esc(name)}"><button type="button" data-cc-focus-part="${esc(key)}" aria-label="定位${esc(name)}" title="定位${esc(name)}${model?' · '+esc(model):''}">${title}</button><small data-cc-part-work="${esc(key)}"></small>`
+     :`<div class="cc-part-readonly">${title}</div>`;
+    return `<div class="cc-part-entry" data-cc-part-row="${esc(key)}"><div class="cc-part">${header}</div>${hardwareDetails(row)}</div>`;
+   }
+   list.innerHTML=rows.length?rows.map(rowMarkup).join(''):'<p>当前视图没有可单独显示的部件。</p>';
+   other.hidden=!rest.length;
+   other.querySelector('summary').textContent=(rest.every(row=>row.kind==='仅清单')?'仅清单':'其他清单部件')+' · '+rest.length;
+   other.querySelector('[data-cc-other-parts]').innerHTML=rest.map(rowMarkup).join('');
+   for(const details of partsPanel.querySelectorAll('.cc-hardware')){
+    if(expanded.has(details.parentElement.dataset.ccPartRow))details.open=true;
+   }
   }
   list.querySelectorAll('input').forEach(input=>{input.checked=!hiddenParts.has(input.dataset.ccPart)});
   list.querySelectorAll('[data-cc-focus-part]').forEach(button=>{
@@ -509,7 +548,9 @@ export function mountConsumerCad(container,design,options={}){
   else{hiddenParts.add(key);if(selectedPart===key){selectedPart=null;zoom=1}}
   updateScene();
  }
- function showAll(event){
+ function handlePartClick(event){
+  const file=event.target.closest('[data-cc-source-stl]');
+  if(file){downloadBodyStl(Number(file.dataset.ccSourceStl));return}
   if(event.target.closest('[data-cc-show-all]')){hiddenParts.clear();updateScene();return}
   const button=event.target.closest('[data-cc-focus-part]');
   if(!button||button.disabled)return;
@@ -518,7 +559,7 @@ export function mountConsumerCad(container,design,options={}){
   zoom=1;updateScene();
  }
  partsPanel?.addEventListener('change',togglePart);
- partsPanel?.addEventListener('click',showAll);
+ partsPanel?.addEventListener('click',handlePartClick);
  const focusHardware=event=>{
   const index=event.detail?.partIndex;
   if(!Number.isInteger(index)||!concept?.instances.some(item=>item.partIndex===index))return;
@@ -672,14 +713,6 @@ export function mountConsumerCad(container,design,options={}){
    const prepared=new Map();for(const part of parts)if(part.meshes)prepared.set(part.index,part.meshes.map(mesh=>prepareMesh(mesh.triangles,mesh.color||colors[part.index%colors.length])));concept.instances.forEach(instance=>instance.prepared=prepared.get(instance.partIndex)||[]);
    if(resetCamera&&installationView)pitch=inspectionPitch;
   }
-  if(partsPanel){
-   const modeled=new Set(concept.instances.map(item=>item.partIndex));
-   if(concept.shell)for(const part of parts)if(part.role==='enclosure')modeled.add(part.index);
-   const omitted=parts.filter(part=>!modeled.has(part.index)),section=partsPanel.querySelector('[data-cc-bom-only]');
-   section.hidden=!omitted.length;
-   section.querySelector('summary').textContent='仅清单 · '+omitted.length;
-   section.querySelector('ul').innerHTML=omitted.map(part=>`<li>${esc(part.name)}</li>`).join('');
-  }
   const size=concept.declared?concept.sizeMm:concept.shell?.sizeMm;
   const poseLabel=concept.declared&&activePlan?.motions?.length?'收回时 ':'';
   root.querySelector('[data-cc-size]').textContent=size?poseLabel+sizeText(size):'暂无壳内零件';
@@ -765,6 +798,12 @@ export function mountConsumerCad(container,design,options={}){
  }
  function home(){setOverview(mode==='inside')}
  function download(bytes,name,type){const href=URL.createObjectURL(new Blob([bytes],{type})),anchor=document.createElement('a');anchor.href=href;anchor.download=name;document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(href),1500)}
+ function downloadBodyStl(index){
+  const body=geometry?.bodies[index],item=concept?.instances.find(instance=>instance.bodyIndex===index);
+  if(!body)return;
+  const bytes=item&&(body.exact||item.source==='catalog')?encodeSTL(item.meshes.flatMap(mesh=>mesh.triangles),'Formwork reference part in mm'):body.stlBytes;
+  if(bytes)download(bytes,cadDownloadName(body.name),'model/stl');
+ }
  root.onclick=async e=>{
   const button=e.target.closest('button');if(!button)return;
   if(button.hasAttribute('data-cc-retry')){if(compileFailed)buildExact();return}
@@ -773,12 +812,7 @@ export function mountConsumerCad(container,design,options={}){
   if(button.dataset.ccCamera==='in')scale(1.2);if(button.dataset.ccCamera==='out')scale(1/1.2);if(button.dataset.ccCamera==='home')home();
   const part=button.dataset.ccDownload;if(part&&concept?.shell)download(encodeSTL(concept.shell[part],'FormBench concept enclosure; mm; no fit or manufacturing validation'),`concept-${part}-${concept.shell.sizeMm.map(n=>Number(n.toFixed(1))).join('x')}-mm.stl`,'model/stl');
   if(button.hasAttribute('data-cc-assembly-stl')&&geometry?.exact)download(assemblyStl(concept,activePlan.motions,motionProgress),cadDownloadName(design.name+'-assembly'),'model/stl');
-  if(button.dataset.ccBodyStl!==undefined){
-   const index=Number(button.dataset.ccBodyStl),body=geometry?.bodies[index];
-   const item=concept.instances.find(instance=>instance.bodyIndex===index);
-   const bytes=item&&(body?.exact||item.source==='catalog')?encodeSTL(item.meshes.flatMap(mesh=>mesh.triangles),'Formwork reference part in mm'):body?.stlBytes;
-   if(bytes)download(bytes,cadDownloadName(body.name),'model/stl');
-  }
+  if(button.dataset.ccBodyStl!==undefined)downloadBodyStl(Number(button.dataset.ccBodyStl));
   if(button.dataset.ccBodyForge!==undefined){
    const index=Number(button.dataset.ccBodyForge),body=activePlan?.bodies[index];if(!body)return;
    button.disabled=true;
@@ -803,5 +837,5 @@ export function mountConsumerCad(container,design,options={}){
  const wheel=e=>{e.preventDefault();scale(Math.exp(-e.deltaY*.0018))};canvas.addEventListener('wheel',wheel,{passive:false});
  canvas.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','=','-','0'].includes(e.key))return;e.preventDefault();if(e.key==='ArrowLeft')yaw-=.12;if(e.key==='ArrowRight')yaw+=.12;if(e.key==='ArrowUp')pitch=Math.min(1.5,pitch+.12);if(e.key==='ArrowDown')pitch=Math.max(-1.5,pitch-.12);if(e.key==='+'||e.key==='=')scale(1.2);if(e.key==='-')scale(1/1.2);if(e.key==='0')home();schedule()};
  const observer=new ResizeObserver(schedule);observer.observe(canvas);load();
- return ()=>{disposed=true;interaction?.dispose();wiring?.dispose();aborter.abort();clearTimeout(confirmationTimer);partAnimation?.cancel();observer.disconnect();cancelAnimationFrame(frame);canvas.removeEventListener('wheel',wheel);container.removeEventListener('focus-hardware',focusHardware);container.removeEventListener('focus-wiring',focusWiring);partsPanel?.removeEventListener('change',togglePart);partsPanel?.removeEventListener('click',showAll);partsPanel?.replaceChildren();root.oninput=root.onclick=null;canvas.onpointerdown=canvas.onpointermove=canvas.onpointerup=canvas.onpointercancel=canvas.onkeydown=null;scene=[]};
+ return ()=>{disposed=true;interaction?.dispose();wiring?.dispose();aborter.abort();clearTimeout(confirmationTimer);partAnimation?.cancel();observer.disconnect();cancelAnimationFrame(frame);canvas.removeEventListener('wheel',wheel);container.removeEventListener('focus-hardware',focusHardware);container.removeEventListener('focus-wiring',focusWiring);partsPanel?.removeEventListener('change',togglePart);partsPanel?.removeEventListener('click',handlePartClick);partsPanel?.replaceChildren();root.oninput=root.onclick=null;canvas.onpointerdown=canvas.onpointermove=canvas.onpointerup=canvas.onpointercancel=canvas.onkeydown=null;scene=[]};
 }

@@ -36,6 +36,17 @@ test('Pages makes no service or loopback requests, including for carts',async t=
   assert.deepEqual(r.candidates,[]);assert.equal(new URL(r.searchUrl).searchParams.get('q'),'红色 LED 5 mm 直插');
   assert.equal((await makeCart([choice])).state,'manual');assert.equal(fetcher.mock.callCount(),0);
 });
+test('hardware references supply search terms without selecting a store SKU',async t=>{
+  const terms='Kingbright WP7113LID',requests=[];
+  at(t,'https://example.org/studio/',(_url,init)=>{
+    requests.push(JSON.parse(init.body));
+    return Response.json({candidates:[]});
+  });
+  const result=await findProducts({...part,hardwareReference:{searchTerms:terms,items:[{name:terms,url:'https://supplier.example/reference'}]}});
+  assert.equal(new URL(result.searchUrl).searchParams.get('q'),terms);
+  assert.deepEqual(requests,[{name:part.name,spec:terms}]);
+  assert.deepEqual(result.candidates,[]);
+});
 test('deployment-relative API, listing canonicalisation and source SKU preservation',async t=>{
   at(t,'https://demo.example.edu/research/app/',(url,init)=>{
     assert.equal(url.href,'https://demo.example.edu/research/app/api/catalog');
@@ -127,10 +138,10 @@ test('lost or forged helper delivery never triggers a second preparation or an A
 });
 test('picker is read-only: one request, official URL + explicit variant required, returns original page title and labels',async t=>{
   const http=at(t,'https://example.github.io/studio/',()=>{throw Error('unexpected request')});
-  const bus=new EventTarget(),origin='https://example.github.io',actions=[];let candidate;
+  const bus=new EventTarget(),origin='https://example.github.io',actions=[];let candidate,expectedQuery;
   bus.postMessage=m=>{
     actions.push(m.type);
-    if(m.type==='FB_PICK_PREPARE'){assert.equal(m.url,undefined);assert.equal(m.partName,part.name);assert.ok(m.query.includes(part.spec));}
+    if(m.type==='FB_PICK_PREPARE'){assert.equal(m.url,undefined);assert.equal(m.partName,part.name);if(expectedQuery)assert.equal(m.query,expectedQuery);else assert.ok(m.query.includes(part.spec));}
     const ev=new Event('message');Object.assign(ev,{source:bus,origin,data:{source:'formbench-extension',version:1,requestId:m.requestId,...(m.type==='FB_HELPER_PING'?{type:'FB_HELPER_PONG'}:{type:'FB_PICK_RESULT',state:'picked',candidate})}});
     queueMicrotask(()=>bus.dispatchEvent(ev));
   };
@@ -138,6 +149,9 @@ test('picker is read-only: one request, official URL + explicit variant required
   const {pickProduct}=await import('../consumer-service.js');
   candidate={...choice,title:'店铺实物标题'};const good=await pickProduct(part,'https://example.net/bad');
   assert.equal(good.candidate.listingTitle,candidate.title);assert.equal(good.candidate.titleSource,'page');assert.deepEqual(good.candidate.options,choice.options);
+  expectedQuery='LED MPN-42';
+  assert.equal((await pickProduct({...part,hardwareReference:{searchTerms:expectedQuery}})).candidate.skuId,good.candidate.skuId);
+  expectedQuery='';
   for(const wrong of [{...choice,options:[]},{...choice,skuId:'999'},{...choice,url:'https://elsewhere.example/?id=123'}]){candidate=wrong;assert.equal((await pickProduct(part)).candidate,undefined);}
   assert.ok(actions.every(x=>['FB_PICK_PREPARE','FB_HELPER_PING'].includes(x)));assert.equal(http.mock.callCount(),0);
 });

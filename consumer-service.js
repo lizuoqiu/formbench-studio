@@ -138,6 +138,7 @@ function detail(raw){
   return {url:u.origin+'/item.htm?id='+item+(skuId?'&skuId='+skuId:''),title:text(raw.title,250)||'查看淘宝商品 '+item,...(['user','page'].includes(raw.titleSource)&&text(raw.listingTitle,250)?{listingTitle:text(raw.listingTitle,250),titleSource:raw.titleSource}:{titleSource:'label'}),...(skuId?{skuId}:{}),...(text(raw.sku)?{sku:text(raw.sku,220)}:{}),...(Array.isArray(raw.options)&&raw.options.length&&raw.options.length<=12&&raw.options.every(v=>typeof v==='string'&&v.trim()&&v.length<=150)?{options:raw.options.map(v=>v.trim())}:{})};
 }
 const searchLink=query=>'https://s.taobao.com/search?q='+encodeURIComponent(query);
+export const partSearchTerms=part=>text(part?.hardwareReference?.searchTerms,280);
 // Only the unmodified reference row qualifies for curated evidence. Its shape is not a retailer SKU.
 async function curatedFor(part){
   const row=sampleRows.find(([name,spec,model,modelId,dims])=>part.name===name&&part.spec===spec&&part.model===model&&part.modelId===modelId&&part.dimensionSource==='catalog'&&Array.isArray(part.sizeMm)&&dims.every((n,i)=>n===part.sizeMm[i])&&part.sizeMm.length===3);
@@ -157,7 +158,8 @@ async function curatedFor(part){
   }catch{return [];}
 }
 export async function findProducts(part){
-  const name=text(part?.name,200),spec=text(part?.spec,800),query=[name,spec].filter(Boolean).join(' ');
+  const name=text(part?.name,200),terms=partSearchTerms(part);
+  const spec=terms||text(part?.spec,800),query=terms||[name,spec].filter(Boolean).join(' ');
   const fallback={candidates:[],searchUrl:searchLink(query)};
   if(!name)return {...fallback,reason:'请先选择零件。'};
   const [curated,data]=await Promise.all([curatedFor(part),isPages()?null:call('catalog',{name,spec}).catch(e=>({reason:e.message}))]);
@@ -174,7 +176,7 @@ export async function pickProduct(part,currentUrl){
   pendingPick=true;
   try{
     if(!await helperPresent())return {reason:'未检测到淘宝选品助手，请使用淘宝搜索或粘贴商品详情。'};
-    const requestId=crypto.randomUUID(),query=[partName,text(part.model,150),text(part.spec,300)].filter(Boolean).join(' ').slice(0,280);
+    const requestId=crypto.randomUUID(),query=partSearchTerms(part)||[partName,text(part.model,150),text(part.spec,300)].filter(Boolean).join(' ').slice(0,280);
     const start=detail({url:currentUrl})?.url; // Otherwise the helper uses the precise Taobao search query.
     return await new Promise(resolve=>{
       const done=out=>{clearTimeout(timer);window.removeEventListener('message',listen);resolve(out)};

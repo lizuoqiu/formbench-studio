@@ -21,6 +21,24 @@ export function verificationText(value){
   if(value?.cad==='checked'&&value.interaction==='checked')return 'CAD 和交互预览已核验 · 未实物验证';
   return value?.cad==='checked'?'仅 CAD 已核验 · 未实物验证':'CAD 尚未核验 · 未实物验证';
 }
+function attachHardwareReferences(design,records){
+  if(!Array.isArray(records))return false;
+  let attached=0;
+  for(const record of records){
+    const part=design.parts[record?.partIndex];
+    if(!part||part.name!==record.name||part.model!==record.model||part.hardwareReference)continue;
+    const {kind,items,note,searchTerms}=record;
+    if(!['specified','candidate','custom','material'].includes(kind)||!Array.isArray(items)||!items.length)continue;
+    const valid=items.every(item=>{
+      if(!item||typeof item.name!=='string'||!item.name.trim()||typeof item.label!=='string'||!item.label.trim())return false;
+      try{const link=new URL(item.url);return link.protocol==='https:'&&!link.username&&!link.password;}catch{return false;}
+    });
+    if(!valid)continue;
+    part.hardwareReference={kind,items:items.map(({name,url,label})=>({name,url,label})),note,searchTerms};
+    attached++;
+  }
+  return attached===records.length;
+}
 export async function galleryProjects(){
   if(!galleryPromise)galleryPromise=fetch(manifestUrl).then(async response=>{
     if(!response.ok)throw Error('精选项目暂时无法读取。');
@@ -37,12 +55,17 @@ export async function loadSharedProject(slug,version){
   if(!entry)throw Error('没有找到这个分享项目，请从首页重新选择。');
   const selected=version==null?entry.versions.at(-1):entry.versions.find(v=>String(v.version)===String(version));
   if(!selected)throw Error('这个分享版本不存在，请从首页打开最新版本。');
-  const response=await fetch(galleryAsset(selected.design));
+  const referencesUrl=galleryAsset(selected.hardwareReferences);
+  const [response,references]=await Promise.all([
+    fetch(galleryAsset(selected.design)),
+    referencesUrl?fetch(referencesUrl).then(res=>res.ok?res.json():null).catch(()=>null):null
+  ]);
   if(!response.ok)throw Error('这一版设计暂时无法读取。');
   const data=await response.json(),design=data.design||data;
   if(!design||!Array.isArray(design.parts)||!design.parts.length)throw Error('这一版设计的零件资料不完整。');
+  const hardwareUnavailable=!!selected.hardwareReferences&&!attachHardwareReferences(design,references);
   return {design,record:{prompt:data.prompt||selected.prompt||'',iteration:{...data.iteration,version:selected.version,previousId:undefined},
-    savedCadUrl:galleryAsset(selected.cad),shared:{entry,selected}}};
+    savedCadUrl:galleryAsset(selected.cad),shared:{entry,selected,...(hardwareUnavailable?{hardwareUnavailable:true}:{})}}};
 }
 export async function mountGallery(container,onOpen){
   try{
@@ -68,7 +91,7 @@ export function sharedProjectBar(shared){
   const referenceImage=galleryAsset(selected.referenceImage);
   return `<section class="shared-project-bar" aria-label="分享项目"><div class="shared-project-context"><b>${entry.source==='example'?'示例':'工作室精选'}</b><span>公开版本 · 只读</span><span>${esc(verificationText(selected.verification))}</span></div>
     <div class="shared-project-controls">${playable?`<a class="small-button" href="${esc(shareLink(entry.slug,playable.version))}">试用互动版</a>`:''}<label>版本 <select id="shared-version" aria-label="分享项目版本">${entry.versions.map(v=>`<option value="${v.version}" ${v.version===selected.version?'selected':''}>${esc(v.label||'第 '+v.version+' 版')}</option>`).join('')}</select></label><button type="button" class="small-button" id="copy-project">创建个人副本</button><button type="button" class="small-button" id="close-shared">关闭</button></div>
-    ${selected.verification?.note?`<p class="shared-verification-note">${esc(selected.verification.note)}</p>`:''}${referenceImage?`<a class="shared-reference-image" href="${esc(referenceImage)}" target="_blank" rel="noopener noreferrer">查看该版参考图 ↗</a>`:''}</section>`;
+    ${shared.hardwareUnavailable?'<p role="status">部分实物资料未能加载，可刷新重试。</p>':''}${selected.verification?.note?`<p class="shared-verification-note">${esc(selected.verification.note)}</p>`:''}${referenceImage?`<a class="shared-reference-image" href="${esc(referenceImage)}" target="_blank" rel="noopener noreferrer">查看该版参考图 ↗</a>`:''}</section>`;
 }
 export function showShareDialog(link){
   document.querySelector('#project-share-dialog')?.remove();

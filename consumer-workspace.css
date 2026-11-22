@@ -113,6 +113,18 @@ body:has(#project:not([hidden])) { background: white; }
 .shopping .part .qty { background: transparent; font-size: 12px; }
 .shopping .part .edit { border-top: none; margin-top: 3px; padding-top: 1px; }
 
+/* Manufacturer references belong to the selected design, separate from marketplace offers. */
+.shopping .hardware-reference { min-width: 0; margin: 3px 0 7px; color: #263443; font-size: 13px; }
+.shopping .hardware-kind { font-size: 11px; color: #546371; }
+.shopping .hardware-reference ul { margin: 2px 0 0; padding: 0; list-style: none; }
+.shopping .hardware-reference li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
+.shopping .hardware-reference li span { font-weight: 580; }
+.shopping .hardware-reference a { color: #245886; text-underline-offset: 2px; }
+.shopping .hardware-reference p { color: #596471; font-size: 12px; line-height: 1.55; margin: 4px 0 0; }
+.shopping .hardware-specifications { grid-column: 1 / -1; font-size: 12px; color: #49647a; }
+.shopping .hardware-specifications summary { width: fit-content; cursor: pointer; }
+.shopping .hardware-specifications .spec { margin-top: 8px; }
+
 .project-inspector .revision-row .primary, .purchase-head .primary { background: #6fb2fd; border-color: #6fb2fd; color: #101820; }
 .project-inspector .revision-row .primary:hover:enabled, .purchase-head .primary:hover:enabled { background: #68aaff; }
 @media(min-width: 990px) {
