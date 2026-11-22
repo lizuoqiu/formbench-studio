@@ -66,5 +66,18 @@ export function createRaster(canvas){
   }ctx.putImageData(image,0,0);
  }
  function pixelAt(x,y){const box=canvas.getBoundingClientRect(),px=Math.floor(x*width/box.width),py=Math.floor(y*height/box.height);return px>=0&&px<width&&py>=0&&py<height?py*width+px:-1;}
- return {draw,pick(x,y){const pixel=pixelAt(x,y);return pixel>=0?ids[objects?.[pixel]-1]:undefined},depthAt(x,y){const pixel=pixelAt(x,y);return pixel>=0&&depth?depth[pixel]:Infinity}};
+ function depthAt(x,y){
+  const pixel=pixelAt(x,y);if(pixel<0||!depth)return Infinity;
+  const box=canvas.getBoundingClientRect(),u=x*width/box.width-.5,v=y*height/box.height-.5,px=Math.floor(u),py=Math.floor(v);
+  // Depth samples describe pixel centres. Interpolate only within the same
+  // opaque mesh; otherwise preserve the nearest occluder at silhouettes.
+  if(px>=0&&px+1<width&&py>=0&&py+1<height&&objects[pixel]){
+   const indices=[py*width+px,py*width+px+1,(py+1)*width+px,(py+1)*width+px+1];
+   if(indices.every(i=>objects[i]===objects[pixel]&&Number.isFinite(depth[i]))){
+    const a=u-px,b=v-py;return (depth[indices[0]]*(1-a)+depth[indices[1]]*a)*(1-b)+(depth[indices[2]]*(1-a)+depth[indices[3]]*a)*b;
+   }
+  }
+  return depth[pixel];
+ }
+ return {draw,pick(x,y){const pixel=pixelAt(x,y);return pixel>=0?ids[objects?.[pixel]-1]:undefined},depthAt};
 }

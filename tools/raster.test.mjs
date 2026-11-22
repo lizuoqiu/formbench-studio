@@ -86,3 +86,17 @@ test('depth sampling shares CSS coordinates with picking at high device pixel ra
  assert.equal(raster.pick(100,60),'board');assert.ok(Math.abs(raster.depthAt(100,60)-7)<1e-6);
  assert.equal(raster.depthAt(0,0),-Infinity);assert.equal(raster.depthAt(-1,60),Infinity);
 });
+
+test('subpixel depth follows a tilted surface without blending across occluding meshes',()=>{
+ const context={createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:()=>{}};
+ for(const ratio of [1,2]){
+  globalThis.devicePixelRatio=ratio;
+  const canvas={getContext:()=>context,getBoundingClientRect:()=>({width:160,height:160})},raster=createRaster(canvas);
+  const tilted=prepareMesh([[[-50,-50,-50],[50,-50,50],[0,50,0]]],[100,120,140]);
+  const camera={yaw:Math.PI,pitch:Math.PI/2,target:[0,0,0],center:[80,80],scale:1};
+  const cover=prepareMesh([[[-8,-8,20],[8,-8,20],[0,8,20]]],[140,100,100]);
+  raster.draw([{id:'board',mesh:tilted},{id:'cover',mesh:cover}],camera);
+  for(const x of [94.01,94.49,94.93])assert.ok(Math.abs(raster.depthAt(x,80.13)-(x-80))<1e-5,'same-plane interpolation removes pixel-centre bias');
+  assert.equal(raster.pick(80.2,80.1),'cover');assert.ok(Math.abs(raster.depthAt(80.2,80.1)-20)<1e-5,'a distinct opaque body still wins');
+ }
+});

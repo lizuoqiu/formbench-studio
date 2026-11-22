@@ -21,8 +21,8 @@ test('wire projection removes the segments occluded by an opaque part',()=>{
 test('normal shared V5 interior exposes selectable reference wires and model names on desktop and mobile',async t=>{
  const browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||'chrome',headless:true});t.after(()=>browser.close());
  const model=buildAssemblyWiring(real),signal=model.routes.find(route=>route.from.pin==='D4'&&route.to.pin==='SDA');assert.ok(signal);
- for(const width of [1440,390])await t.test('viewport '+width,async t=>{
-  const origin='https://formwork-wiring-test.github.io',page=await browser.newPage({viewport:{width,height:980},deviceScaleFactor:width===390?2:1,reducedMotion:'reduce'});t.after(()=>page.close());page.setDefaultTimeout(15000);
+ for(const [width,height] of [[1440,980],[390,980],[390,840]])await t.test('viewport '+width+'×'+height,async t=>{
+  const origin='https://formwork-wiring-test.github.io',page=await browser.newPage({viewport:{width,height},deviceScaleFactor:width===390?2:1,reducedMotion:'reduce'});t.after(()=>page.close());page.setDefaultTimeout(15000);
   const api=[],errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.route('**/*',async route=>{
    const url=new URL(route.request().url());if(url.origin!==origin)return route.abort();
@@ -42,6 +42,8 @@ test('normal shared V5 interior exposes selectable reference wires and model nam
   await choice.selectOption(String(signal.connectionIndex));await paint(page);
   assert.match(await detail.innerText(),/D4 → SDA/);assert.match(await detail.innerText(),/模型端点/);assert.match(await detail.innerText(),/JP2/);
   const route=page.locator('[data-cc-wire-index="'+signal.connectionIndex+'"]');assert.equal(await route.getAttribute('aria-pressed'),'true');
+  assert.ok(await route.locator('[data-cc-wire-pin="from"]').isVisible(),'default interior exposes the controller terminal');
+  assert.ok(await route.locator('[data-cc-wire-pin="to"]').isVisible(),'subpixel depth does not hide the display terminal on its own pad');
   const hit=await route.locator('.cc-wire-hit').evaluate(node=>{
    const length=node.getTotalLength();if(!length)throw Error('selected route has no visible path');
    const p=node.getPointAtLength(length*.45),svg=node.ownerSVGElement,pt=svg.createSVGPoint();pt.x=p.x;pt.y=p.y;const screen=pt.matrixTransform(svg.getScreenCTM());return {x:screen.x,y:screen.y};
