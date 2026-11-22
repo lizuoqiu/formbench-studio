@@ -4,9 +4,11 @@ import {execFile} from 'node:child_process';
 import {mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import {editableForgeDownload} from '../forge-package.js';
 import {buildAssemblyWiring} from '../assembly-wires.js';
+import {forgeWiring} from '../forge-joints.js';
 
 const run=promisify(execFile);
 const {design}=JSON.parse(await readFile(new URL('../samples/shared/reading-timer/v5.json',import.meta.url)));
@@ -40,6 +42,38 @@ test('single prints and the dimensioned encoder stay standalone, while the seven
 test('a missing registered OLED asset is reported before returning an incomplete package',async t=>{
  localAssets(t,'glass.stl');
  await assert.rejects(editableForgeDownload(cadPlan,parts,7),/glass\.stl/);
+});
+
+test('the published V5 shortcut contains the complete editable assembly, reference wires and original licensed OLED files',async()=>{
+ const shared=new URL('../samples/shared/',import.meta.url);
+ const manifest=JSON.parse(await readFile(new URL('manifest.json',shared),'utf8'));
+ const {versions}=manifest.projects.find(p=>p.slug==='reading-timer');
+ const v=versions.find(record=>record.version===5);
+ assert.equal(v.forgePackage,'reading-timer/v5-assembly.zip');
+ assert.ok(versions.filter(record=>record.version<5).every(record=>!record.forgePackage));
+ const archive=fileURLToPath(new URL(v.forgePackage,shared)),dir=await mkdtemp(join(tmpdir(),'formwork-public-v5-'));
+ try{
+  if(process.platform==='win32'){
+   await run('powershell.exe',['-NoProfile','-Command','Expand-Archive -LiteralPath $env:FORMWORK_ZIP -DestinationPath $env:FORMWORK_DIR'],
+    {env:{...process.env,FORMWORK_ZIP:archive,FORMWORK_DIR:dir}});
+  }else await run('unzip',['-q',archive,'-d',dir]);
+  const main=await readFile(join(dir,'main.forge.js'),'utf8');
+  assert.deepEqual(JSON.parse(await readFile(join(dir,'forgecad.json'),'utf8')),{});
+  for(const wire of forgeWiring(cadPlan,wires)){
+   assert.ok(main.includes('referenceWire('+JSON.stringify(wire.points)+', '+JSON.stringify(wire.color)+')'));
+  }
+  assert.equal(main.match(/mechanism\.addPart\("参考线束/g).length,12);
+  assert.ok(main.includes('return mechanism.solve();'));
+  assert.equal(main.match(/电气脚/g).length,5);
+  const meta=JSON.parse(await readFile(join(dir,panelFolder,'metadata.json'),'utf8'));
+  assert.equal(meta.meshes.length,7);
+  for(const {file} of meta.meshes)assert.ok(main.includes('importMesh("./'+panelFolder+file+'")'));
+  const files=new Set([...expected,'reference.forge.js',...meta.meshes.map(m=>m.file)]);
+  for(const filename of files){
+   const path=panelFolder+filename;
+   assert.deepEqual(await readFile(join(dir,path)),await readFile(new URL('../'+path,import.meta.url)));
+  }
+ }finally{await rm(dir,{recursive:true,force:true});}
 });
 
 test('an extracted V5 project loads in real ForgeCAD with registered material bounds, pin geometry and wire routes',

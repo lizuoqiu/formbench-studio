@@ -3,7 +3,7 @@ import {mountConsumerAccount,saveConsumerProject,readConsumerProject} from './co
 import {currentCadPlan,mountConsumerCad} from './consumer-cad.js';
 import {buildAssemblyWiring} from './assembly-wires.js';
 import {photoPicker,versionImages} from './consumer-design-images.js';
-import {loadSharedProject,mountGallery,shareLink,sharedProjectBar,showShareDialog} from './consumer-gallery.js';
+import {galleryAsset,loadSharedProject,mountGallery,shareLink,sharedProjectBar,showShareDialog} from './consumer-gallery.js';
 const $=s=>document.querySelector(s),entry=$('#entry'),project=$('#project');
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const modelText=p=>[p.model,p.spec].filter(x=>typeof x==='string'&&x.trim()).filter((v,i,a)=>a.indexOf(v)===i).join(' · ');
@@ -272,7 +272,12 @@ function mount(){
         const filename=design.name.replace(/[^\p{L}\p{N}._-]+/gu,'-').slice(0,80)||'assembly';
         sourceButton.hidden=false;
         sourceButton.disabled=false;
+        const publishedPackage=galleryAsset(sharedProject?.selected.forgePackage);
         sourceButton.onclick=async()=>{
+          if(publishedPackage){
+            const file=document.createElement('a');file.href=publishedPackage;file.download=filename+'.zip';file.click();
+            return;
+          }
           sourceButton.disabled=true;
           try{
             const activeInteraction=design.parts.some(p=>p.modelSourceInvalidated)?null:design.interaction;

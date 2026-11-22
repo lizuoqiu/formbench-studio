@@ -143,6 +143,7 @@
           "label": "验证主控与旋钮交互",
           "design": "reading-timer/v5.json",
           "cad": "reading-timer/v5-cad.json",
+          "forgePackage": "reading-timer/v5-assembly.zip",
           "preview": "reading-timer/v5.webp",
           "previewKind": "cad",
           "interactive": true,
