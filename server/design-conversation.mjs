@@ -77,7 +77,7 @@ function readRepairCandidate(raw){
  const model=raw.design.interaction;
  if(model!=null){
   if(!isObject(model)||encoder.encode(JSON.stringify(model)).length>160000)throw new DesignInputError('续修交互草稿格式无效。');
-  design.interaction=Object.fromEntries(['version','controllerPartIndex','controls','outputs','connections','signalChannels','timer','initialState','states','transitions']
+  design.interaction=Object.fromEntries(['version','controllerPartIndex','controls','outputs','connections','terminals','signalChannels','timer','initialState','states','transitions']
     .filter(k=>Object.hasOwn(model,k)).map(k=>[k,model[k]]));
  }
  return {design,issues:raw.issues.map(s=>s.trim())};

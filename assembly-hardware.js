@@ -1,6 +1,9 @@
+import {matchOled938Reference,oled938Id} from './panel-hardware-reference.js';
+
 // Reference components are matched to the BOM, not to a merchant SKU.
 // All meshes are millimetres. A project-specific layout is independent of a model match.
 const rows = [
+  [oled938Id,oled938Id,'Adafruit 938 双 STEMMA QT OLED','无排针新版；原厂 STEP，实物布局及厂商焊盘尺寸。'],
   ['xiao-esp32s3','xiao-esp32s3','Seeed Studio XIAO ESP32S3','基础版、无排针；按原厂 STEP 尺寸绘制的彩色装配参考。'],
   ['xiao-esp32c3','xiao-esp32c3','Seeed Studio XIAO ESP32C3','无排针版；自绘近似板形及器件，非原厂 CAD。'],
   ['pico','pico','Raspberry Pi Pico','初代 RP2040、Micro-B、无排针的参考板。'],
@@ -42,6 +45,7 @@ export function matchXiaoS3Reference(part) {
   return id;
 }
 export function matchHardware(part) {
+  const oled=matchOled938Reference(part);if(oled)return oled;
   const xiao=matchXiaoC3Reference(part)||matchXiaoS3Reference(part);if(xiao)return xiao;
   const n=String(part?.name||'').normalize('NFKC').trim(), s=String(part?.spec||'').normalize('NFKC');
   if(/^(?:Raspberry\s*Pi\s+)?Pico$/i.test(n) && !/Pico\s*(?:2|W|H)\b|RP2350|USB[ -]?C|Type[ -]?C|已焊|预焊/i.test(s))return 'pico';

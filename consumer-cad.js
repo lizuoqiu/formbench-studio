@@ -2,9 +2,13 @@ import {catalog,loadPartMeshes,getHardwareMetadata,encodeSTL} from './assembly-h
 import {makeDocumentedProxy} from './part-geometry.js';
 import {prepareMesh,createRaster,fitCamera,cameraBasis,projectWorldPoint,worldPointAtZ} from './mesh-renderer.js';
 import {previewCadPlan,compileCadPlan,meshBounds,featurePlacement,cadDownloadName} from './consumer-geometry.js';
-import {completeCatalogAnchors,editableForgeSource,hasEditableCatalogSource} from './forge-source.js';
+import {completeCatalogAnchors,hasEditableCatalogSource} from './forge-source.js';
 import {validateCadPlan,wholePartBox} from './cad-plan.js';
 import {mountCadInteraction} from './consumer-interaction.js';
+import {buildAssemblyWiring} from './assembly-wires.js';
+import {mountConsumerWiring} from './consumer-wiring.js';
+import {matchOled938Reference,resolvePanelHardwareReference} from './panel-hardware-reference.js';
+import {stylePurchasedBodyMeshes} from './purchased-body-details.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const sizeText=size=>size.map(n=>Number(n.toFixed(1))).join(' × ')+' mm';
@@ -86,20 +90,23 @@ export async function resolveConsumerGeometry(design,options={}){
   options.signal?.throwIfAborted();
   const record={stage:'prepare',partIndex:part.index,name:part.name,total:normalized.length};
   options.onProgress?.({...record,phase:'start',completed:part.index});
-  // A missing modelId can be an intentional result of changing the purchase.
-  // Never reconstruct that identity from a familiar BOM name.
-  const id=!part.modelSourceInvalidated&&Object.hasOwn(catalog,part.modelId||'')?part.modelId:null;
+  // A changed purchase must not inherit its old reference. The legacy OLED
+  // matcher requires its exact revision, connector and unpopulated-header spec.
+  const candidate=part.modelId||matchOled938Reference(part);
+  const id=!part.modelSourceInvalidated&&Object.hasOwn(catalog,candidate||'')?candidate:null;
   const planned=design.cadPlan?.bodies?.some(body=>body.partIndex===part.index);
-  let meshes,metadata=null,actualSize=null,geometryNote='';
+  let meshes,metadata=null,actualSize=null,geometryNote='',registered=false;
   if(id){
    try{
     metadata=await getHardwareMetadata(id);
-    if(part.dimensionSource==='catalog'&&!part.shape&&(planned||part.role!=='external')&&part.role!=='enclosure'){
+    const registrations=(design.cadPlan?.bodies||[]).filter(body=>body.partIndex===part.index&&resolvePanelHardwareReference(body,part,metadata));
+    registered=registrations.length>0&&registrations.length<=part.qty;
+    if((registered||part.dimensionSource==='catalog'&&!part.shape)&&(planned||part.role!=='external')&&part.role!=='enclosure'){
      const raw=await loadPartMeshes(id),bounds=boundsOf(raw);
-     if(bounds.size.every((n,k)=>Math.abs(n-part.sizeMm[k])<=.01)){
+     if(registered||bounds.size.every((n,k)=>Math.abs(n-part.sizeMm[k])<=.01)){
       actualSize=bounds.size;
       meshes=raw.map(mesh=>({...mesh,triangles:mesh.triangles.map(face=>face.map(p=>p.map((n,k)=>n-bounds.min[k])))}));
-      geometryNote=metadata.modelType==='dimensioned-approximation'?'据资料绘制的近似参考模型，未缩放；器件高度等估计细节见来源说明':'资料模型原始尺寸，未缩放';
+      geometryNote=registered?'以原方案的 PCB、安装孔和屏面定位原厂模型，未缩放；保留原清单尺寸记录':metadata.modelType==='dimensioned-approximation'?'据资料绘制的近似参考模型，未缩放；器件高度等估计细节见来源说明':'资料模型原始尺寸，未缩放';
      }else geometryNote='输入尺寸与目录几何不一致，保留输入尺寸显示设计包络，未缩放目录模型';
     }
    }catch{geometryNote='资料几何暂不可用，按当前尺寸显示近似包络'}
@@ -111,7 +118,7 @@ export async function resolveConsumerGeometry(design,options={}){
   if(part.role==='external'&&!planned)geometryNote='外接附件的尺寸记录，未指定安装位置；不参与外壳包络';
   if(part.role==='enclosure')geometryNote=planned?'按声明式结构生成形体，不代表原厂外壳或已验证的制造设计':'作为目标外包络下限；当前显示重新计算的概念壳体';
   if(planned&&part.modelSourceInvalidated)geometryNote='型号或尺寸已更改，旧形体与安装位置已撤下；当前为新尺寸包络，请重新生成结构。';
-  parts.push({...part,sizeMm:[...part.sizeMm],dimensionSource:actualSize?'catalog':meshes&&part.dimensionSource==='catalog'?'specified':part.dimensionSource,meshes,metadata,geometryKind:actualSize?'catalog':'envelope',geometryNote});
+  parts.push({...part,sizeMm:[...part.sizeMm],dimensionSource:registered?part.dimensionSource:actualSize?'catalog':meshes&&part.dimensionSource==='catalog'?'specified':part.dimensionSource,...(actualSize?{resolvedModelId:id}:{}),meshes,metadata,geometryKind:actualSize?'catalog':'envelope',geometryNote});
   options.onProgress?.({...record,phase:'finish',completed:part.index+1});
  }
  return parts;
@@ -151,10 +158,11 @@ export function buildDeclaredAssembly(design,parts,geometry){
   // dimensioned placement box, never an individual mechanism or a custom solid.
   const anchor=anchors[index];
   if(anchor&&part.geometryKind==='catalog'&&part.meshes?.length){
-   const place=featurePlacement(anchor,part.sizeMm.map(n=>n/2));
+   const place=featurePlacement(anchor,anchor.sizeMm.map(n=>n/2));
    meshes=part.meshes.map(mesh=>({...mesh,triangles:mesh.triangles.map(face=>face.map(place))}));
    source='catalog';
   }
+  if(source==='generated')meshes=stylePurchasedBodyMeshes(body,part,meshes);
   instances.push({partIndex:part.index,bodyIndex:index,copy:counts.get(part.index)-1,role:part.role,kind:body.role,name:body.name,positionMm:[...body.positionMm],meshes,source,exact:source==='catalog'||geometry.exact,placed:true});
  }
  const box=instances.length?meshBounds(instances.flatMap(item=>shiftedMeshes(item.meshes,item.positionMm))):{min:[0,0,0],max:[0,0,0],sizeMm:[0,0,0]};
@@ -209,7 +217,7 @@ export function visibleAssemblyInstances(concept,mode,includeInterior=false,moti
  });
 }
 
-function installedHardwareView(concept,defaultYaw){
+function installedHardwareView(concept,defaultYaw,wiring){
  const positioned=concept.instances.filter(item=>item.placed);
  function worldBox(item){
   const local=meshBounds(item.meshes);
@@ -220,10 +228,13 @@ function installedHardwareView(concept,defaultYaw){
   .map(item=>({item,box:worldBox(item)}));
  const inside=hardware.filter(({box})=>enclosures.some(shell=>box.min.every((n,k)=>n<=shell.max[k]&&box.max[k]>=shell.min[k])));
  const installed=inside.length?inside:hardware;
- // Pick the oblique view that overlaps the fewest mounted modules on screen.
+ const terminalDirections=[...new Map((wiring?.routes||[]).flatMap(route=>[route.from,route.to])
+  .filter(end=>end.exitDirection?.length===3).map(end=>[end.partIndex+':'+end.exitDirection.join(','),end.exitDirection])).values()];
+ // Keep documented terminal faces in view as well as separating modules.
+ // Pure overlap minimization can turn a vertical PCB edge-on.
  // Two CAD bodies from the same purchased actuator form one part.
  function coverage(yaw){
-  const {right,down}=cameraBasis(yaw,inspectionPitch);
+  const {right,down,toward}=cameraBasis(yaw,inspectionPitch);
   const projected=installed.map(({item,box})=>{
    const [x,y,z]=box.min.map((n,k)=>(n+box.max[k])/2),[w,d,h]=box.min.map((n,k)=>(box.max[k]-n)/2);
    const [u,v]=projectWorldPoint([x,y,z],{yaw,pitch:inspectionPitch}),half=[w,d,h];
@@ -237,7 +248,7 @@ function installedHardwareView(concept,defaultYaw){
    const height=Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
    overlap+=width*height/Math.max(.01,Math.min(a.area,b.area));
   }
-  return overlap;
+  return overlap+terminalDirections.reduce((sum,normal)=>sum+2*Math.max(0,.2-normal.reduce((dot,n,k)=>dot+n*toward[k],0)),0);
  }
  let yaw=defaultYaw,min=coverage(yaw);
  for(const step of [1,-1,2,-2,3,-3,4]){
@@ -441,13 +452,14 @@ export function mountConsumerCad(container,design,options={}){
   showBubble('error',existingGeometry?'CAD 加载未完成':'模型未完成',message);
  }
  const partsPanel=options.partsPanel,hiddenParts=new Set();
+ const wiringModel=declared?buildAssemblyWiring(design):null;
  let partsSignature='',selectedPart=null,installationView=options.initialMode==='inside',installationBodies=new Set(),installationYaw=-.64,inspectionFrame=[];
  if(partsPanel)partsPanel.innerHTML=`<section class="cc-parts" aria-label="模型部件">
   <div class="cc-parts-head"><h3>模型部件</h3><button type="button" data-cc-show-all disabled>全部显示</button></div>
   <div class="cc-parts-list" data-cc-parts-list>正在读取零件…</div>
   <details class="cc-list-only" data-cc-bom-only hidden><summary>仅清单</summary><ul></ul></details>
  </section>`;
- let disposed=false,concept=null,parts=[],scene=[],backdrop=[],frameScene=[],motionProgress=[],shellMeshes=null,geometry=null,activePlan=null,mode=installationView?'inside':declared?'closed':'open',yaw=-.64,pitch=.56,zoom=1,drag=null,frame=0,pendingPhase='ready',homePose={yaw,pitch},buildState=declared?'compiling':'legacy',interaction=null;
+ let disposed=false,concept=null,parts=[],scene=[],backdrop=[],frameScene=[],motionProgress=[],shellMeshes=null,geometry=null,activePlan=null,mode=installationView?'inside':declared?'closed':'open',yaw=-.64,pitch=.56,zoom=1,drag=null,frame=0,pendingPhase='ready',homePose={yaw,pitch},buildState=declared?'compiling':'legacy',interaction=null,wiring=null,bodyOffsets=new Map();
  function emit(phase,message){
   const busy=phase==='parts'||phase==='enclosure';
   root.dataset.ccState=busy?'loading':phase==='error'?'error':'ready';
@@ -462,6 +474,7 @@ export function mountConsumerCad(container,design,options={}){
   const camera=fitCamera(target,yaw,pitch,{x:box.width*inset,y:box.height*.15,width:box.width*(1-2*inset),height:box.height*.72});camera.scale*=zoom;raster.draw(scene,camera,backdrop);
   drawFloorGrid(canvas,box,camera,concept.bounds?.min[2]||0);
   interaction?.paint(camera,scene,(x,y)=>raster.pick(x,y),mode);
+  wiring?.paint(camera,{mode,hiddenParts,selectedPart,depthAt:(x,y)=>raster.depthAt(x,y),scene,backdrop,bodyOffsets});
   if(pendingPhase){emit(pendingPhase,status.textContent);pendingPhase=null}
  }
  function schedule(){if(!frame)frame=requestAnimationFrame(paint)}
@@ -471,13 +484,14 @@ export function mountConsumerCad(container,design,options={}){
   const rows=[...available].map(([key,name])=>{
    const items=concept?.instances.filter(item=>String(item.partIndex)===key)||[];
    const kind=key==='shell'||(!concept?.declared&&parts[Number(key)]?.role==='enclosure')?'概念壳体':partGeometryLabel(parts[Number(key)],items);
-   return {key,name,kind};
+   const model=parts[Number(key)]?.model||parts[Number(key)]?.metadata?.label||'';
+   return {key,name,kind,model};
   });
   const signature=JSON.stringify(rows);
   if(signature!==partsSignature){
    partsSignature=signature;
-   list.innerHTML=rows.length?rows.map(({key,name,kind})=>
-    `<div class="cc-part"><input type="checkbox" data-cc-part="${esc(key)}" aria-label="显示${esc(name)}"><button type="button" data-cc-focus-part="${esc(key)}" aria-label="定位${esc(name)}" title="定位${esc(name)}"><span>${esc(name)}</span><small>${esc(kind)}</small></button><small data-cc-part-work="${esc(key)}"></small></div>`
+   list.innerHTML=rows.length?rows.map(({key,name,kind,model})=>
+    `<div class="cc-part"><input type="checkbox" data-cc-part="${esc(key)}" aria-label="显示${esc(name)}"><button type="button" data-cc-focus-part="${esc(key)}" aria-label="定位${esc(name)}" title="定位${esc(name)}${model?' · '+esc(model):''}"><span>${esc(name)}${model&&model!==name?`<small class="cc-part-model">${esc(model)}</small>`:''}</span><small>${esc(kind)}</small></button><small data-cc-part-work="${esc(key)}"></small></div>`
    ).join(''):'<p>当前视图没有可单独显示的部件。</p>';
   }
   list.querySelectorAll('input').forEach(input=>{input.checked=!hiddenParts.has(input.dataset.ccPart)});
@@ -513,8 +527,16 @@ export function mountConsumerCad(container,design,options={}){
   updateScene('view');
  };
  container.addEventListener('focus-hardware',focusHardware);
+ const focusWiring=event=>{
+  if(!wiring)return;
+  const index=event.detail?.connectionIndex;
+  wiring.enable();wiring.select(Number.isInteger(index)?index:wiring.firstRoute()?.connectionIndex);
+  const route=wiring.selectedRoute();if(route)for(const end of [route.from,route.to])hiddenParts.delete(String(end.partIndex));
+  mode='inside';setOverview(true);
+ };
+ container.addEventListener('focus-wiring',focusWiring);
  function updateScene(phase='view'){
-  if(!concept)return;scene=[];backdrop=[];frameScene=[];inspectionFrame=[];pendingPhase=declared&&buildState==='compiling'?'enclosure':declared&&buildState==='fallback'?'error':phase;
+  if(!concept)return;scene=[];backdrop=[];frameScene=[];inspectionFrame=[];bodyOffsets=new Map();root.dataset.view=mode;pendingPhase=declared&&buildState==='compiling'?'enclosure':declared&&buildState==='fallback'?'error':phase;
   const available=new Map();
   function visible(key,name){available.set(key,name);return !hiddenParts.has(key)}
   function placeMesh(object,key,show,layer,zone=false,range=[]){
@@ -538,6 +560,7 @@ export function mountConsumerCad(container,design,options={}){
     const key=String(item.partIndex),enabled=visible(key,parts[item.partIndex].name);
     const show=enabled&&(key===selectedPart||!closedExterior||closedExterior.has(item));
     const offset=mode==='open'?declaredExplosionOffset(item,concept).map((v,k)=>item.positionMm[k]+v):bodyPose(item,motions,motionProgress);
+    bodyOffsets.set(item.bodyIndex,offset.map((value,k)=>value-item.positionMm[k]));
     const range=motions.find(motion=>motion.movingBodyIndices.includes(item.bodyIndex));
     for(const mesh of item.prepared){
      const animated=(mode==='closed'||mode==='inside')?interaction?.transform(mesh,offset,item.bodyIndex)||mesh:mesh;
@@ -595,7 +618,7 @@ export function mountConsumerCad(container,design,options={}){
   empty.hidden=!!hasGeometry;
   if(!hasGeometry)empty.textContent=hiddenParts.size&&available.size?'当前视图的部件已隐藏。':mode==='inside'?'尚无已确定安装位置的内部硬件。':'当前视图没有可显示的部件。';
   root.querySelectorAll('[data-cc-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.ccMode===mode)));
-  if(!hasGeometry){const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);interaction?.paint(null,[],()=>undefined,mode);emit(['enclosure','error'].includes(pendingPhase)?pendingPhase:phase==='view'?'view':'empty',status.textContent+' '+empty.textContent);pendingPhase=null}else schedule();
+  if(!hasGeometry){const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);interaction?.paint(null,[],()=>undefined,mode);wiring?.paint(null,{mode,hiddenParts,selectedPart,scene,backdrop,bodyOffsets});emit(['enclosure','error'].includes(pendingPhase)?pendingPhase:phase==='view'?'view':'empty',status.textContent+' '+empty.textContent);pendingPhase=null}else schedule();
  }
  function renderSources(){
   root.querySelector('[data-cc-sources]').innerHTML=parts.map(part=>{
@@ -615,8 +638,9 @@ export function mountConsumerCad(container,design,options={}){
    target.innerHTML=assembly+geometry.bodies.map((body,index)=>{
     const item=concept.instances.find(instance=>instance.bodyIndex===index),catalogPart=item?.source==='catalog';
     const label=esc(body.name),role=body.role==='printed'?'结构件':'装配参考';
-    const editable=catalogPart&&hasEditableCatalogSource(parts[body.partIndex].modelId);
-    const sourceLabel=editable?'可编辑模型 .forge.js':wholePartBox(body)?'定位包络 .forge.js':'.forge.js';
+    const part=parts[body.partIndex],editable=catalogPart&&hasEditableCatalogSource(part.resolvedModelId||part.modelId);
+    const packaged=catalogPart&&!!part.metadata?.stepFile;
+    const sourceLabel=packaged?'ForgeCAD 工程 .zip':editable?'可编辑模型 .forge.js':wholePartBox(body)?'定位包络 .forge.js':'.forge.js';
     const original=catalogPart&&safeUrl(parts[body.partIndex].metadata?.manufacturerCadUrl);
     const manufacturer=original?`<small><a href="${esc(original)}" target="_blank" rel="noopener noreferrer">原厂 CAD 下载 ↗</a></small>`:'';
     return `<div class="cc-file"><div><strong>${label}</strong><small>${role}</small>${manufacturer}</div><div class="cc-file-actions">${body.exact||catalogPart?`<button type="button" data-cc-body-stl="${index}" aria-label="下载 ${label} 的 ${role} STL">STL</button>`:''}<button type="button" data-cc-body-forge="${index}" aria-label="下载 ${label} 的 ${sourceLabel}">${sourceLabel}</button></div></div>`;
@@ -628,7 +652,7 @@ export function mountConsumerCad(container,design,options={}){
  function prepareConcept(resetCamera=false){
   if(declared){
    concept=buildDeclaredAssembly(design,parts,geometry);
-   const defaultPose=declaredHomeCamera(concept,activePlan.motions),install=installedHardwareView(concept,defaultPose.yaw);
+   const defaultPose=declaredHomeCamera(concept,activePlan.motions),install=installedHardwareView(concept,defaultPose.yaw,wiringModel);
    const keepInstallAngle=installationView&&selectedPart===null&&Math.abs(yaw-installationYaw)<1e-6;
    installationBodies=install.bodies;installationYaw=install.yaw;
    if(keepInstallAngle)yaw=installationYaw;
@@ -712,7 +736,10 @@ export function mountConsumerCad(container,design,options={}){
    if(declared){
     activePlan=currentCadPlan(design);
     // Removed/reindexed bodies invalidate interaction references as well as CAD.
-    if(activePlan.bodies.length===design.cadPlan.bodies.length)interaction=mountCadInteraction(root,design.interaction,{design,onChange:()=>updateScene()});
+    if(activePlan.bodies.length===design.cadPlan.bodies.length){
+     interaction=mountCadInteraction(root,design.interaction,{design,onChange:()=>updateScene()});
+     wiring=mountConsumerWiring(root,wiringModel,{parts:design.parts,onChange:schedule,onFocusPart:partIndex=>focusHardware({detail:{partIndex}})});
+    }
     geometry=previewCadPlan(activePlan,parts.length);
     if(!activePlan.bodies.length){
      buildState='fallback';mode='references';geometry.notice='型号或尺寸已变更，请重新生成结构。';
@@ -741,7 +768,7 @@ export function mountConsumerCad(container,design,options={}){
  root.onclick=async e=>{
   const button=e.target.closest('button');if(!button)return;
   if(button.hasAttribute('data-cc-retry')){if(compileFailed)buildExact();return}
-  if(button.hasAttribute('data-cc-reset-focus')){setOverview(false);return}
+  if(button.hasAttribute('data-cc-reset-focus')){setOverview(mode==='inside');return}
   if(button.dataset.ccMode){mode=button.dataset.ccMode;setOverview(mode==='inside')}
   if(button.dataset.ccCamera==='in')scale(1.2);if(button.dataset.ccCamera==='out')scale(1/1.2);if(button.dataset.ccCamera==='home')home();
   const part=button.dataset.ccDownload;if(part&&concept?.shell)download(encodeSTL(concept.shell[part],'FormBench concept enclosure; mm; no fit or manufacturing validation'),`concept-${part}-${concept.shell.sizeMm.map(n=>Number(n.toFixed(1))).join('x')}-mm.stl`,'model/stl');
@@ -749,15 +776,16 @@ export function mountConsumerCad(container,design,options={}){
   if(button.dataset.ccBodyStl!==undefined){
    const index=Number(button.dataset.ccBodyStl),body=geometry?.bodies[index];
    const item=concept.instances.find(instance=>instance.bodyIndex===index);
-   const bytes=item?.source==='catalog'?encodeSTL(item.meshes.flatMap(mesh=>mesh.triangles),'Formwork reference part in mm'):body?.stlBytes;
+   const bytes=item&&(body?.exact||item.source==='catalog')?encodeSTL(item.meshes.flatMap(mesh=>mesh.triangles),'Formwork reference part in mm'):body?.stlBytes;
    if(bytes)download(bytes,cadDownloadName(body.name),'model/stl');
   }
   if(button.dataset.ccBodyForge!==undefined){
    const index=Number(button.dataset.ccBodyForge),body=activePlan?.bodies[index];if(!body)return;
    button.disabled=true;
    try{
-    const source=await editableForgeSource(activePlan,parts,index);
-    if(!disposed)download(source,cadDownloadName(body.name,'forge.js'),'text/javascript');
+    const {editableForgeDownload}=await import('./forge-package.js');
+    const {blob,extension}=await editableForgeDownload(activePlan,parts,index);
+    if(!disposed)download(blob,cadDownloadName(body.name,extension.slice(1)),blob.type);
    }catch(error){if(!disposed)status.textContent=error.message||'零件模型下载失败。'}
    finally{button.disabled=false}
   }
@@ -775,5 +803,5 @@ export function mountConsumerCad(container,design,options={}){
  const wheel=e=>{e.preventDefault();scale(Math.exp(-e.deltaY*.0018))};canvas.addEventListener('wheel',wheel,{passive:false});
  canvas.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','=','-','0'].includes(e.key))return;e.preventDefault();if(e.key==='ArrowLeft')yaw-=.12;if(e.key==='ArrowRight')yaw+=.12;if(e.key==='ArrowUp')pitch=Math.min(1.5,pitch+.12);if(e.key==='ArrowDown')pitch=Math.max(-1.5,pitch-.12);if(e.key==='+'||e.key==='=')scale(1.2);if(e.key==='-')scale(1/1.2);if(e.key==='0')home();schedule()};
  const observer=new ResizeObserver(schedule);observer.observe(canvas);load();
- return ()=>{disposed=true;interaction?.dispose();aborter.abort();clearTimeout(confirmationTimer);partAnimation?.cancel();observer.disconnect();cancelAnimationFrame(frame);canvas.removeEventListener('wheel',wheel);container.removeEventListener('focus-hardware',focusHardware);partsPanel?.removeEventListener('change',togglePart);partsPanel?.removeEventListener('click',showAll);partsPanel?.replaceChildren();root.oninput=root.onclick=null;canvas.onpointerdown=canvas.onpointermove=canvas.onpointerup=canvas.onpointercancel=canvas.onkeydown=null;scene=[]};
+ return ()=>{disposed=true;interaction?.dispose();wiring?.dispose();aborter.abort();clearTimeout(confirmationTimer);partAnimation?.cancel();observer.disconnect();cancelAnimationFrame(frame);canvas.removeEventListener('wheel',wheel);container.removeEventListener('focus-hardware',focusHardware);container.removeEventListener('focus-wiring',focusWiring);partsPanel?.removeEventListener('change',togglePart);partsPanel?.removeEventListener('click',showAll);partsPanel?.replaceChildren();root.oninput=root.onclick=null;canvas.onpointerdown=canvas.onpointermove=canvas.onpointerup=canvas.onpointercancel=canvas.onkeydown=null;scene=[]};
 }

@@ -76,3 +76,13 @@ test('inspection draws the actual shell translucently behind opaque interior har
  assert.ok(alpha(30,20)>0&&alpha(30,20)<100);
  assert.equal(renderer.pick(30,20),undefined);
 });
+
+test('depth sampling shares CSS coordinates with picking at high device pixel ratios',()=>{
+ globalThis.devicePixelRatio=2;
+ const context={createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:()=>{}};
+ const canvas={getContext:()=>context,getBoundingClientRect:()=>({width:200,height:120})},raster=createRaster(canvas);
+ const mesh=prepareMesh([[[-25,-20,7],[25,-20,7],[0,30,7]]],[120,160,180]);
+ raster.draw([{id:'board',mesh}],{yaw:0,pitch:Math.PI/2,target:[0,0,0],center:[100,60],scale:1});
+ assert.equal(raster.pick(100,60),'board');assert.ok(Math.abs(raster.depthAt(100,60)-7)<1e-6);
+ assert.equal(raster.depthAt(0,0),-Infinity);assert.equal(raster.depthAt(-1,60),Infinity);
+});

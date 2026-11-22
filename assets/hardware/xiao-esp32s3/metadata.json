@@ -10,6 +10,14 @@
   "measurementSourceUrl": "https://files.seeedstudio.com/wiki/SeeedStudio-XIAO-ESP32S3/res/seeed-studio-xiao-esp32s3-3d_model.zip",
   "manufacturerCadUrl": "https://files.seeedstudio.com/wiki/SeeedStudio-XIAO-ESP32S3/res/seeed-studio-xiao-esp32s3-3d_model.zip",
   "sourceFile": "reference.forge.js",
+  "registration": {
+    "landmarks": [
+      {"name":"PCB outline","shape":"box","sizeMm":[20.955,17.78,1.25],"centerMm":[0,0,0.625],"sizeToleranceMm":0.05,"centerToleranceMm":0.05},
+      {"name":"USB-C shell","shape":"box","sizeMm":[7.3,8.94,3.31],"centerMm":[8.3545,0,2.805],"sizeToleranceMm":0.18,"centerToleranceMm":0.25},
+      {"name":"Antenna socket","shape":"cylinder","sizeMm":[2.08,2.08,0.88],"centerMm":[-8.7565,4.727,2.06],"sizeToleranceMm":0.25,"centerToleranceMm":0.5}
+    ],
+    "envelopeToleranceMm": 0.25
+  },
   "interfaces": [{
     "name": "USB-C 参考插口",
     "centerMm": [12.0045, 0, 2.78],

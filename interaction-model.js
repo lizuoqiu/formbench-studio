@@ -1,5 +1,6 @@
 // Unmodified @xstate/fsm 2.1.0 ESM distribution; its MIT license ships alongside it.
 import {createMachine} from './assets/xstate-fsm/xstate-fsm-2.1.0.js';
+import {resolveAssemblyPinAnchor} from './assembly-pin-anchors.js';
 
 // The same bounded format drives design review and the interactive CAD view.
 // All part/body references are zero-based. Axes and pivots use assembly coordinates.
@@ -17,6 +18,8 @@ const spec = obj({
     bodyIndices:arr(integer),signalPin:str})),
   connections:arr(obj({kind:choice('signal','power','ground'),fromPartIndex:integer,fromPin:str,
     toPartIndex:integer,toPin:str})),
+  terminals:arr(obj({partIndex:integer,pin:str,bodyIndex:nullable(integer),positionMm:nullable(arr(number)),
+    basis:choice('geometry','datasheet','estimated','unknown'),featureIndex:nullable(integer),evidence:str,sourceUrl:str})),
   signalChannels:arr(obj({partIndex:integer,model:str,inputPin:str,outputPin:str,sourceUrl:str,evidence:str})),
   timer:nullable(obj({initialSeconds:integer,minSeconds:integer,maxSeconds:integer,stepSeconds:integer})),
   initialState:str,
@@ -46,11 +49,12 @@ function structure(value, schema, path, allowOtherFields=false) {
       schema.required.every(key=>Object.hasOwn(value,key)), path+' 的字段与规范不符。');
     for (const [key,child] of Object.entries(schema.properties)) structure(value[key],child,path+'.'+key,allowOtherFields);
   } else if (schema.type === 'array') {
-    check(Array.isArray(value) && value.length <= 160,path+' 超出列表范围。');
+    check(Array.isArray(value) && value.length <= (path==='interaction.terminals'?192:160),path+' 超出列表范围。');
     value.forEach((item,i)=>structure(item,schema.items,path+'['+i+']',allowOtherFields));
   } else {
     const valid = schema.type === 'integer' ? Number.isSafeInteger(value)
       : schema.type === 'number' ? Number.isFinite(value)
+      : /^interaction\.terminals\[\d+\]\.sourceUrl$/.test(path)?typeof value==='string'&&value.length<=2048
       : typeof value === 'string' && value.length <= 200 && Boolean(value.trim());
     check(valid && (!schema.enum || schema.enum.includes(value)), path+' 的值无效。');
   }
@@ -62,6 +66,76 @@ const minus = (a,b) => a.map((v,i)=>v-b[i]);
 const lineDistance = (v,axis) => Math.hypot(...v.map((x,i)=>x-dot(v,axis)*axis[i]));
 const canonicalPin = s => s.trim().toUpperCase();
 const pinKey = (part,pin) => JSON.stringify([part,canonicalPin(pin)]);
+export function connectedTerminalPins(connections){
+  const pins=new Map();
+  for(const edge of connections||[])for(const [partIndex,pin] of [[edge?.fromPartIndex,edge?.fromPin],[edge?.toPartIndex,edge?.toPin]]){
+    if(Number.isInteger(partIndex)&&typeof pin==='string'&&pin.trim())pins.set(pinKey(partIndex,pin),{partIndex,pin:pin.trim()});
+  }
+  return pins;
+}
+function nearFeature(f,p,slack){
+  let [x,y,z]=p.map((v,i)=>v-f.centerMm[i]);
+  const angles=(f.rotationDeg||[0,0,0]).map(deg=>-deg*Math.PI/180),c=angles.map(Math.cos),s=angles.map(Math.sin);
+  [x,y]=[x*c[2]-y*s[2],x*s[2]+y*c[2]];
+  [x,z]=[x*c[1]+z*s[1],-x*s[1]+z*c[1]];
+  [y,z]=[y*c[0]-z*s[0],y*s[0]+z*c[0]];
+  const radii=f.sizeMm.map(d=>d/2+slack);
+  if(radii.some(r=>r<=0))return false;
+  const v=[x,y,z].map((n,i)=>n/radii[i]);
+  if(v.some(n=>Math.abs(n)>1))return false;
+  if(f.shape==='cylinder')return v[0]**2+v[1]**2<=1;
+  if(f.shape==='ellipsoid')return v.reduce((t,n)=>t+n*n,0)<=1;
+  return true;
+}
+function checkTerminalLocations(model,parts,bodies){
+  // Version 1 projects created before terminal anchors are still valid documents.
+  if(!Object.hasOwn(model,'terminals'))return;
+  const needed=connectedTerminalPins(model.connections),seen=new Set(),sites=new Set();
+  for(const t of model.terminals){
+    const id=pinKey(t.partIndex,t.pin),tag=(parts[t.partIndex]?.name||'未知部件')+' / '+t.pin;
+    check(t.partIndex>=0&&t.partIndex<parts.length,tag+' 的 BOM 行不存在。');
+    check(needed.has(id)&&!seen.has(id),tag+' 不是唯一已接线端点。');seen.add(id);
+    const body=bodies[t.bodyIndex];
+    check(t.bodyIndex===null||body?.partIndex===t.partIndex,tag+' 的实体属于其他 BOM 行或不存在。');
+    if(t.sourceUrl){let url;try{url=new URL(t.sourceUrl);}catch{}
+      check(url?.protocol==='https:'&&!url.username&&!url.password,tag+' 的资料链接无效。');}
+    if(t.basis==='unknown'){
+      check(t.positionMm===null&&t.featureIndex===null,tag+' 无定位依据时坐标和特征应留空。');continue;
+    }
+    check(body&&Array.isArray(t.positionMm)&&t.positionMm.length===3&&t.positionMm.every(n=>Number.isFinite(n)&&Math.abs(n)<=10000),
+      tag+' 须提供实体及该实体局部的三轴毫米坐标。');
+    const feature=body.features[t.featureIndex];
+    check(t.featureIndex===null||(Number.isInteger(t.featureIndex)&&feature&&nearFeature(feature,t.positionMm,.25)),
+      tag+' 没有落在引用的 CAD 特征范围内（坐标应为实体局部毫米）。');
+    const catalog=t.basis==='geometry'&&t.featureIndex===null?resolveAssemblyPinAnchor({parts,cadPlan:{bodies}},t.partIndex,t.pin):null;
+    const onCatalog=catalog?.kind==='modeled'&&catalog.bodyIndex===t.bodyIndex&&catalog.localMm.every((v,i)=>Math.abs(v-t.positionMm[i])<.005);
+    check(onCatalog||body.features.some(f=>f.op==='add'&&nearFeature(f,t.positionMm,1)),
+      tag+' 的接线点悬在实体外，请核对局部坐标或保留未知。');
+    if(t.basis==='datasheet')check(Boolean(t.sourceUrl),tag+' 声称资料定位但缺少出处。');
+    if(t.basis==='geometry'){
+      const terminalBody=/焊盘|焊耳|焊脚|引脚|针脚|端子|端头|引线|触点|\b(?:pad|lead|pin|lug|contact|terminal)\b/i.test(body.name);
+      check(onCatalog||(feature&&(t.featureIndex>0||terminalBody)),
+        tag+' 不能以整件定位盒或整块板体作为引脚几何；请给出端子特征或标记估算。');
+      check(!feature||!nearFeature(feature,t.positionMm,-.25),tag+' 的端点埋在特征内部，应定位到可接线的表面。');
+    }
+    if(['geometry','datasheet'].includes(t.basis)){
+      const site=JSON.stringify([t.bodyIndex,...t.positionMm.map(n=>Math.round(n*1000))]);
+      check(!sites.has(site),tag+' 与同一实体另一针脚共用了相同的精确坐标。');sites.add(site);
+    }
+  }
+  check(seen.size===needed.size,'每个已接线的引脚都须说明端子位置或标记未知。');
+}
+// A wiring location can still be reviewed when a separate state transition is invalid.
+export function validateTerminalLocations(model,{parts,cadPlan}){
+  if(model==null)return;
+  structure(model.connections,spatial.connections,'interaction.connections');
+  if(!Object.hasOwn(model,'terminals')) {
+    check(!model.connections.length,'缺少已接线端点的定位表。');
+    return;
+  }
+  structure(model.terminals,spatial.terminals,'interaction.terminals');
+  checkTerminalLocations(model,parts,cadPlan.bodies);
+}
 const reservedEvent = 'timer.expired';
 const legacyTimerEvents=new Set(['timeout','timerExpired','timer.elapsed']);
 // Only migrate old automatic-expiry spellings with exactly one possible meaning.
@@ -427,9 +501,10 @@ export function validateInteractionGeometry(raw,{bom,parts=bom,cadPlan}={}) {
 export function validateInteraction(raw,{bom,parts=bom,cadPlan}={}) {
   if (raw==null) return null;
   raw=normalizeInteractionTimerAliases(raw).model;
-  structure({signalChannels:[],...raw},spec,'interaction');
+  structure({signalChannels:[],terminals:[],...raw},spec,'interaction');
   validateInteractionGeometry(raw,{parts,cadPlan});
   checkWiring(raw,parts);
+  checkTerminalLocations(raw,parts,cadPlan.bodies);
   checkMachine(raw);
   machines.delete(raw);
   return raw;

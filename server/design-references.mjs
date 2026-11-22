@@ -17,7 +17,7 @@ const references={'xiao-esp32c3':xiaoC3,'xiao-esp32s3':xiaoS3,pico,'red-led':led
 export const referenceIds=Object.keys(references);
 const boundsPair=box=>Array.isArray(box)?box:box?[box.min,box.max]:null;
 export function resolvedCatalogGeometry(design){
- const bodies=design.cadPlan?.bodies||[],anchors=completeCatalogAnchors(bodies,design.parts);
+ const bodies=design.cadPlan?.bodies||[],anchors=completeCatalogAnchors(bodies,design.parts,part=>references[part.modelId]);
  return anchors.flatMap((anchor,index)=>{
   if(!anchor)return [];
   const body=bodies[index],part=design.parts[body.partIndex],meta=references[part?.modelId];

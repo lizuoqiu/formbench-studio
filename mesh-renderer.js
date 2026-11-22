@@ -65,5 +65,6 @@ export function createRaster(canvas){
    }
   }ctx.putImageData(image,0,0);
  }
- return {draw,pick(x,y){const box=canvas.getBoundingClientRect(),px=Math.floor(x*width/box.width),py=Math.floor(y*height/box.height);return px>=0&&px<width&&py>=0&&py<height?ids[objects?.[py*width+px]-1]:undefined}};
+ function pixelAt(x,y){const box=canvas.getBoundingClientRect(),px=Math.floor(x*width/box.width),py=Math.floor(y*height/box.height);return px>=0&&px<width&&py>=0&&py<height?py*width+px:-1;}
+ return {draw,pick(x,y){const pixel=pixelAt(x,y);return pixel>=0?ids[objects?.[pixel]-1]:undefined},depthAt(x,y){const pixel=pixelAt(x,y);return pixel>=0&&depth?depth[pixel]:Infinity}};
 }

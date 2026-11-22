@@ -1,7 +1,7 @@
 import {discussDesign,generateDesign,findProducts,pickProduct,makeCart,serviceCapabilities,sampleDesign} from './consumer-service.js';
 import {mountConsumerAccount,saveConsumerProject,readConsumerProject} from './consumer-account.js';
 import {currentCadPlan,mountConsumerCad} from './consumer-cad.js';
-import {editableForgeSource} from './forge-source.js';
+import {buildAssemblyWiring} from './assembly-wires.js';
 import {photoPicker,versionImages} from './consumer-design-images.js';
 import {loadSharedProject,mountGallery,shareLink,sharedProjectBar,showShareDialog} from './consumer-gallery.js';
 const $=s=>document.querySelector(s),entry=$('#entry'),project=$('#project');
@@ -276,10 +276,12 @@ function mount(){
           sourceButton.disabled=true;
           try{
             const activeInteraction=design.parts.some(p=>p.modelSourceInvalidated)?null:design.interaction;
-            const source=await editableForgeSource(plan,design.parts,null,activeInteraction);
+            const wiring=activeInteraction?buildAssemblyWiring({...design,cadPlan:plan,interaction:activeInteraction}):null;
+            const {editableForgeDownload}=await import('./forge-package.js');
+            const {blob,extension}=await editableForgeDownload(plan,design.parts,null,activeInteraction,wiring);
             if(!active)return;
-            const url=URL.createObjectURL(new Blob([source],{type:'text/javascript;charset=utf-8'}));
-            const a=document.createElement('a');a.href=url;a.download=filename+'.forge.js';a.click();
+            const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');a.href=url;a.download=filename+extension;a.click();
             setTimeout(()=>URL.revokeObjectURL(url),1500);
           }catch(error){if(active)badge.textContent=error.message||'整机模型下载失败。'}
           finally{if(active)sourceButton.disabled=false}
@@ -321,9 +323,13 @@ function functionalDetails(d){
     (Number.isInteger(controller)?' → '+name(controller):'')+
     (interaction.outputs.length?' → '+[...new Set(interaction.outputs.map(o=>name(o.partIndex)))].join(' / '):'');
   const kinds={signal:'信号',power:'供电',ground:'共地'};
-  const rows=interaction.connections.map(w=>`<tr><td>${kinds[w.kind]}</td><td>${name(w.fromPartIndex)} <code>${esc(w.fromPin)}</code></td><td>${name(w.toPartIndex)} <code>${esc(w.toPin)}</code></td></tr>`).join('');
+  const rows=interaction.connections.map((w,i)=>`<tr><td><button class="connection-link" type="button" data-focus-wiring="${i}" aria-label="查看${name(w.fromPartIndex)} ${esc(w.fromPin)} 到${name(w.toPartIndex)} ${esc(w.toPin)}">${kinds[w.kind]} ↗</button></td><td>${name(w.fromPartIndex)} <code>${esc(w.fromPin)}</code></td><td>${name(w.toPartIndex)} <code>${esc(w.toPin)}</code></td></tr>`).join('');
   return `<section class="functional-details" aria-label="交互原理"><h3>交互原理</h3><p>${path}</p>
-    ${Number.isInteger(controller)?`<p>主控型号 · ${esc(parts[controller]?.model||parts[controller]?.name||'待选型')}</p><button class="small-button" type="button" data-focus-controller="${controller}">在模型中查看控制板</button>`:''}
+    ${Number.isInteger(controller)?`<p>主控型号 · ${esc(parts[controller]?.model||parts[controller]?.name||'待选型')}</p>`:''}
+    <div class="model-navigation">
+      ${rows?'<button class="small-button" type="button" data-focus-wiring>查看内部接线</button>':''}
+      ${Number.isInteger(controller)?`<button class="small-button" type="button" data-focus-controller="${controller}">在模型中查看控制板</button>`:''}
+    </div>
     ${rows?`<details><summary>引脚连接方案 · ${interaction.connections.length} 项</summary><table><thead><tr><th>用途</th><th>起点</th><th>终点</th></tr></thead><tbody>${rows}</tbody></table></details>`:''}
     ${findings}</section>`;
 }
@@ -340,7 +346,7 @@ function projectWorkspace(){
     <div class="project-actions">
       ${publicProjectLink()?'<button type="button" class="file-action" id="share-project">分享</button>':''}
       ${iteration.previousId?'<button id="previous-version" type="button" class="small-button">上一版</button>':''}
-      <button type="button" class="file-action" id="download-forge" title="下载可编辑的整机结构和行程。采购件的可编辑模型或定位包络见下方 CAD 文件。" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg>ForgeCAD 源文件</button>
+      <button type="button" class="file-action" id="download-forge" title="下载整机源文件与参考走线。含外部模型时打包为 ZIP。" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg>ForgeCAD 工程</button>
     </div>
   </div>
   ${sharedProject?sharedProjectBar(sharedProject):exampleAsset&&!copyOrigin?`<section class="shared-project-bar" aria-label="示例来源"><div class="shared-project-context"><b>示例</b><span>${fistAsset(exampleAsset)?'仅 CAD 已核验':'参考布局'} · 未实物验证</span></div><button type="button" class="small-button" id="copy-project">创建个人副本</button></section>`:''}
@@ -393,11 +399,14 @@ function selectProjectView(view){
   download.classList.toggle('off-model',view!=='model');
 }
 project.addEventListener('click',event=>{
-  const focus=event.target.closest('[data-focus-controller]');
+  const focus=event.target.closest('[data-focus-controller], [data-focus-wiring]');
   if(focus){
     selectProjectView('model');
     const panel=$('#cad-panel');
-    panel.dispatchEvent(new CustomEvent('focus-hardware',{detail:{partIndex:Number(focus.dataset.focusController)}}));
+    if(focus.hasAttribute('data-focus-wiring')){
+      const value=focus.dataset.focusWiring;
+      panel.dispatchEvent(new CustomEvent('focus-wiring',{detail:value===''?{}:{connectionIndex:Number(value)}}));
+    }else panel.dispatchEvent(new CustomEvent('focus-hardware',{detail:{partIndex:Number(focus.dataset.focusController)}}));
     if(window.matchMedia('(max-width: 760px)').matches)panel.scrollIntoView({block:'start'});
     return;
   }

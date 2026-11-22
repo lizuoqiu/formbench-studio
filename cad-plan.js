@@ -1,3 +1,5 @@
+import {matchHardware} from './assembly-hardware.js';
+import {matchOled938Reference,resolvePanelHardwareReference} from './panel-hardware-reference.js';
 const shapes=['box','ellipsoid','cylinder','roundedPrism','capsule'],ops=['add','cut'],roles=['printed','reference'];
 const exact=(v,ks)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length===ks.length&&ks.every(k=>Object.hasOwn(v,k));
 const isvec=(v,min,max)=>Array.isArray(v)&&v.length===3&&v.every(n=>Number.isFinite(n)&&n>=min&&n<=max);
@@ -11,14 +13,66 @@ export function wholePartBox(body){
 
 // A row containing the housing and the rod of a single actuator is not two
 // instances of that actuator. Only full-size anchors of complete copies qualify.
-export function completeCatalogAnchors(bodies,parts){
-  const anchors=bodies.map(wholePartBox),counts=new Map(),partial=new Set();
+export function completeCatalogAnchors(bodies,parts,metadataForPart=part=>part.metadata){
+  const anchors=bodies.map(body=>{
+    const simple=wholePartBox(body),part=parts[body.partIndex];
+    if(simple||!part||body.role!=='reference'||body.features.length<3)return simple;
+    if(matchOled938Reference(part))return resolvePanelHardwareReference(body,part,metadataForPart(part));
+    if(!part.modelId||part.modelSourceInvalidated||part.dimensionSource!=='catalog'||part.shape||matchHardware(part)!==part.modelId)return null;
+    return registeredCatalogAnchor(body,part,metadataForPart(part));
+  }),counts=new Map(),partial=new Set();
   bodies.forEach(({partIndex},i)=>{
     const size=parts[partIndex]?.sizeMm;
     counts.set(partIndex,(counts.get(partIndex)||0)+1);
-    if(!size||!anchors[i]?.sizeMm.every((n,k)=>Math.abs(n-size[k])<=.01))partial.add(partIndex);
+    if(!anchors[i]||(!anchors[i].catalogId&&(!size||!nearDimensions(anchors[i].sizeMm,size,.01))))partial.add(partIndex);
   });
   return bodies.map(({partIndex},i)=>!partial.has(partIndex)&&counts.get(partIndex)<=parts[partIndex]?.qty?anchors[i]:null);
+}
+
+const nearDimensions=(a,b,tolerance)=>a.every((v,i)=>Math.abs(v-b[i])<=tolerance);
+const dot3=(a,b)=>a.reduce((sum,n,i)=>sum+n*b[i],0);
+const subtract3=(a,b)=>a.map((v,i)=>v-b[i]);
+const unitAxes=[[1,0,0],[0,1,0],[0,0,1]];
+
+// Fit a known purchased part to the generated features, not to their combined
+// bounding box. A rectangular PCB alone cannot resolve which edge faces USB or
+// which side faces the components. Missing or ambiguous landmarks retain CSG.
+function registeredCatalogAnchor(body,part,meta){
+  const registration=meta?.registration,marks=registration?.landmarks;
+  if(!marks||marks.length<3||!nearDimensions(part.sizeMm,meta.sizeMm,.01))return null;
+  const matches=(f,m)=>f.op==='add'&&f.shape===m.shape&&nearDimensions(f.sizeMm,m.sizeMm,m.sizeToleranceMm);
+  const boards=body.features.filter(f=>matches(f,marks[0]));
+  if(boards.length!==1)return null;
+  const board=boards[0],pitch=marks[0].centerMm;
+  const [x,y,z]=board.rotationDeg||[0,0,0];
+  // These are R_board times the four proper rotations that leave a non-square
+  // rectangle on its own axes (including cases with components facing down).
+  const rotations=[[x,y,z],[x+180,y,z],[-x,y+180,z],[-x,-y,z+180]];
+  const middle=meta.boundsMm.min.map((n,i)=>(n+meta.boundsMm.max[i])/2);
+  const solutions=[];
+  for(const rotationDeg of rotations){
+    const toBody=featurePlacement({centerMm:board.centerMm,rotationDeg},pitch);
+    const fit=marks.slice(1).every(mark=>{
+      const expected=toBody(mark.centerMm);
+      return body.features.filter(f=>matches(f,mark)&&Math.hypot(...subtract3(f.centerMm,expected))<=mark.centerToleranceMm).length===1;
+    });
+    if(!fit)continue;
+    // Keep added fixtures, oversize accessories and modifications through the
+    // board in the authored model. A socket aperture above the board is fine.
+    const rotation=featurePlacement({centerMm:[0,0,0],rotationDeg});
+    const basis=unitAxes.map(rotation);
+    const typical=body.features.every(f=>{
+      const local=basis.map((axis,k)=>dot3(subtract3(f.centerMm,board.centerMm),axis)+pitch[k]);
+      const axes=unitAxes.map(featurePlacement({centerMm:[0,0,0],rotationDeg:f.rotationDeg}));
+      const reach=basis.map(axis=>axes.reduce((total,v,k)=>total+Math.abs(dot3(v,axis))*f.sizeMm[k]/2,0));
+      if(f.op==='cut')return local[2]-reach[2]>=pitch[2]+marks[0].sizeMm[2]/2-.02
+        ||local[2]+reach[2]<=pitch[2]-marks[0].sizeMm[2]/2+.02;
+      return local.every((coord,k)=>coord-reach[k]>=meta.boundsMm.min[k]-registration.envelopeToleranceMm
+        &&coord+reach[k]<=meta.boundsMm.max[k]+registration.envelopeToleranceMm);
+    });
+    if(typical)solutions.push({op:'add',shape:'box',sizeMm:[...meta.sizeMm],centerMm:toBody(middle),rotationDeg});
+  }
+  return solutions.length===1?solutions[0]:null;
 }
 
 // The kernel rotates features about X, then Y, then Z before placing their centre.

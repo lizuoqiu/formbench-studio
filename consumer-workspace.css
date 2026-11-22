@@ -157,3 +157,6 @@ body:has(#project:not([hidden])) { background: white; }
 .functional-details table { width: 100%; border-collapse: collapse; margin-top: 6px; }
 .functional-details td, .functional-details th { padding: 5px; text-align: left; border-bottom: 1px solid #dfdfdf; }
 .functional-details td:first-child { white-space: nowrap; }
+.functional-details .model-navigation { display: flex; flex-wrap: wrap; gap: 6px; }
+.functional-details .connection-link { border: 0; background: transparent; color: #165986; padding: 4px 0; cursor: pointer; font: inherit; }
+.functional-details .connection-link:hover, .functional-details .connection-link:focus-visible { text-decoration: underline; }

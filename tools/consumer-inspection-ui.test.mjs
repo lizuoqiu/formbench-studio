@@ -65,7 +65,7 @@ test('inside inspection focuses real parts without changing visibility and prese
    if(u.origin!==origin)return route.abort();
    if(u.pathname==='/')return route.fulfill({contentType:'text/html',body:'<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/consumer-viewer.css"><main id="viewer"></main><aside id="parts"></aside>'});
    if(u.pathname==='/api/forge/plan')return route.fulfill({json:solid});
-   if(/\.(js|css)$/.test(u.pathname))return route.fulfill({contentType:u.pathname.endsWith('.js')?'text/javascript':'text/css',body:await readFile(new URL('.'+u.pathname,root))});
+   if(/\.(js|css|json)$/.test(u.pathname))return route.fulfill({contentType:u.pathname.endsWith('.js')?'text/javascript':u.pathname.endsWith('.json')?'application/json':'text/css',body:await readFile(new URL('.'+u.pathname,root))});
    return route.fulfill({status:404,body:''});
   });
   await page.goto(origin);

@@ -241,6 +241,7 @@
 }
 .cc-part [data-cc-focus-part] span { min-width: 0; overflow-wrap: anywhere; }
 .cc-part [data-cc-focus-part] small { color: #68707b; font-size: 10px; flex-shrink: 0; font-weight: 400; }
+.cc-part [data-cc-focus-part] .cc-part-model { display:block;max-width:100%;margin-top:2px;font-size:10px;line-height:1.35;overflow-wrap:anywhere;color:#71808e; }
 .cc-part [data-cc-focus-part]:disabled { color: #929498; cursor: default; }
 .cc-part [data-cc-focus-part][aria-pressed="true"] { color: #1c4c80; font-weight: 650; }
 .cc-list-only { padding: 6px 4px 0; color: #67707c; font-size: 11px; }
@@ -252,4 +253,48 @@
 }
 @media (max-width: 400px) {
   .cc-focus-info { top: 74px; }
+}
+
+/* Electrical connections are an annotated interior inspection, not solid CAD. */
+.cc[data-view="inside"] .ci-overlay,.cc[data-view="inside"] .ci-gesture { display:none; }
+.cc-wiring-toggle { display:inline-flex;align-items:center;gap:5px;flex-shrink:0;padding:5px 7px;border:1px solid #cdd8dd;border-radius:7px;background:#fffffff5;color:#354957;font-size:12px;pointer-events:auto;cursor:pointer; }
+.cc-wiring-toggle input { width:14px;height:14px;margin:0;accent-color:#467688; }
+.cc-wires { position:absolute;inset:0;width:100%;height:100%;overflow:hidden;pointer-events:none; }
+.cc-wires g[data-cc-wire-index] { outline:none; }
+.cc-wire-path,.cc-wire-halo,.cc-wire-hit { fill:none;stroke-linejoin:round;stroke-linecap:round; }
+.cc-wire-path { stroke-width:2.2;pointer-events:none; }
+.cc-wire-halo { stroke:#ffffffe3;stroke-width:4.6;pointer-events:none; }
+.cc-wire-hit { stroke:transparent;stroke-width:13;pointer-events:stroke;cursor:pointer;touch-action:none; }
+.cc-wire-end { fill:#fff;stroke-width:1.7;pointer-events:none; }
+.cc-wire-end[data-quality="estimated"] { stroke-dasharray:2 1; }
+.cc-wires:has([data-selected="true"]) [data-selected="false"] { opacity:.3; }
+.cc-wires [data-selected="true"] .cc-wire-path,.cc-wires [data-cc-wire-index]:focus-visible .cc-wire-path { stroke-width:3.4; }
+.cc-wires [data-selected="true"] .cc-wire-halo,.cc-wires [data-cc-wire-index]:focus-visible .cc-wire-halo { stroke-width:6.5; }
+.cc-wire-pin-label { pointer-events:none; }
+.cc-wire-pin-label rect { fill:#fff;stroke:#a7bac6;stroke-width:1; }
+.cc-wire-pin-label text { fill:#243f51;font:600 11px ui-monospace,SFMono-Regular,monospace; }
+.cc-wiring-panel { padding:11px 14px;border-bottom:1px solid #e1e7eb;background:#f6fafc; }
+.cc-wiring-tools { display:flex;flex-wrap:wrap;align-items:center;gap:7px 12px; }
+.cc-wiring-tools strong { font-size:13px; }
+.cc-wire-key { display:inline-flex;align-items:center;gap:5px;color:#65737c;font-size:10px; }
+.cc-wire-key i { width:11px;border-top:3px solid var(--wire);margin-left:3px; }
+.cc-wiring-tools select { width:100%;min-width:0;min-height:33px;padding:4px 6px;border:1px solid #c9d7df;border-radius:5px;background:white;color:#294559;font-size:12px;text-overflow:ellipsis; }
+.cc-wire-detail { padding-top:8px;color:#526775;font-size:12px;line-height:1.5; }
+.cc-wire-detail>strong { display:block;color:#263e4d;font:600 13px/1.5 ui-monospace,SFMono-Regular,monospace; }
+.cc-wire-detail>strong::before { content:"";display:inline-block;width:14px;margin:0 6px 3px 0;border-top:3px solid var(--wire); }
+.cc-wire-detail strong small { font:400 11px/1.5 sans-serif;color:#6c7d86; }
+.cc-wire-end-details { display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:6px 0; }
+.cc-wire-end-details>div { min-width:0;padding:7px 9px;border:1px solid #dce5eb;border-radius:6px;background:white; }
+.cc-wire-end-details button { padding:0;border:0;background:none;color:#285d80;font:inherit;text-align:left;text-decoration:underline;text-underline-offset:3px; }
+.cc-wire-end-details span,.cc-wire-end-details small { display:block;margin-top:3px;overflow-wrap:anywhere; }
+.cc-wire-end-details span { color:#334f61;font-size:11px; }
+.cc-wire-end-details small { color:#75828b;font-size:10px; }
+.cc-footer .cc-wire-routing-note { margin-top:6px;color:#7a8790;font-size:10px;line-height:1.5; }
+.cc-wiring-panel[data-enabled="false"] .cc-wire-detail { opacity:.55; }
+@media(max-width:620px){
+ .cc-wiring-panel { padding:10px; }
+ .cc-wire-end-details { grid-template-columns:1fr;gap:6px; }
+ .cc-wiring-toggle { padding:3px 6px;font-size:11px; }
+ .cc[data-view="inside"] .cc-focus-info { top:80px; }
+ .cc-wire-hit { stroke-width:17; }
 }

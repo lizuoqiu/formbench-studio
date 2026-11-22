@@ -1,0 +1,244 @@
+{
+  "label": "Adafruit 938 双 STEMMA QT OLED（无排针）",
+  "modelType": "manufacturer-cad",
+  "description": "原厂 STEP，分色展示屏面、排线、双 QT 插座和板载器件，双面焊环来自同版原理板。采用此安装位置时，玻璃朝前，八针焊排朝上。",
+  "author": "Adafruit Industries; Formwork tessellation, display colors and plated rings",
+  "license": "MIT (STEP and converted solids); CC BY-SA 3.0 (EAGLE-derived rings)",
+  "sourceUrl": "https://github.com/adafruit/Adafruit_CAD_Parts/blob/9f2a89f3d5c3491886d58cb7fe83385417563cf4/938%20Mono%20128x64%20OLED%20Stemma/938%20Mono%20128x64%20OLED%20Stemma.step",
+  "manufacturerCadUrl": "https://github.com/adafruit/Adafruit_CAD_Parts/blob/9f2a89f3d5c3491886d58cb7fe83385417563cf4/938%20Mono%20128x64%20OLED%20Stemma/938%20Mono%20128x64%20OLED%20Stemma.step",
+  "licenseUrl": "https://github.com/adafruit/Adafruit_CAD_Parts/blob/9f2a89f3d5c3491886d58cb7fe83385417563cf4/LICENSE",
+  "printedCircuitSourceUrl": "https://github.com/adafruit/Adafruit-1.3inch-128x64-Mono-OLED-PCB/blob/02c953af3a9c7c53d0c33faaa98a8aa1bffca5be/Adafruit%201.3in%20128x64%20OLED%20STEMMA%20QT.brd",
+  "stepFile": "adafruit-938-stemma-qt.step",
+  "units": "mm",
+  "origin": "PCB mid-plane centered; display faces -Y, JP2 header row toward +Z.",
+  "sourceTransform": "x=17.78-sourceX, y=sourceZ-0.785, z=sourceY-16.51, in millimetres.",
+  "boundsMm": {
+    "min": [
+      -17.78,
+      -2.7814,
+      -16.51
+    ],
+    "max": [
+      17.78,
+      3.745,
+      16.51
+    ]
+  },
+  "sizeMm": [
+    35.56,
+    6.5264,
+    33.02
+  ],
+  "boardSizeMm": [
+    35.56,
+    1.57,
+    33.02
+  ],
+  "pinCentersMm": {
+    "SDA": [
+      -8.89,
+      0.805,
+      13.97
+    ],
+    "SCL": [
+      -6.35,
+      0.805,
+      13.97
+    ],
+    "DC": [
+      -3.81,
+      0.805,
+      13.97
+    ],
+    "RST": [
+      -1.27,
+      0.805,
+      13.97
+    ],
+    "CS": [
+      1.27,
+      0.805,
+      13.97
+    ],
+    "3Vo": [
+      3.81,
+      0.805,
+      13.97
+    ],
+    "VIN": [
+      6.35,
+      0.805,
+      13.97
+    ],
+    "GND": [
+      8.89,
+      0.805,
+      13.97
+    ]
+  },
+  "glassActiveAreaMm": {
+    "width": 29.42,
+    "height": 14.7,
+    "centerXZ": [
+      0,
+      2.113
+    ]
+  },
+  "meshes": [
+    {
+      "file": "pcb.stl",
+      "label": "四孔 PCB 与八针焊排",
+      "color": [
+        39,
+        66,
+        92
+      ],
+      "triangles": 11156,
+      "boundsMm": {
+        "min": [
+          -17.78,
+          -0.785,
+          -16.51
+        ],
+        "max": [
+          17.78,
+          0.785,
+          16.51
+        ]
+      }
+    },
+    {
+      "file": "glass.stl",
+      "label": "OLED 玻璃与屏面",
+      "color": [
+        23,
+        32,
+        43
+      ],
+      "triangles": 28,
+      "boundsMm": {
+        "min": [
+          -17.2,
+          -2.7814,
+          -11.3762
+        ],
+        "max": [
+          17.2,
+          -0.7814,
+          11.6238
+        ]
+      }
+    },
+    {
+      "file": "flex.stl",
+      "label": "OLED 柔性排线",
+      "color": [
+        169,
+        90,
+        38
+      ],
+      "triangles": 892,
+      "boundsMm": {
+        "min": [
+          -11.0036,
+          -2.485,
+          -14.4978
+        ],
+        "max": [
+          10.9964,
+          1.065,
+          -3.4978
+        ]
+      }
+    },
+    {
+      "file": "sockets.stl",
+      "label": "两侧 STEMMA QT 插座",
+      "color": [
+        226,
+        218,
+        199
+      ],
+      "triangles": 640,
+      "boundsMm": {
+        "min": [
+          -17.3436,
+          0.785,
+          -3.0013
+        ],
+        "max": [
+          17.3436,
+          3.745,
+          3.0013
+        ]
+      }
+    },
+    {
+      "file": "ic.stl",
+      "label": "稳压器、二极管和电平转换器",
+      "color": [
+        53,
+        55,
+        60
+      ],
+      "triangles": 5824,
+      "boundsMm": {
+        "min": [
+          -8.924,
+          0.785,
+          2.109
+        ],
+        "max": [
+          13.946,
+          2.185,
+          9.692
+        ]
+      }
+    },
+    {
+      "file": "passives.stl",
+      "label": "阻容器件与板载指示灯",
+      "color": [
+        148,
+        133,
+        111
+      ],
+      "triangles": 2028,
+      "boundsMm": {
+        "min": [
+          -12.8611,
+          0.785,
+          -6.8
+        ],
+        "max": [
+          16.5481,
+          1.785,
+          9.2587
+        ]
+      }
+    },
+    {
+      "file": "pads.stl",
+      "label": "JP2 与安装孔双面焊环",
+      "color": [
+        202,
+        168,
+        87
+      ],
+      "triangles": 9216,
+      "boundsMm": {
+        "min": [
+          -16.84,
+          -0.805,
+          -15.57
+        ],
+        "max": [
+          16.84,
+          0.805,
+          15.57
+        ]
+      }
+    }
+  ],
+  "sourceFile": "reference.forge.js"
+}

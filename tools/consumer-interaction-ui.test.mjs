@@ -38,7 +38,7 @@ async function mount(page,fixture,solid){
   const url=new URL(route.request().url());if(url.origin!==origin)return route.abort();
   if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:'<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/consumer-viewer.css"><link rel="stylesheet" href="/consumer-interaction.css"><main id="viewer"></main><aside id="parts"></aside>'});
   if(url.pathname==='/api/forge/plan')return route.fulfill({json:solid});
-  if(/\.(js|css)$/.test(url.pathname))return route.fulfill({contentType:url.pathname.endsWith('.js')?'text/javascript':'text/css',body:await readFile(new URL('.'+url.pathname,root))});
+  if(/\.(js|css|json)$/.test(url.pathname))return route.fulfill({contentType:url.pathname.endsWith('.js')?'text/javascript':url.pathname.endsWith('.json')?'application/json':'text/css',body:await readFile(new URL('.'+url.pathname,root))});
   return route.fulfill({status:404,body:''});
  });
  await page.goto(origin);

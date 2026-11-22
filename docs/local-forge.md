@@ -20,7 +20,9 @@ node server/local.mjs
 
 有交互定义的项目可以在工作台直接操作模型。拖动旋钮改变角度，按住按钮观察轴向行程，释放后观察屏幕或灯的反馈。空白区域用于转动视角。「交互原理」列出控制器、输入输出及引脚，点击「在模型中查看控制板」可以定位其装配位置。旧项目只展示该版本已经定义的功能。
 
-下载整机 `.forge.js` 后，可在 ForgeCAD Studio 的 View 面板操作原生关节滑杆和播放动作。工作台把转动输出为 `addRevolute`，把按压与滑动输出为 `addPrismatic`，共用活动件的动作组合到装配坐标系中。0.8.2 的 CLI 与 Studio 已用同一组转动、按压关节验证。ForgeCAD 官方也提供可播放的装配案例和用于连接设计代理的 MCP 服务。本项目使用本机 CLI，托管 MCP 的匿名请求在本次测试中返回 HTTP 401。[装配 API](https://forgecad.io/docs/assembly) · [原生交互演示](https://forgecad.io/) · [MCP 接入文档](https://forgecad.io/docs/ai-agents)
+「内部」显示主控板与器件的安装位置。在「参考走线」中选一条连接，可沿参考导线查看两端的引脚。USB 线缆在接口处配接。缺少端子位置的记录会单独列出。项目页的「ForgeCAD 工程」包含整机和已定位的参考线。用到外部模型的工程打包成 ZIP，解压后用 ForgeCAD 打开 `main.forge.js`；只依赖内建几何的工程可直接打开 `.forge.js`。
+
+打开整机工程后，可在 ForgeCAD Studio 的 View 面板操作原生关节滑杆和播放动作。工作台把转动输出为 `addRevolute`，把按压与滑动输出为 `addPrismatic`，共用活动件的动作组合到装配坐标系中。0.8.2 的 CLI 与 Studio 已用同一组转动、按压关节验证。ForgeCAD 官方也提供可播放的装配案例和用于连接设计代理的 MCP 服务。本项目使用本机 CLI，托管 MCP 的匿名请求在本次测试中返回 HTTP 401。[装配 API](https://forgecad.io/docs/assembly) · [原生交互演示](https://forgecad.io/) · [MCP 接入文档](https://forgecad.io/docs/ai-agents)
 
 网页借用现有 CAD 视图的拾取结果，把使用者操作映射到指定实体，再用 XState 驱动设备状态和反馈。例如，旋钮转一格可以加一分钟，按下可以在运行与暂停之间切换。两种作用由每个项目自己的交互定义决定。需要验证程序如何处理真实引脚信号时，可另用 Wokwi 等电路与固件仿真工具；其编码器有独立的 A/B 相和按压输入。[XState](https://github.com/statelyai/xstate) · [Wokwi 编码器](https://docs.wokwi.com/parts/wokwi-ky-040)
 

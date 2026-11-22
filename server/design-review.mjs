@@ -86,11 +86,11 @@ export function replayInteraction(model){
  for(const state of model.states)if(!visited.has(state.id))issues.push('从初始状态重放没有抵达 '+state.id+'。');
  return {status:'replayed',initialState:start.stateId,visitedStates:[...visited],observations,issues:[...new Set(issues)]};
 }
-function reviewMessages(ctx,candidate,geometry,catalogGeometry,behavior,normalizations,definitionIssues,previousIssues){
+function reviewMessages(ctx,candidate,geometry,catalogGeometry,behavior,wiring,normalizations,definitionIssues,previousIssues){
  const cleanParts=(candidate?.parts||[]).map(({mechanicalEvidenceReceipt,...part})=>part);
  const previous=ctx.baseDesign?{name:ctx.baseDesign.name,summary:ctx.baseDesign.summary,parts:ctx.baseDesign.parts.map(({name,model,sizeMm})=>({name,model,sizeMm})),
   previousMotions:ctx.baseDesign.cadPlan?.motions,previousInteraction:ctx.baseDesign.interaction}:undefined;
- const text=JSON.stringify({userRequest:ctx.prompt,conversation:ctx.history,previous,candidate:{...candidate,parts:cleanParts},geometry,catalogGeometry,behavior,normalizations,definitionIssues,previousIssues});
+ const text=JSON.stringify({userRequest:ctx.prompt,conversation:ctx.history,previous,candidate:{...candidate,parts:cleanParts},geometry,catalogGeometry,behavior,wiring,normalizations,definitionIssues,previousIssues});
  if(!ctx.images.length)return text;
  return [{role:'user',content:[{type:'input_text',text},...ctx.images.map(({dataUrl})=>({type:'input_image',image_url:dataUrl,detail:'high'}))]}];
 }
@@ -103,8 +103,8 @@ function explicitlyRequestsProgrammableControls(ctx){
  return last.split(/[。；;\n]/).some(clause=>!/(?:不需要|不必|无需|禁止|不要).{0,12}(?:旋钮|编码器|按钮|按键|按压|按下)|without (?:a )?(?:button|knob)/i.test(clause)
   &&/(?:旋钮|编码器|转动|旋转|按钮|按键|按下|按压|knob|encoder|push.button).{0,55}(?:设定|调节|调整|暂停|倒计时|计时|启停|开始计时|亮灯|显示|调光|亮度|countdown|timer|brightness|display|pause)/i.test(clause));
 }
-export async function evaluateDraft({ctx,candidate,geometry,catalogGeometry,behavior,normalizations,definitionIssues,previousIssues,skill,env,send,signal}){
- const {value,model}=await structuredCall(send,env,signal,{instructions:reviewInstructions+' 当 catalogGeometry 明确列出某个 body 时，浏览器会将该定位盒替换为随项目发布的真实目录参考网格。依据其构件及世界坐标范围检查朝向和开口，不能把该盒当成最终可见外形。目录简模不等于已验证的线头插合；缺小公差或未验证特定线头通常作为实测项，除非当前设计实有矛盾。未匹配目录且用户要求内构件时须有合理 CAD 特征。\n'+skill.text,input:reviewMessages(ctx,candidate,geometry,catalogGeometry,behavior,normalizations,definitionIssues,previousIssues),
+export async function evaluateDraft({ctx,candidate,geometry,catalogGeometry,behavior,wiring,normalizations,definitionIssues,previousIssues,skill,env,send,signal}){
+ const {value,model}=await structuredCall(send,env,signal,{instructions:reviewInstructions+' 当 catalogGeometry 明确列出某个 body 时，浏览器会将该定位盒替换为随项目发布的真实目录参考网格。依据其构件及世界坐标范围检查朝向和开口，不能把该盒当成最终可见外形。目录简模不等于已验证的线头插合；缺小公差或未验证特定线头通常作为实测项，除非当前设计实有矛盾。未匹配目录且用户要求内构件时须有合理 CAD 特征。\n'+skill.text,input:reviewMessages(ctx,candidate,geometry,catalogGeometry,behavior,wiring,normalizations,definitionIssues,previousIssues),
   text:format('hardware_design_review',reviewSchema),max_output_tokens:4500},'设计评审',{hasImages:ctx.images.length>0});
  const review=readReview(value,candidate);
  const issues=[...definitionIssues,...geometry.issues,...(behavior?.issues||[]),...review.checks.filter(c=>c.status==='repair').map(c=>labels[c.area]+'：'+c.note)];

@@ -1,6 +1,7 @@
 import {validateCadPlan,cadPlanSchema} from './cad-plan.mjs';
 import {modelingGuide,functionalReviewGuide,generation} from './modeling-guide.mjs';
-import {interactionSchema,validateInteraction,validateInteractionGeometry,normalizeInteractionTimerAliases} from '../interaction-model.js';
+import {locateDesignTerminals,terminalReview} from './design-terminals.mjs';
+import {interactionSchema,validateInteraction,validateInteractionGeometry,validateTerminalLocations,normalizeInteractionTimerAliases} from '../interaction-model.js';
 import {reviewInteractionGeometry} from './interaction-geometry-review.mjs';
 import {ModelStageError,structuredCall,format,addModelData,evaluateDraft,replayInteraction} from './design-review.mjs';
 import {DesignInputError,readDesignRequest,modelInput,projectDesignForModel,photoInstructions,ready,readDecision,discussionSchema,discussionInstructions,revisionInstructions} from './design-conversation.mjs';
@@ -156,12 +157,20 @@ export async function design(request,env,send=fetch){const reply=(body,status=20
    let candidate,definitionIssues=[],physicalValid=false,interactiveValid=false;
    try{candidate=normalizePhysical(normalizedDraft,...physicalArgs);physicalValid=true;}
    catch(error){definitionIssues.push(error instanceof AssemblyError?error.message:'草图的零件信息或结构数据不完整。');}
+   let normalizedInteraction=normalizedDraft.interaction;
    let geometry={status:'unavailable',checks:['CAD 数据未通过，无法执行几何检查。'],issues:[]},catalogGeometry=[];
+   let wiring={scope:'terminal-locations',status:'unavailable'};
    if(physicalValid){
     candidate=await attachMechanicalEvidence(candidate,evidence.records,env.OPENAI_API_KEY);
     catalogGeometry=resolvedCatalogGeometry(candidate);
-    try{const model=designInteraction(normalizedDraft.interaction,candidate);if(model)candidate.interaction=model;interactiveValid=true;}
-    catch(error){candidate.interaction=normalizedDraft.interaction;definitionIssues.push(error.message);}
+    normalizedInteraction=locateDesignTerminals(normalizedInteraction,candidate);
+    try{const model=designInteraction(normalizedInteraction,candidate);if(model)candidate.interaction=model;interactiveValid=true;}
+    catch(error){candidate.interaction=normalizedInteraction;definitionIssues.push(error.message);}
+    if(interactiveValid)wiring=terminalReview(candidate.interaction);
+    else try{
+     validateTerminalLocations(normalizedInteraction,candidate);
+     wiring=terminalReview(normalizedInteraction);
+    }catch(error){if(!definitionIssues.some(i=>i.includes(error.message)))definitionIssues.push(error.message);}
     let mechanicalInteraction=candidate.interaction;
     if(!interactiveValid){
      try{mechanicalInteraction=validateInteractionGeometry(candidate.interaction,{bom:candidate.parts,cadPlan:candidate.cadPlan});}
@@ -173,14 +182,14 @@ export async function design(request,env,send=fetch){const reply=(body,status=20
     ({name,model,spec,sizeMm,qty,purpose,placement,role})=>({name,model,spec,sizeMm,qty,purpose,placement,role})):[],
     cadPlan:draft.value?.cadPlan,interaction:draft.value?.interaction,steps:draft.value?.steps,deviceMotion:draft.value?.deviceMotion};
    const behavior=interactiveValid?replayInteraction(candidate.interaction):{status:'unavailable',initialState:null,visitedStates:[],observations:[],issues:[]};
-   const evaluation=await evaluateDraft({ctx,candidate,geometry,catalogGeometry,behavior,normalizations:aliases.corrections,definitionIssues,previousIssues,skill:reviewSkill,env,send,signal});
+   const evaluation=await evaluateDraft({ctx,candidate,geometry,catalogGeometry,behavior,wiring,normalizations:aliases.corrections,definitionIssues,previousIssues,skill:reviewSkill,env,send,signal});
    lastCandidate=physicalValid?candidate:null;
    if(!evaluation.issues.length){
     const provenance=generation('openai-api',draft.model??env.OPENAI_MODEL,draft.model?'response':'configured',guide.skill);
     provenance.mechanicalResearch={status:evidence.status,requested:evidence.candidates.length,found:evidence.found,
      ...(evidence.inherited?{inherited:evidence.inherited}:{})};
     provenance.designReview={status:'preview-reviewed',attempts:attempt,skill:reviewSkill.skill,modelId:evaluation.model??null,
-     checks:evaluation.review.checks,physicalChecks:evaluation.review.physicalChecks,geometry,behavior,
+     checks:evaluation.review.checks,physicalChecks:evaluation.review.physicalChecks,geometry,behavior,wiring,
      ...(reuseThisDraft?{draftSource:'retained-candidate'}:{}),...(aliases.corrections.length?{normalizations:aliases.corrections}:{}),
      ...(attempt>1||reuseThisDraft?{correctedIssues:previousIssues}:{})};
     return reply({design:{...candidate,generation:provenance}});

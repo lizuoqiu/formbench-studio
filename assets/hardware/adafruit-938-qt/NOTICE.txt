@@ -1,0 +1,23 @@
+Adafruit 1.3-inch 128 × 64 OLED, product 938, double STEMMA QT revision.
+Adafruit Industries' original STEP and its tessellated geometry are licensed
+under MIT, copyright (c) 2016 Adafruit Industries. See LICENSE-MIT.txt.
+Original CAD revision 9f2a89f3d5c3491886d58cb7fe83385417563cf4:
+https://github.com/adafruit/Adafruit_CAD_Parts/tree/9f2a89f3d5c3491886d58cb7fe83385417563cf4/938%20Mono%20128x64%20OLED%20Stemma
+
+Formwork converted the 29 original components into PCB, display, flexible
+ribbon, JST sockets, IC and passive mesh groups. Colors are for visual
+identification. The STEP is supplied in its original source coordinate system.
+The preview uses millimetres, the PCB mid-plane centre as origin, the glass
+facing -Y, and JP2 toward +Z. Board-to-preview transformation from source
+coordinates is (17.78 - x, z - 0.785, y - 16.51). Holes are open. The
+assembly installation convention places the screen toward the user and the
+header along the upper edge. Confirm this orientation when soldering wires.
+
+Formwork's additional pad rings and active-area reference are adapted from
+Adafruit Industries' matching 1.3-inch 128x64 STEMMA QT EAGLE board layout.
+The pad-ring STL is licensed CC BY-SA 3.0, as is its source layout.
+The depicted copper is offset 0.020 mm above each board surface for display.
+https://github.com/adafruit/Adafruit-1.3inch-128x64-Mono-OLED-PCB/blob/02c953af3a9c7c53d0c33faaa98a8aa1bffca5be/Adafruit%201.3in%20128x64%20OLED%20STEMMA%20QT.brd
+https://creativecommons.org/licenses/by-sa/3.0/
+See LICENSE-CC-BY-SA-3.0.txt. Product specifications:
+https://www.adafruit.com/product/938
