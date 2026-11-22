@@ -81,5 +81,10 @@ test('shared hardware references connect each V5 model row to its own supplier o
  await go(4);
  assert.equal(await side.locator('[data-cc-hardware-kind]').count(),0,'V5-only source choices are not assigned to V4');
  assert.equal(await page.locator('.part [data-hardware-reference]').count(),0);
+ const references=JSON.parse(await readFile(new URL('samples/shared/reading-timer/v5-hardware.json',root)));
+ await page.route('**/v5-hardware.json',route=>route.fulfill({json:references.slice(0,1)}));
+ await go(5);
+ await page.getByText('部分实物资料未能加载，可刷新重试。').waitFor();
+ assert.equal(await side.locator('[data-cc-hardware-kind]').count(),1,'missing sources do not inherit references from other rows');
  assert.deepEqual(errors,[]);assert.deepEqual(api,[]);
 });

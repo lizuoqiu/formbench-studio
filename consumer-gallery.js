@@ -37,7 +37,7 @@ function attachHardwareReferences(design,records){
     part.hardwareReference={kind,items:items.map(({name,url,label})=>({name,url,label})),note,searchTerms};
     attached++;
   }
-  return attached===records.length;
+  return attached===design.parts.length&&attached===records.length;
 }
 export async function galleryProjects(){
   if(!galleryPromise)galleryPromise=fetch(manifestUrl).then(async response=>{
