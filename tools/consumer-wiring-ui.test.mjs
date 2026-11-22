@@ -30,7 +30,13 @@ test('normal shared V5 interior exposes selectable reference wires and model nam
    const filename=path.resolve(root,'.'+url.pathname,...(url.pathname.endsWith('/')?['index.html']:[])),types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.wasm':'application/wasm'};
    try{return route.fulfill({body:await readFile(filename),contentType:types[path.extname(filename)]||'application/octet-stream'});}catch{return route.fulfill({status:404,body:''});}
   });
-  await page.goto(origin+'/?share=reading-timer&version=5');await page.locator('#geometry-state[data-phase=ready][data-approximate=false]').waitFor();
+  const url=origin+'/?share=reading-timer&version=5';
+  if(width===1440){
+   await page.goto(url+'&view=inside');await page.locator('#geometry-state[data-phase=ready][data-approximate=false]').waitFor();
+   assert.equal(new URL(page.url()).searchParams.get('view'),'inside');
+   assert.ok(await page.locator('.cc-wires').isVisible(),'share links to the interior open with wiring visible');
+  }
+  await page.goto(url);await page.locator('#geometry-state[data-phase=ready][data-approximate=false]').waitFor();
   assert.equal(await page.locator('.cc-wires').isVisible(),false,'assembled exterior must not show wires through the enclosure');
   await page.locator('[data-cc-mode=inside]').click();await paint(page);
   const toggle=page.locator('[data-cc-wiring-toggle]'),choice=page.locator('[data-cc-wire-choice]'),detail=page.locator('[data-cc-wire-detail]');

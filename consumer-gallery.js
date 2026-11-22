@@ -10,8 +10,11 @@ export function galleryAsset(path){
   return url.origin===manifestUrl.origin&&url.pathname.startsWith(new URL('./',manifestUrl).pathname)?url.href:null;
 }
 export function shareLink(slug,version,base=location.href){
-  const url=new URL(base);url.search='';url.hash='';
+  const url=new URL(base);
+  const openInside=url.searchParams.get('share')===slug&&url.searchParams.get('view')==='inside';
+  url.search='';url.hash='';
   url.searchParams.set('share',slug);url.searchParams.set('version',String(version));
+  if(openInside)url.searchParams.set('view','inside');
   return url.href;
 }
 export function verificationText(value){
