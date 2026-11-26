@@ -2,6 +2,9 @@
   "name": "formwork-browser-tests",
   "private": true,
   "devDependencies": {
-    "playwright": "1.65.1"
+    "esbuild": "0.25.12",
+    "playwright": "1.65.1",
+    "three": "0.187.0",
+    "urdf-loader": "0.13.1"
   }
 }

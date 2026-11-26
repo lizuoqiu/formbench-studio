@@ -123,7 +123,7 @@ export function alignCatalogAnchors(plan,rawParts,parts){
  for(const [index,bodies] of byPart){
   const part=parts[index],original=rawParts[index];
   if(part.dimensionSource!=='catalog'||original.dimensionSource==='specified'||part.placement==='loose'||
-     ['wire','usb-cable'].includes(part.modelId)||bodies.length>part.qty)continue;
+     ['wire','usb-cable'].includes(part.modelId)||bodies.length>part.qty||bodies.some(b=>b.sourceMeshes))continue;
   const native=part.sizeMm,estimate=original.sizeMm;
   if(sameSize(estimate,native)||!keepsNativeAxes(estimate,native))continue;
   const anchors=bodies.map(wholePartBox);

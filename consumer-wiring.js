@@ -1,11 +1,13 @@
 import {projectWorldPoint} from './mesh-renderer.js';
 import {wireColors} from './assembly-wires.js';
+import {jointPoint} from './assembly-joints.js';
 
 const svgNS='http://www.w3.org/2000/svg';
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const types={signal:'信号',power:'供电',ground:'共地'};
-const pinLabel=route=>route.from.pin+' → '+route.to.pin;
-const fullLabel=route=>route.from.partName+' '+route.from.pin+' → '+route.to.partName+' '+route.to.pin;
+const arrow=route=>route.bidirectional?' ↔ ':' → ';
+const pinLabel=route=>route.from.pin+arrow(route)+route.to.pin;
+const fullLabel=route=>route.from.partName+' '+route.from.pin+arrow(route)+route.to.partName+' '+route.to.pin;
 const element=(tag,attributes={})=>{const node=document.createElementNS(svgNS,tag);for(const [key,value] of Object.entries(attributes))node.setAttribute(key,value);return node;};
 
 // Sample in CSS pixels, then ask the raster's own DPR-aware depth buffer. Wires
@@ -22,6 +24,21 @@ export function projectWireRoute(points,camera,depthAt){
  let d='',drawing=false;
  for(const {p,visible} of samples){if(visible){d+=(drawing?' L':' M')+p[0].toFixed(2)+' '+p[1].toFixed(2);drawing=true}else drawing=false;}
  return {d:d.trim(),projected,samples};
+}
+
+// Follow the same serial transforms as the owning hardware. Between different
+// moving groups the line remains illustrative, not an inextensible cable solve.
+export function poseWireRoute(route,bodyOffsets=new Map(),joints=[],jointValues=[]){
+ const ends=[route.from,route.to],offsets=ends.map(end=>bodyOffsets.get(end.bodyIndex)||[0,0,0]);
+ const together=offsets[0].every((n,k)=>n===offsets[1][k])&&joints.every(j=>j.movingBodyIndices.includes(ends[0].bodyIndex)===j.movingBodyIndices.includes(ends[1].bodyIndex));
+ if(together)return route.points.map(point=>jointPoint(point.map((n,k)=>n+offsets[0][k]),ends[0].bodyIndex,joints,jointValues));
+ const deltas=ends.map((end,i)=>{
+  const point=route.points[i?route.points.length-1:0];
+  return jointPoint(point.map((n,k)=>n+offsets[i][k]),end.bodyIndex,joints,jointValues).map((n,k)=>n-point[k]);
+ });
+ return route.points.map((point,index)=>{
+  const t=index/Math.max(1,route.points.length-1);return point.map((n,k)=>n+deltas[0][k]*(1-t)+deltas[1][k]*t);
+ });
 }
 
 export function mountConsumerWiring(root,wiring,{parts=[],onChange=()=>{},onFocusPart=()=>{}}={}){
@@ -88,7 +105,7 @@ export function mountConsumerWiring(root,wiring,{parts=[],onChange=()=>{},onFocu
   select,enable(){enabled=true;toggle.querySelector('input').checked=true;},
   selectedRoute:()=>rows.find(row=>row.connectionIndex===selected),
   firstRoute:()=>wiring.routes[0]||rows[0],
-  paint(camera,{mode,hiddenParts,selectedPart,depthAt,scene,backdrop,bodyOffsets}){
+  paint(camera,{mode,hiddenParts,selectedPart,depthAt,scene,backdrop,bodyOffsets,joints=[],jointValues=[]}){
    const supported=mode==='inside'||mode==='open',hidden=!supported||!enabled||!camera;toggle.hidden=panel.hidden=!supported;svg.toggleAttribute('hidden',hidden);
    panel.dataset.enabled=String(enabled);choice.disabled=!enabled;
    if(hidden)return;
@@ -99,10 +116,7 @@ export function mountConsumerWiring(root,wiring,{parts=[],onChange=()=>{},onFocu
     const related=selectedPart===null||[route.from.partIndex,route.to.partIndex].some(index=>String(index)===selectedPart);
     const visible=related&&![route.from.partIndex,route.to.partIndex].some(index=>hiddenParts.has(String(index)))&&bodySet.has(route.from.bodyIndex)&&bodySet.has(route.to.bodyIndex);
     entry.visible=visible;group.style.display=visible?'':'none';if(!visible)continue;
-    const offsets=[route.from,route.to].map(end=>bodyOffsets.get(end.bodyIndex)||[0,0,0]);
-    const points=route.points.map((point,index)=>{
-     const t=index/Math.max(1,route.points.length-1);return point.map((value,k)=>value+offsets[0][k]*(1-t)+offsets[1][k]*t);
-    });
+    const points=poseWireRoute(route,bodyOffsets,joints,jointValues);
     const projection=projectWireRoute(points,camera,depthAt),active=selected===route.connectionIndex;entry.samples=projection.samples;
     group.dataset.selected=String(active);group.setAttribute('aria-pressed',String(active));group.dataset.quality=route.quality;
     for(const node of [path,halo,hit])node.setAttribute('d',projection.d);

@@ -1,6 +1,7 @@
 import {resolveModelForRow,readBindingGeometry,bindingKeys} from './model-selection.js';
 import {loadPartMeshes} from './assembly-hardware.js';
 import {prepareMesh,createRaster,fitCamera} from './mesh-renderer.js';
+import {MAX_CAD_BODIES} from './cad-plan.js';
 
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const vec=v=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite);
@@ -8,7 +9,7 @@ const tuple=v=>v.map(n=>Number(n.toFixed(2))).join(', ');
 
 export function cleanPlacements(input,design,items={}){
  if(input===undefined)return [];
- if(!Array.isArray(input)||input.length>160)throw Error('装配位置须为数组，最多 160 个实例。');
+ if(!Array.isArray(input)||input.length>MAX_CAD_BODIES)throw Error('装配位置须为数组，最多 '+MAX_CAD_BODIES+' 个实例。');
  const parts=design?.parts;if(!Array.isArray(parts))throw Error('装配位置缺少对应的零件清单。');
  const counts=new Map();
  return input.map((p,i)=>{

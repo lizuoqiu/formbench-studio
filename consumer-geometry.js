@@ -1,8 +1,8 @@
-import {featurePlacement} from './cad-plan.js';
-import {validateCadPlan} from './cad-plan.js';
+import {cadBodyColor,featurePlacement,MAX_DESIGN_PARTS,validateCadPlan} from './cad-plan.js';
 import {decodeSTL} from './assembly-hardware.js';
 import {makeDocumentedProxy} from './part-geometry.js';
 import {capsuleDimensions,cornerRadius} from './native-features.js';
+import {MAX_CAD_RESPONSE_BYTES} from './cad-limits.js';
 
 const solidColors=[[167,193,204],[225,166,115],[112,165,155],[164,143,185]];
 const localHosts=new Set(['127.0.0.1','localhost','[::1]']);
@@ -70,10 +70,10 @@ function previewFeature(feature){
  const place=featurePlacement(feature);
  return faces.map(face=>face.map(place));
 }
-export function previewCadPlan(raw,partCount=60){
+export function previewCadPlan(raw,partCount=MAX_DESIGN_PARTS){
  const plan=validateCadPlan(raw,partCount);
  return {engine:null,exact:false,notice:'形体预览，尚未执行实体布尔计算；切削特征未显示。',bodies:plan.bodies.map((body,index)=>({
-  ...body,exact:false,meshes:body.features.filter(feature=>feature.op==='add').map(feature=>({triangles:previewFeature(feature),color:solidColors[index%solidColors.length],label:body.name})),
+  ...body,exact:false,meshes:body.features.filter(feature=>feature.op==='add').map(feature=>({triangles:previewFeature(feature),color:cadBodyColor(body,solidColors[index%solidColors.length]),label:body.name})),
   hasCuts:body.features.some(feature=>feature.op==='cut')
  }))};
 }
@@ -102,7 +102,7 @@ async function decodeSolidResult(plan,data,requireForge,stage,options){
     else await new Promise(resolve=>setTimeout(resolve,0));
     options.signal?.throwIfAborted();
    }
-   const bytes=bytesFromBase64(body.stlBase64),triangles=decodeSTL(bytes.buffer),meshes=[{triangles,color:solidColors[index%solidColors.length],label:body.name}];meshBounds(meshes);
+   const bytes=bytesFromBase64(body.stlBase64),triangles=decodeSTL(bytes.buffer),meshes=[{triangles,color:cadBodyColor(expected,solidColors[index%solidColors.length]),label:body.name}];meshBounds(meshes);
    bodies.push({...expected,meshes,stlBytes:bytes,exact:true});
    options.onProgress?.({...record,phase:'finish',completed:index+1});
   }
@@ -124,7 +124,7 @@ async function savedExample(plan,url,fetcher,signal,onProgress){
   const data=await response.json();
   if(!/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(data.version)||data.engine!=='ForgeCAD CLI '+data.version||data.units!=='mm'||planKey(data.cadPlan)!==planKey(plan))return null;
   const result=await decodeSolidResult(plan,data,true,'load',{signal,onProgress});
-  result.notice='已加载示例保存的 '+data.engine+' 实体。制造和装配仍需验证。';
+  result.notice='已加载保存的 '+data.engine+' 实体。制造和装配仍需验证。';
   return result;
  }catch{
   signal.throwIfAborted();
@@ -174,7 +174,7 @@ async function readCompilation(response,plan,onProgress,signal){
    signal.throwIfAborted();
    const {value,done}=await reader.read();
    if(done)break;
-   if((bytes+=value.byteLength)>32*1024*1024)throw Error('实体文件过大。');
+   if((bytes+=value.byteLength)>MAX_CAD_RESPONSE_BYTES)throw Error('实体文件过大。');
    readLines(decoder.decode(value,{stream:true}));
   }
   signal.throwIfAborted();readLines(decoder.decode());consume(pieces.join(''));
@@ -192,7 +192,7 @@ export async function compileCadPlan(raw,options={}){
  let savedURL;
  if(options.savedCadUrl){
   const sharedRoot=new URL('./samples/shared/',base),candidate=new URL(options.savedCadUrl,base);
-  if(candidate.origin!==sharedRoot.origin||!candidate.pathname.startsWith(sharedRoot.pathname))
+  if(candidate.origin!==sharedRoot.origin||!(candidate.pathname.startsWith(sharedRoot.pathname)||/^\/api\/design-jobs\/[a-f0-9-]{36}\/cad\.json$/.test(candidate.pathname)))
    throw Error('项目的 CAD 存档地址无效。');
   savedURL=candidate;
  }else if(Object.hasOwn(sampleExportFiles,options.exampleAsset)&&url&&!localHosts.has(url.hostname)){
@@ -205,7 +205,7 @@ export async function compileCadPlan(raw,options={}){
   options.onProgress?.({stage:'load',phase:'cache',completed:plan.bodies.length,total:plan.bodies.length});
   return meshCache.get(key);
  }
- const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),90_000);
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.max(90_000,plan.bodies.length*5000));
  const cancel=()=>controller.abort();options.signal?.addEventListener('abort',cancel,{once:true});
  if(options.signal?.aborted)controller.abort();
  try{

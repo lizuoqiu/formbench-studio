@@ -41,6 +41,7 @@
             <button id="generate" type="submit" class="primary">生成设计</button>
           </div>
         </form>
+        <details class="run-options"><summary>运行方式</summary><label>生成服务 <select id="run-provider"><option value="auto">自动 · 优先 API，额度用完后在本机继续</option><option value="openai-api">仅使用 API</option><option value="local-codex">仅使用本机 Codex</option></select></label></details>
         <div id="entry-progress" hidden>
           <div class="build-glyph" aria-hidden="true"><i></i><i></i><i></i></div>
           <div role="status" aria-live="polite"><b id="build-title"></b><p id="build-hint"></p></div>

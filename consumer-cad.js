@@ -1,14 +1,19 @@
+import {occurrenceGroups,occurrenceOf} from './installed-parts.js';
 import {catalog,loadPartMeshes,getHardwareMetadata,encodeSTL} from './assembly-hardware.js';
 import {makeDocumentedProxy} from './part-geometry.js';
 import {prepareMesh,createRaster,fitCamera,cameraBasis,projectWorldPoint,worldPointAtZ} from './mesh-renderer.js';
 import {previewCadPlan,compileCadPlan,meshBounds,featurePlacement,cadDownloadName} from './consumer-geometry.js';
 import {completeCatalogAnchors,hasEditableCatalogSource} from './forge-source.js';
-import {validateCadPlan,wholePartBox} from './cad-plan.js';
+import {validateCadPlan,wholePartBox,MAX_CAD_BODIES} from './cad-plan.js';
 import {mountCadInteraction} from './consumer-interaction.js';
+import {advanceMotionPreview} from './interaction-model.js';
 import {buildAssemblyWiring} from './assembly-wires.js';
 import {mountConsumerWiring} from './consumer-wiring.js';
 import {matchOled938Reference,resolvePanelHardwareReference} from './panel-hardware-reference.js';
 import {stylePurchasedBodyMeshes} from './purchased-body-details.js';
+import {importedModel,importedPartAnchors} from './part-records.js';
+import {jointMesh,jointPoint} from './assembly-joints.js';
+import {mechanismConnections} from './kinematic-urdf.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const sizeText=size=>size.map(n=>Number(n.toFixed(1))).join(' × ')+' mm';
@@ -16,7 +21,7 @@ const validSize=size=>Array.isArray(size)&&size.length===3&&size.every(n=>Number
 const colors=[[66,139,131],[194,133,76],[82,132,175],[167,117,154],[145,160,86]];
 const roleText={internal:'内部',panel:'顶面位置示意',external:'外接附件',enclosure:'外壳目标包络'};
 const inspectionPitch=1.15;
-const dataText={catalog:'资料几何',datasheet:'型号资料尺寸',specified:'指定设计包络',estimated:'估算设计包络'};
+const dataText={catalog:'资料几何',cad:'CAD 文件尺寸',datasheet:'型号资料尺寸',specified:'指定设计包络',estimated:'估算设计包络'};
 const safeUrl=value=>{try{const u=new URL(value);return /^https?:$/.test(u.protocol)?u.href:null}catch{return null}};
 const looseMaterial=part=>/线束|胶材|胶带|导线|USB.*线|USB.*cable|wire|adhesive/i.test(part.name+' '+part.spec);
 
@@ -31,12 +36,15 @@ function roleOf(part){
 
 function normalizedParts(design){
  if(!Array.isArray(design?.parts)||!design.parts.length)throw Error('请先提供零件和尺寸，才能生成整机布局。');
- let count=0;
+ const declared=design.cadPlan?.bodies;
+ let count=Array.isArray(declared)?declared.length:0;
  return design.parts.map((part,index)=>{
   if(!validSize(part.sizeMm))throw Error(`「${part.name||index+1}」需要 0.1–2000 mm 的长、宽、高。`);
   if(part.shape!==undefined&&!['box','cylinder'].includes(part.shape))throw Error(`「${part.name||index+1}」的参考形状须为长方体或圆柱。`);
   if(part.shape==='cylinder'&&Math.abs(part.sizeMm[0]-part.sizeMm[1])>1e-8)throw Error(`「${part.name||index+1}」为圆柱，长与宽须填写同一个直径。`);
-  if(!Number.isInteger(part.qty)||part.qty<1||(count+=part.qty)>160)throw Error('零件数量须为正整数，整机最多预览 160 个实例。');
+  if(!Number.isInteger(part.qty)||part.qty<1||part.qty>999)throw Error('零件数量须为 1–999 的整数。');
+  if(part.placement!=='loose'&&!looseMaterial(part))count+=Math.max(0,part.qty-(declared?.filter(b=>b.partIndex===index).length||0));
+  if(count>MAX_CAD_BODIES)throw Error('整机最多预览 '+MAX_CAD_BODIES+' 个三维实例；仅列在清单的材料与附件不计入。');
   const dimensionSource=Object.hasOwn(dataText,part.dimensionSource)?part.dimensionSource:'estimated';
   return {...part,index,sizeMm:[...part.sizeMm],role:roleOf(part),dimensionSource};
  });
@@ -45,7 +53,7 @@ function normalizedParts(design){
 // Shelf packing is recomputed from envelopes and quantities; no part has a fixed
 // Pico-specific coordinate. External cables are deliberately outside this pack.
 function pack(parts,gap){
- const instances=parts.flatMap(part=>Array.from({length:part.qty},(_,copy)=>({partIndex:part.index,copy,sizeMm:part.sizeMm,role:part.role})));
+ const instances=parts.filter(part=>part.placement!=='loose'&&!looseMaterial(part)).flatMap(part=>Array.from({length:part.qty},(_,copy)=>({partIndex:part.index,copy,sizeMm:part.sizeMm,role:part.role})));
  if(!instances.length)return {instances:[],sizeMm:[0,0,0]};
  const width=Math.max(...instances.map(item=>item.sizeMm[0]),Math.sqrt(instances.reduce((sum,item)=>sum+(item.sizeMm[0]+gap)*(item.sizeMm[1]+gap),0))*1.25);
  let x=0,y=0,rowDepth=0,usedWidth=0,height=0;
@@ -96,7 +104,19 @@ export async function resolveConsumerGeometry(design,options={}){
   const id=!part.modelSourceInvalidated&&Object.hasOwn(catalog,candidate||'')?candidate:null;
   const planned=design.cadPlan?.bodies?.some(body=>body.partIndex===part.index);
   let meshes,metadata=null,actualSize=null,geometryNote='',registered=false;
-  if(id){
+  const downloaded=importedModel(part.importedModel,part);
+  if(downloaded){
+   try{
+    const response=await fetch(downloaded.meshUrl,{signal:options.signal,credentials:'same-origin',mode:'same-origin',redirect:'error'});
+    if(!response.ok)throw Error('模型文件无法读取');
+    const model=await response.json(),bounds=boundsOf(model.meshes);
+    if(!bounds.size.every((n,i)=>Math.abs(n-downloaded.sizeMm[i])<.02))throw Error('文件尺寸与导入记录不一致');
+    meshes=model.meshes;actualSize=downloaded.sizeMm;registered=true;
+    metadata={modelType:downloaded.sourceType==='manufacturer'?'manufacturer-cad':'supplier-cad',manufacturerCadUrl:downloaded.sourceUrl,sourceUrl:downloaded.documentationUrl,sizeMm:actualSize};
+    geometryNote='已读取 '+downloaded.format.toUpperCase()+'，保持原生毫米尺寸，通过安装锚点定位。';
+   }catch(error){options.signal?.throwIfAborted();geometryNote='已下载模型暂未载入，显示尺寸简模。'+error.message;}
+  }
+  if(id&&!meshes){
    try{
     metadata=await getHardwareMetadata(id);
     const registrations=(design.cadPlan?.bodies||[]).filter(body=>body.partIndex===part.index&&resolvePanelHardwareReference(body,part,metadata));
@@ -136,6 +156,8 @@ export function currentCadPlan(design){
   bodies.push(body);
  });
  const active={version:1,bodies};
+ if(plan.joints?.length&&bodies.length===plan.bodies.length)active.joints=plan.joints;
+ else if(plan.joints)active.joints=[];
  if(plan.motions){
   active.motions=plan.motions.filter(motion=>{
    const supports=[motion.actuatorPartIndex,motion.guidePartIndex,motion.controllerPartIndex];
@@ -146,30 +168,34 @@ export function currentCadPlan(design){
  return active;
 }
 export function buildDeclaredAssembly(design,parts,geometry){
- const instances=[],counts=new Map();
+ const instances=[];
  const anchors=completeCatalogAnchors(geometry.bodies,parts);
+ const importedAnchors=importedPartAnchors(geometry.bodies,parts);
  for(let index=0;index<geometry.bodies.length;index++){
   const body=geometry.bodies[index],part=parts[body.partIndex];
   if(!part)throw Error('形体引用了不存在的零件。');
   if(part.modelSourceInvalidated)continue;
-  counts.set(part.index,(counts.get(part.index)||0)+1);
   let meshes=body.meshes,source='generated';
   // A motor and its rod can share a BOM row. Swap only a complete part's
-  // dimensioned placement box, never an individual mechanism or a custom solid.
-  const anchor=anchors[index];
+  // placement box or an explicit native mesh selection.
+  const anchor=importedAnchors[index]||anchors[index];
+  if(body.sourceMeshes?.meshIndices.length&&geometry.exact&&(!importedAnchors[index]||part.geometryKind!=='catalog'))
+   throw Error('无法读取「'+body.name+'」的已安装原厂分件。');
   if(anchor&&part.geometryKind==='catalog'&&part.meshes?.length){
-   const place=featurePlacement(anchor,anchor.sizeMm.map(n=>n/2));
-   meshes=part.meshes.map(mesh=>({...mesh,triangles:mesh.triangles.map(face=>face.map(place))}));
+   const selected=anchor.meshIndices?anchor.meshIndices.map(i=>part.meshes[i]):part.meshes;
+   if(selected.some(mesh=>!mesh))throw Error('原厂模型文件缺少已检查的分件。');
+   const place=featurePlacement(anchor,anchor.sourceOriginMm||anchor.sizeMm.map(n=>n/2));
+   meshes=selected.map(mesh=>({...mesh,triangles:mesh.triangles.map(face=>face.map(place))}));
    source='catalog';
   }
-  if(source==='generated')meshes=stylePurchasedBodyMeshes(body,part,meshes);
-  instances.push({partIndex:part.index,bodyIndex:index,copy:counts.get(part.index)-1,role:part.role,kind:body.role,name:body.name,positionMm:[...body.positionMm],meshes,source,exact:source==='catalog'||geometry.exact,placed:true});
+  if(source==='generated'&&!body.color)meshes=stylePurchasedBodyMeshes(body,part,meshes);
+  instances.push({partIndex:part.index,bodyIndex:index,copy:occurrenceOf(body,part)??null,role:part.role,kind:body.role,name:body.name,positionMm:[...body.positionMm],meshes,source,exact:source==='catalog'||geometry.exact,placed:true});
  }
  const box=instances.length?meshBounds(instances.flatMap(item=>shiftedMeshes(item.meshes,item.positionMm))):{min:[0,0,0],max:[0,0,0],sizeMm:[0,0,0]};
  const unplaced=[];let unplacedCount=0,omittedCount=0;
  for(const part of parts){
-  const remaining=Math.max(0,part.qty-(counts.get(part.index)||0));
-  if(!part.meshes?.length||looseMaterial(part)){omittedCount+=remaining;continue}
+  const remaining=Math.max(0,part.qty-occurrenceGroups(geometry,part,part.index).groups.size);
+  if(!part.meshes?.length||part.placement==='loose'||looseMaterial(part)){omittedCount+=remaining;continue}
   if(remaining)unplaced.push({...part,qty:remaining});
  }
  for(const item of pack(unplaced,6).instances){const part=parts[item.partIndex];instances.push({...item,kind:'reference',name:part.name,positionMm:[box.max[0]+20+item.positionMm[0],box.min[1]+item.positionMm[1],box.min[2]],meshes:part.meshes,source:part.geometryKind,exact:part.geometryKind==='catalog',placed:false});unplacedCount++}
@@ -263,6 +289,7 @@ function partGeometryLabel(part,instances){
  const catalogMatch=instances.some(item=>item.source==='catalog')||instances.some(item=>!item.kind)&&part?.geometryKind==='catalog';
  if(catalogMatch){
   if(part.metadata?.modelType==='manufacturer-cad')return '原厂 CAD';
+  if(part.metadata?.modelType==='supplier-cad')return '供应商 CAD';
   if(part.metadata?.modelType==='dimensioned-approximation')return '资料简模';
   return '目录参考模型';
  }
@@ -284,13 +311,13 @@ export function bodyPose(item,motions,progress){
 
 // Single-part exports use the body origin. An assembled STL keeps the same
 // world-space poses as the viewer, including the current mechanism travel.
-export function assemblyStl(concept,motions=[],progress=[]){
+export function assemblyStl(concept,motions=[],progress=[],joints=[],jointValues=[]){
  const faces=[];
  for(const item of concept.instances){
   if(!item.placed)continue;
   const offset=bodyPose(item,motions,progress);
   for(const mesh of item.meshes)for(const face of mesh.triangles){
-   faces.push(face.map(point=>point.map((n,k)=>n+offset[k])));
+   faces.push(face.map(point=>jointPoint(point.map((n,k)=>n+offset[k]),item.bodyIndex,joints,jointValues)));
   }
  }
  return encodeSTL(faces,'Formwork assembled reference in mm');
@@ -340,6 +367,32 @@ function drawFloorGrid(canvas,box,camera,floorZ){
  ctx.restore();
 }
 
+function mechanismCard(plan,parts,mechanism,index,rotary,value,connections){
+ const m=mechanism,name=esc(m.name),number=n=>Number(n.toFixed(4));
+ const axisIndex=m.axis.findIndex((_,i)=>m.axis.every((v,k)=>k===i?Math.abs(Math.abs(v)-1)<1e-9:Math.abs(v)<1e-9));
+ const axis=axisIndex<0?'轴向 ('+m.axis.map(number).join(', ')+')':(m.axis[axisIndex]<0?'−':'+')+'XYZ'[axisIndex]+' 轴';
+ const span=rotary?`${m.minDegrees}° 至 ${m.maxDegrees}°`:`0 至 ${m.travelMm} mm`;
+ const parent=rotary?(m.parentIndex===null?'根关节':'上级：'+plan.joints[m.parentIndex].name):'直线行程';
+ const pair=connections?.[rotary?'joint':'travel']?.[index];
+ const connection=pair?`<p class="cc-link-pair" data-cc-link-from="${esc(pair.parent.id)}" data-cc-link-to="${esc(pair.child.id)}">连杆：${esc(pair.parent.label)} → ${esc(pair.child.label)}</p>`:
+  '<p class="cc-link-pair">直接连杆关系未确定</p>';
+ const members=pair?'<dt>直接装在此连杆上</dt><dd>'+esc(pair.child.bodies.map(i=>plan.bodies[i].name).join('、')||'未指定实体')+'</dd>':
+  '<dt>连接说明</dt><dd>'+esc(connections?.reason)+'</dd>';
+ const fixed=rotary?`<dt>固定端</dt><dd>${esc(plan.bodies[m.fixedBodyIndex].name)}</dd><dt>初始轴心</dt><dd>${m.pivotMm.map(number).join('，')} mm</dd>`:
+  `<dt>导向件</dt><dd>${esc(parts[m.guidePartIndex].name)}</dd>`;
+ const step=Number.isInteger(m.minDegrees)&&Number.isInteger(m.maxDegrees)?'1':'any';
+ const range=rotary?`min="${m.minDegrees}" max="${m.maxDegrees}" step="${step}" value="${value}" data-cc-joint="${index}" aria-label="${name}角度"`:
+  `min="0" max="100" value="${Math.round(value*100)}" data-cc-travel="${index}" aria-label="${name}行程"`;
+ const jog=rotary?`<span class="cc-jog"><button type="button" data-cc-jog="${index}" data-cc-delta="-5" aria-label="${name}减小5度">−</button><button type="button" data-cc-jog="${index}" data-cc-delta="5" aria-label="${name}增加5度">＋</button></span>`:'';
+ return `<section class="cc-motion-item" data-cc-mechanism="${rotary?'joint':'travel'}" data-index="${index}">
+  <div class="cc-motion-name"><strong>${name}</strong><span>${esc(parent)} · 初始${axis} · ${span}</span></div>${connection}
+  <div class="cc-motion-row"><input type="range" ${range}><output>${rotary?value+'°':''}</output>${jog}</div>
+  <button type="button" data-cc-preview-mechanism hidden>在装配中演示</button>
+  <details><summary>连接与随动件</summary><dl>${fixed}${members}<dt>驱动件</dt><dd>${esc(parts[m.actuatorPartIndex].name)}</dd>
+  <dt>随动实体（${m.movingBodyIndices.length}）</dt><dd><ul>${m.movingBodyIndices.map(i=>'<li>'+esc(plan.bodies[i].name)+'</li>').join('')}</ul></dd></dl></details>
+ </section>`;
+}
+
 export function mountConsumerCad(container,design,options={}){
  if(!container)return ()=>{};
  const allowDownloads=options.downloads!==false,declared=!!design.cadPlan?.bodies?.length;
@@ -358,9 +411,9 @@ export function mountConsumerCad(container,design,options={}){
     </div>
     <span class="cc-size" data-cc-size></span>
    </div>
-   <canvas tabindex="0" aria-label="三维装配模型。拖动或使用方向键旋转，滚轮或加减键缩放，按 0 归位。"></canvas>
+   <canvas tabindex="0" aria-label="三维装配模型。点击部件查看用途，拖动或使用方向键旋转，滚轮或加减键缩放，按 0 归位。"></canvas>
    <span class="cc-empty" data-cc-empty hidden></span>
-   <div class="cc-focus-info" data-cc-focus-info hidden><span data-cc-focus-name></span><button type="button" data-cc-reset-focus>返回装配</button></div>
+   <div class="cc-focus-info" data-cc-focus-info hidden><div class="cc-focus-copy"><strong data-cc-focus-name></strong><small data-cc-focus-kind hidden></small><p data-cc-focus-purpose hidden></p></div><button type="button" data-cc-reset-focus>返回装配</button></div>
    <div class="cc-progress" data-cc-progress data-phase="loading">
     <span class="cc-progress-mark" aria-hidden="true"><i></i><i></i><i></i></span>
     <div class="cc-progress-copy" role="status" aria-live="polite" aria-atomic="true"><strong data-cc-progress-title>正在读取模型</strong><span data-cc-progress-detail></span></div>
@@ -459,7 +512,7 @@ export function mountConsumerCad(container,design,options={}){
   <div class="cc-parts-list" data-cc-parts-list>正在读取零件…</div>
   <details class="cc-list-only" data-cc-bom-only hidden><summary>仅清单</summary><div data-cc-other-parts></div></details>
  </section>`;
- let disposed=false,concept=null,parts=[],scene=[],backdrop=[],frameScene=[],motionProgress=[],shellMeshes=null,geometry=null,activePlan=null,mode=installationView?'inside':declared?'closed':'open',yaw=-.64,pitch=.56,zoom=1,drag=null,frame=0,pendingPhase='ready',homePose={yaw,pitch},buildState=declared?'compiling':'legacy',interaction=null,wiring=null,bodyOffsets=new Map();
+ let disposed=false,concept=null,parts=[],scene=[],backdrop=[],frameScene=[],motionProgress=[],jointValues=[],shellMeshes=null,geometry=null,activePlan=null,linkConnections=null,mode=installationView?'inside':declared?'closed':'open',yaw=-.64,pitch=.56,zoom=1,drag=null,frame=0,pendingPhase='ready',homePose={yaw,pitch},buildState=declared?'compiling':'legacy',interaction=null,wiring=null,bodyOffsets=new Map();
  function emit(phase,message){
   const busy=phase==='parts'||phase==='enclosure';
   root.dataset.ccState=busy?'loading':phase==='error'?'error':'ready';
@@ -472,13 +525,14 @@ export function mountConsumerCad(container,design,options={}){
   const target=inspectionFrame.length?inspectionFrame:frameScene.length?frameScene:scene;
   const inset=selectedPart!==null ? .22 : .08;
   const camera=fitCamera(target,yaw,pitch,{x:box.width*inset,y:box.height*.15,width:box.width*(1-2*inset),height:box.height*.72});camera.scale*=zoom;raster.draw(scene,camera,backdrop);
+  options.onDrawScene?.(scene,backdrop,mode,jointValues);
   drawFloorGrid(canvas,box,camera,concept.bounds?.min[2]||0);
   interaction?.paint(camera,scene,(x,y)=>raster.pick(x,y),mode);
-  wiring?.paint(camera,{mode,hiddenParts,selectedPart,depthAt:(x,y)=>raster.depthAt(x,y),scene,backdrop,bodyOffsets});
+  wiring?.paint(camera,{mode,hiddenParts,selectedPart,depthAt:(x,y)=>raster.depthAt(x,y),scene,backdrop,bodyOffsets,joints:mode==='inside'?activePlan?.joints||[]:[],jointValues});
   if(pendingPhase){emit(pendingPhase,status.textContent);pendingPhase=null}
  }
  function schedule(){if(!frame)frame=requestAnimationFrame(paint)}
- const referenceKinds={specified:'指定型号',candidate:'选型参考',custom:'按图定制',material:'材料参考'};
+ const referenceKinds={specified:'指定型号',candidate:'选型参考',custom:'按图定制',material:'材料参考',included:'随主件附带',provided:'用户自备'};
  function hardwareDetails(row){
   const {reference,files,name}=row;
   if(!reference)return '';
@@ -509,7 +563,11 @@ export function mountConsumerCad(container,design,options={}){
    const referenceName=reference&&[...new Set(reference.items.map(item=>item.name).filter(Boolean))].join(' / ');
    const model=referenceName||part?.model||part?.metadata?.label||'';
    const files=allowDownloads&&['custom','material'].includes(reference?.kind)?items.filter(item=>Number.isInteger(item.bodyIndex)&&item.exact).map(item=>({index:item.bodyIndex,name:item.name})):[];
-   return {key,name,kind,model,reference,files,inView};
+   const source=design.parts?.[Number(key)], plan=design.cadPlan;
+   const placement=source?.placement==='loose'?'单列配件 · '+source.qty+' 件':source?.placement==='mounted'&&plan?.bodies?'已定位 '+occurrenceGroups(plan,source,Number(key)).groups.size+' / '+source.qty+' 件':'';
+   const n=Number(key),neighbors=[...new Set((design.interaction?.connections||[]).flatMap(w=>w.fromPartIndex===n?[w.toPartIndex]:w.toPartIndex===n?[w.fromPartIndex]:[]).map(i=>design.parts?.[i]?.name).filter(Boolean))];
+   const method={purchase:'采购成品',custom:'定制制作',provided:'用户自备',material:'采购材料'}[source?.kind];
+   return {key,name,kind,model,reference,files,inView,placement,purpose:[part?.purpose,method,neighbors.length?'连接：'+neighbors.join('、'):''].filter(Boolean).join(' · '),provided:part?.kind==='provided'};
   }
   const rows=[...available].map(([key,name])=>partRow(key,name,true));
   const rest=parts.filter(part=>!available.has(String(part.index))).map(part=>partRow(String(part.index),part.name,false));
@@ -518,12 +576,12 @@ export function mountConsumerCad(container,design,options={}){
    partsSignature=signature;
    const expanded=new Set([...partsPanel.querySelectorAll('.cc-hardware[open]')].map(details=>details.parentElement.dataset.ccPartRow));
    function rowMarkup(row){
-    const {key,name,kind,model,inView}=row;
-    const title=`<span>${esc(name)}${model&&model!==name?`<small class="cc-part-model">${esc(model)}</small>`:''}</span><small>${esc(kind)}</small>`;
+    const {key,name,kind,model,inView,purpose,provided}=row;
+    const title=`<span>${esc(name)}${provided?'<small class="cc-part-provided">用户自备</small>':''}${model&&model!==name?`<small class="cc-part-model">${esc(model)}</small>`:''}</span><small>${esc(kind)}${row.placement?`<br>${esc(row.placement)}`:''}</small>`;
     const header=inView
      ?`<input type="checkbox" data-cc-part="${esc(key)}" aria-label="显示${esc(name)}"><button type="button" data-cc-focus-part="${esc(key)}" aria-label="定位${esc(name)}" title="定位${esc(name)}${model?' · '+esc(model):''}">${title}</button><small data-cc-part-work="${esc(key)}"></small>`
      :`<div class="cc-part-readonly">${title}</div>`;
-    return `<div class="cc-part-entry" data-cc-part-row="${esc(key)}"><div class="cc-part">${header}</div>${hardwareDetails(row)}</div>`;
+    return `<div class="cc-part-entry" data-cc-part-row="${esc(key)}"><div class="cc-part">${header}</div>${purpose?`<p class="cc-part-purpose" data-cc-part-purpose="${esc(key)}"${inView?' hidden':''}>${esc(purpose)}</p>`:''}${hardwareDetails(row)}</div>`;
    }
    list.innerHTML=rows.length?rows.map(rowMarkup).join(''):'<p>当前视图没有可单独显示的部件。</p>';
    other.hidden=!rest.length;
@@ -538,6 +596,7 @@ export function mountConsumerCad(container,design,options={}){
    const key=button.dataset.ccFocusPart;
    button.disabled=hiddenParts.has(key);button.setAttribute('aria-pressed',String(key===selectedPart));
   });
+  list.querySelectorAll('[data-cc-part-purpose]').forEach(node=>{node.hidden=node.dataset.ccPartPurpose!==selectedPart;});
   partsPanel.querySelector('[data-cc-show-all]').disabled=!hiddenParts.size;
   refreshRowWork();
  }
@@ -554,7 +613,9 @@ export function mountConsumerCad(container,design,options={}){
   if(event.target.closest('[data-cc-show-all]')){hiddenParts.clear();updateScene();return}
   const button=event.target.closest('[data-cc-focus-part]');
   if(!button||button.disabled)return;
-  const key=button.dataset.ccFocusPart;
+  selectPart(button.dataset.ccFocusPart);
+ }
+ function selectPart(key){
   selectedPart=selectedPart===key?null:key;
   zoom=1;updateScene();
  }
@@ -604,7 +665,8 @@ export function mountConsumerCad(container,design,options={}){
     bodyOffsets.set(item.bodyIndex,offset.map((value,k)=>value-item.positionMm[k]));
     const range=motions.find(motion=>motion.movingBodyIndices.includes(item.bodyIndex));
     for(const mesh of item.prepared){
-     const animated=(mode==='closed'||mode==='inside')?interaction?.transform(mesh,offset,item.bodyIndex)||mesh:mesh;
+     const operated=(mode==='closed'||mode==='inside')?interaction?.transform(mesh,offset,item.bodyIndex)||mesh:mesh;
+     const animated=(mode==='closed'||mode==='inside')?jointMesh(operated,offset,item.bodyIndex,activePlan.joints||[],jointValues):operated;
      const instance={id:'body-'+item.bodyIndex+'-'+item.partIndex+'-'+item.copy,mesh:animated,offset};
      const endpoints=range?[{mesh,offset:item.positionMm},{mesh,offset:item.positionMm.map((v,k)=>v+range.axis[k]*range.travelMm)}]:[{mesh,offset}];
      const installed=installationBodies.has(item.bodyIndex);
@@ -629,8 +691,11 @@ export function mountConsumerCad(container,design,options={}){
      context.innerHTML=`<details class="cc-legend"><summary>内部部件 · ${unique.size} ${viewerIcon('chevron')}</summary><ul>${entries}</ul></details>`;
     }else context.textContent=mode==='references'?'这些零件尚未指定安装位置。':'';
    }
-   root.querySelectorAll('[data-cc-motion] label').forEach((label,index)=>{
-    label.hidden=!motions[index]||![...shell,...visibleItems].some(item=>!hiddenParts.has(String(item.partIndex))&&motions[index].movingBodyIndices.includes(item.bodyIndex));
+   root.querySelectorAll('[data-cc-mechanism]').forEach(card=>{
+    const mechanism=(card.dataset.ccMechanism==='joint'?activePlan.joints:activePlan.motions)[Number(card.dataset.index)];
+    const canOperate=['closed','inside'].includes(mode)&&[...shell,...visibleItems].some(item=>!hiddenParts.has(String(item.partIndex))&&mechanism.movingBodyIndices.includes(item.bodyIndex));
+    card.querySelector('.cc-motion-row').hidden=!canOperate;
+    card.querySelector('[data-cc-preview-mechanism]').hidden=canOperate;
    });
   }else if(concept.shell){
    const shell=concept.shell,lift=mode==='open'?Math.max(22,shell.baseHeight*.55):0;
@@ -655,7 +720,13 @@ export function mountConsumerCad(container,design,options={}){
   const hasGeometry=scene.length||backdrop.length;
   const focusInfo=root.querySelector('[data-cc-focus-info]');
   focusInfo.hidden=!hasGeometry||!inspectionFrame.length;
-  if(!focusInfo.hidden)focusInfo.querySelector('[data-cc-focus-name]').textContent=selectedPart!==null?available.get(selectedPart):'硬件安装区';
+  if(!focusInfo.hidden){
+   const part=selectedPart!==null?parts[Number(selectedPart)]:null;
+   focusInfo.querySelector('[data-cc-focus-name]').textContent=selectedPart!==null?available.get(selectedPart):'硬件安装区';
+   const purpose=focusInfo.querySelector('[data-cc-focus-purpose]'),kind=focusInfo.querySelector('[data-cc-focus-kind]');
+   purpose.textContent=part?.purpose||'';purpose.hidden=!purpose.textContent;
+   kind.textContent=({purchase:'购买件',custom:'定制件',material:'材料',included:'随主件附带',provided:'用户自备'})[part?.kind]||'';kind.hidden=!kind.textContent;
+  }
   empty.hidden=!!hasGeometry;
   if(!hasGeometry)empty.textContent=hiddenParts.size&&available.size?'当前视图的部件已隐藏。':mode==='inside'?'尚无已确定安装位置的内部硬件。':'当前视图没有可显示的部件。';
   root.querySelectorAll('[data-cc-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.ccMode===mode)));
@@ -676,7 +747,12 @@ export function mountConsumerCad(container,design,options={}){
   const target=root.querySelector('[data-cc-downloads]');if(!target)return;
   if(concept.declared){
    const assembly=geometry.exact?'<div class="cc-file"><div><strong>整机装配</strong><small>含全部已定位零件，按当前行程导出</small></div><button type="button" data-cc-assembly-stl aria-label="下载整机装配 STL">STL</button></div>':'';
-   target.innerHTML=assembly+geometry.bodies.map((body,index)=>{
+   const pendingMesh=!geometry.exact&&!compileFailed;
+   const urdfDetail=pendingMesh?'正在准备零位网格':geometry.exact?'关节树、行程与已确认的零位网格':'包含关节树、行程及已读取的网格';
+   const mechanism=activePlan.bodies.length===design.cadPlan.bodies.length&&(activePlan.joints?.length||activePlan.motions?.length)
+    ?'<div class="cc-file"><div><strong>运动学 URDF</strong><small>'+urdfDetail+'</small></div><button type="button" data-cc-urdf aria-label="下载运动学 URDF 工程"'+(pendingMesh?' disabled':'')+'>ZIP</button></div>':'';
+   const fabrication=geometry.exact&&design.parts.some(p=>p.kind==='custom')?'<div class="cc-file"><div><strong>委托加工包</strong><small>按定制件分组的毫米 STL、数量与加工规格，供厂商核对</small></div><button type="button" data-cc-fabrication>下载 ZIP</button></div>':'';
+   target.innerHTML=assembly+mechanism+fabrication+geometry.bodies.map((body,index)=>{
     const item=concept.instances.find(instance=>instance.bodyIndex===index),catalogPart=item?.source==='catalog';
     const label=esc(body.name),role=body.role==='printed'?'结构件':'装配参考';
     const part=parts[body.partIndex],editable=catalogPart&&hasEditableCatalogSource(part.resolvedModelId||part.modelId);
@@ -721,10 +797,10 @@ export function mountConsumerCad(container,design,options={}){
   if(concept.declared){
    const motions=activePlan.motions||[];
    const panel=root.querySelector('[data-cc-motion]');
-   panel.innerHTML=motions.map((motion,index)=>{
-    const value=motionProgress[index]||0;
-    return `<label><span>${esc(motion.name)}</span><input type="range" min="0" max="100" value="${Math.round(value*100)}" data-cc-travel="${index}" aria-label="${esc(motion.name)}行程"><output></output></label>`;
-   }).join('');
+   const joints=activePlan.joints||[];
+   panel.innerHTML=(joints.length||motions.length?'<div class="cc-motion-heading"><strong>关节控制</strong><div><button type="button" data-cc-motion-action="stop">停止</button><button type="button" data-cc-motion-action="home">回到初始姿态</button></div></div>':'')+
+    motions.map((m,i)=>mechanismCard(activePlan,parts,m,i,false,motionProgress[i]||0,linkConnections)).join('')+
+    joints.map((j,i)=>mechanismCard(activePlan,parts,j,i,true,jointValues[i]||0,linkConnections)).join('');
    motions.forEach((_,index)=>updateTravelLabel(index));
   }
   renderSources();renderDownloads();
@@ -743,7 +819,7 @@ export function mountConsumerCad(container,design,options={}){
  async function buildExact(){
   if(jobBusy||disposed)return;
   jobBusy=true;compileFailed=false;pendingComplete=false;existingGeometry=false;
-  buildState='compiling';emit('enclosure','正在准备 CAD 实体。');
+  buildState='compiling';renderDownloads();emit('enclosure','正在准备 CAD 实体。');
   try{
    const exact=await compileCadPlan(activePlan,{
     partCount:parts.length,engine:options.engine,exampleAsset:options.exampleAsset,savedCadUrl:options.savedCadUrl,baseUrl:options.baseUrl,
@@ -757,7 +833,7 @@ export function mountConsumerCad(container,design,options={}){
    if(disposed||!root.isConnected)return;
    buildState='fallback';compileFailed=true;
    geometry.notice=String(error.message||error)+' 当前保留近似形体。';
-   status.textContent=assemblyMessage();renderSources();failProgress(geometry.notice);updateScene('error');
+   status.textContent=assemblyMessage();renderSources();renderDownloads();failProgress(geometry.notice);updateScene('error');
   }finally{jobBusy=false}
  }
  async function load(){
@@ -768,9 +844,19 @@ export function mountConsumerCad(container,design,options={}){
    emit('enclosure','正在准备装配视图。');
    if(declared){
     activePlan=currentCadPlan(design);
+    if(activePlan.joints?.length||activePlan.motions?.length){
+     try{linkConnections=mechanismConnections(activePlan)}catch(error){linkConnections={reason:error.message}}
+    }
     // Removed/reindexed bodies invalidate interaction references as well as CAD.
     if(activePlan.bodies.length===design.cadPlan.bodies.length){
-     interaction=mountCadInteraction(root,design.interaction,{design,onChange:()=>updateScene()});
+     interaction=mountCadInteraction(root,design.interaction,{design,onChange:()=>updateScene(),onMotion:(snapshot,elapsed)=>{
+      const next=advanceMotionPreview(design.interaction,snapshot,activePlan,{jointValues,motionProgress},elapsed);
+      if(!next.changed)return;
+      jointValues=next.jointValues;motionProgress=next.motionProgress;
+      for(const input of root.querySelectorAll('[data-cc-joint]')){const value=jointValues[Number(input.dataset.ccJoint)]||0;input.value=String(value);input.nextElementSibling.textContent=Number(value.toFixed(1))+'°';}
+      for(const input of root.querySelectorAll('[data-cc-travel]')){const index=Number(input.dataset.ccTravel);input.value=String((motionProgress[index]||0)*100);updateTravelLabel(index);}
+      updateScene();
+     }});
      wiring=mountConsumerWiring(root,wiringModel,{parts:design.parts,onChange:schedule,onFocusPart:partIndex=>focusHardware({detail:{partIndex}})});
     }
     geometry=previewCadPlan(activePlan,parts.length);
@@ -806,12 +892,41 @@ export function mountConsumerCad(container,design,options={}){
  }
  root.onclick=async e=>{
   const button=e.target.closest('button');if(!button)return;
+  if(button.hasAttribute('data-cc-preview-mechanism')){
+   const card=button.closest('[data-cc-mechanism]');
+   const m=(card.dataset.ccMechanism==='joint'?activePlan.joints:activePlan.motions)[Number(card.dataset.index)];
+   for(const i of m.movingBodyIndices)hiddenParts.delete(String(activePlan.bodies[i].partIndex));
+   const internal=visibleAssemblyInstances(concept,'inside').some(item=>m.movingBodyIndices.includes(item.bodyIndex));
+   mode=internal?'inside':'closed';setOverview(internal);card.querySelector('input').focus({preventScroll:true});return;
+  }
+  if(button.dataset.ccMotionAction||button.dataset.ccJog!==undefined){
+   interaction?.cancel();
+   if(button.dataset.ccMotionAction==='home'){
+    jointValues=(activePlan.joints||[]).map(j=>Math.max(j.minDegrees,Math.min(j.maxDegrees,0)));
+    motionProgress=(activePlan.motions||[]).map(()=>0);motionProgress.forEach((_,i)=>updateTravelLabel(i));
+   }
+   if(button.dataset.ccJog!==undefined){const i=Number(button.dataset.ccJog),j=activePlan.joints[i];jointValues[i]=Math.max(j.minDegrees,Math.min(j.maxDegrees,(jointValues[i]||0)+Number(button.dataset.ccDelta)));}
+   for(const input of root.querySelectorAll('[data-cc-joint]')){const value=jointValues[Number(input.dataset.ccJoint)]||0;input.value=String(value);input.nextElementSibling.textContent=Number(value.toFixed(1))+'°';}
+   updateScene();return;
+  }
   if(button.hasAttribute('data-cc-retry')){if(compileFailed)buildExact();return}
   if(button.hasAttribute('data-cc-reset-focus')){setOverview(mode==='inside');return}
   if(button.dataset.ccMode){mode=button.dataset.ccMode;setOverview(mode==='inside')}
   if(button.dataset.ccCamera==='in')scale(1.2);if(button.dataset.ccCamera==='out')scale(1/1.2);if(button.dataset.ccCamera==='home')home();
   const part=button.dataset.ccDownload;if(part&&concept?.shell)download(encodeSTL(concept.shell[part],'FormBench concept enclosure; mm; no fit or manufacturing validation'),`concept-${part}-${concept.shell.sizeMm.map(n=>Number(n.toFixed(1))).join('x')}-mm.stl`,'model/stl');
-  if(button.hasAttribute('data-cc-assembly-stl')&&geometry?.exact)download(assemblyStl(concept,activePlan.motions,motionProgress),cadDownloadName(design.name+'-assembly'),'model/stl');
+  if(button.hasAttribute('data-cc-assembly-stl')&&geometry?.exact)download(assemblyStl(concept,activePlan.motions,motionProgress,activePlan.joints,jointValues),cadDownloadName(design.name+'-assembly'),'model/stl');
+  if(button.hasAttribute('data-cc-fabrication')){
+   try{const {fabricationZip}=await import('./fabrication-package.js');const bytes=fabricationZip(design,geometry);if(!disposed)download(bytes,'formbench-fabrication.zip','application/zip');}catch(error){if(!disposed)status.textContent=error.message;}return;
+  }
+  if(button.hasAttribute('data-cc-urdf')){
+   button.disabled=true;
+   try{
+    const {kinematicUrdfZip}=await import('./kinematic-urdf.js');
+    const bytes=await kinematicUrdfZip(activePlan,concept.instances,design.name);
+    if(!disposed)download(bytes,'formbench-kinematics.zip','application/zip');
+   }catch(error){if(!disposed)status.textContent=error.message||'运动学 URDF 导出失败。';}
+   finally{button.disabled=false}
+  }
   if(button.dataset.ccBodyStl!==undefined)downloadBodyStl(Number(button.dataset.ccBodyStl));
   if(button.dataset.ccBodyForge!==undefined){
    const index=Number(button.dataset.ccBodyForge),body=activePlan?.bodies[index];if(!body)return;
@@ -825,6 +940,7 @@ export function mountConsumerCad(container,design,options={}){
   }
  };
  root.oninput=e=>{
+  if(e.target.dataset.ccJoint!==undefined){const index=Number(e.target.dataset.ccJoint);jointValues[index]=Number(e.target.value);e.target.nextElementSibling.textContent=jointValues[index]+'°';updateScene();return;}
   if(e.target.dataset.ccTravel===undefined)return;
   const index=Number(e.target.dataset.ccTravel);
   motionProgress[index]=Number(e.target.value)/100;
@@ -832,8 +948,19 @@ export function mountConsumerCad(container,design,options={}){
   updateScene();
  };
  canvas.onpointerdown=e=>{if(!interaction?.pointerDown(e))drag=[e.clientX,e.clientY,yaw,pitch];canvas.setPointerCapture(e.pointerId)};
- canvas.onpointermove=e=>{if(interaction?.pointerMove(e))return;if(!drag)return;yaw=drag[2]+(e.clientX-drag[0])*.012;pitch=Math.max(-1.5,Math.min(1.5,drag[3]+(e.clientY-drag[1])*.012));schedule()};
- canvas.onpointerup=e=>{interaction?.pointerUp(e);drag=null};canvas.onpointercancel=e=>{interaction?.pointerUp(e,true);drag=null};
+ canvas.onpointermove=e=>{if(interaction?.pointerMove(e))return;if(!drag)return;if(Math.hypot(e.clientX-drag[0],e.clientY-drag[1])>4)drag[4]=true;if(!drag[4])return;yaw=drag[2]+(e.clientX-drag[0])*.012;pitch=Math.max(-1.5,Math.min(1.5,drag[3]+(e.clientY-drag[1])*.012));schedule()};
+ canvas.onpointerup=e=>{
+  interaction?.pointerUp(e);
+  const clicked=drag&&!drag[4]&&Math.hypot(e.clientX-drag[0],e.clientY-drag[1])<=4;drag=null;
+  if(!clicked)return;
+  const box=canvas.getBoundingClientRect(),id=raster.pick(e.clientX-box.left,e.clientY-box.top);
+  const match=/^body-\d+-(\d+)-/.exec(id||'')||/^part-(\d+)-/.exec(id||'');
+  if(match)selectPart(match[1]);
+  else if(id==='case'||id==='lid'){
+   const shells=parts.filter(part=>part.role==='enclosure');selectPart(shells.length===1?String(shells[0].index):'shell');
+  }
+ };
+ canvas.onpointercancel=e=>{interaction?.pointerUp(e,true);drag=null};
  const wheel=e=>{e.preventDefault();scale(Math.exp(-e.deltaY*.0018))};canvas.addEventListener('wheel',wheel,{passive:false});
  canvas.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','=','-','0'].includes(e.key))return;e.preventDefault();if(e.key==='ArrowLeft')yaw-=.12;if(e.key==='ArrowRight')yaw+=.12;if(e.key==='ArrowUp')pitch=Math.min(1.5,pitch+.12);if(e.key==='ArrowDown')pitch=Math.max(-1.5,pitch-.12);if(e.key==='+'||e.key==='=')scale(1.2);if(e.key==='-')scale(1/1.2);if(e.key==='0')home();schedule()};
  const observer=new ResizeObserver(schedule);observer.observe(canvas);load();

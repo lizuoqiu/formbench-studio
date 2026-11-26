@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>设计记录 · Formwork</title>
+  <link rel="stylesheet" href="./consumer.css"><link rel="stylesheet" href="./consumer-viewer.css">
+  <link rel="stylesheet" href="./consumer-interaction.css">
+  <style>
+    .review-main{max-width:1500px;margin:32px auto;padding:0 24px}.review-main h1{font-size:32px;margin:22px 0 12px}
+    .review-status{padding:18px 22px;background:#eef3f5;border:1px solid #dce3e8;border-radius:12px;margin:24px 0}
+    .review-status[data-state="needs-revision"],.review-status[data-state="failed"]{background:#fff8ee;border-color:#e7d2ae}
+    .review-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:24px;align-items:start}.review-grid[hidden]{display:none}
+    #review-parts{max-height:800px;overflow:auto;border:1px solid #e1e6eb;border-radius:12px;padding:16px;background:white}
+    #review-progress{margin:8px 0;color:#52677b}#review-history{margin:24px 0}#review-history details{padding:16px 0;border-bottom:1px solid #dce3e8}
+    #review-history li{line-height:1.65;margin:10px 0}.review-actions{display:flex;gap:16px;align-items:center;margin-top:14px}
+    .review-spinner{display:inline-block;width:12px;height:12px;margin-right:10px;border:2px solid #b8c8d5;border-top-color:#254b6c;border-radius:50%;animation:review-spin .8s linear infinite}
+    @keyframes review-spin{to{transform:rotate(360deg)}}@media(max-width:850px){.review-grid{grid-template-columns:1fr}#review-parts{max-height:none}}
+  </style>
+</head>
+<body><main class="review-main">
+  <a href="./">← 返回工作台</a><h1 id="review-title">设计记录</h1>
+  <section class="review-status" id="review-status"><strong id="review-label">正在读取任务</strong><p id="review-progress" role="status"></p>
+    <div class="review-actions"><a id="review-open" hidden>打开项目</a><a id="review-preview" hidden>查看当前模型</a><button class="small-button" id="review-retry" hidden>继续修订</button></div>
+  </section>
+  <p id="review-behavior" hidden></p>
+  <div class="review-grid" id="review-grid" hidden><div id="review-cad"></div><aside id="review-parts"></aside></div>
+  <section id="review-history" aria-label="迭代记录"></section>
+</main><script type="module" src="./consumer-review.js"></script></body>
+</html>

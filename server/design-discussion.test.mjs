@@ -1,4 +1,4 @@
-import {reviewedFixture} from './test-fixtures/design-review.mjs';
+import {reviewedFixture,revisionFixture} from './test-fixtures/design-review.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {design} from './design.mjs';
@@ -9,7 +9,7 @@ const sendResult=(value,check=()=>{})=>async(_url,options)=>{
  const input=JSON.parse(options.body),review=reviewedFixture(input);
  if(review)return review;
  check(input);
- return Response.json({status:'completed',model:env.OPENAI_MODEL,output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(value)}]}]});
+ return Response.json({status:'completed',model:env.OPENAI_MODEL,output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(revisionFixture(input,value))}]}]});
 };
 const decision={decision:'ask',question:'希望装置佩戴在手上，还是放在桌面？',options:['戴在手上','放在桌面']};
 const part={name:'接触面',qty:1,spec:'圆弧表面',model:'定制件',modelId:'',role:'panel',purpose:'用手轻触',sizeMm:[40,30,20],dimensionSource:'estimated',dimensionQuote:'',placement:'mounted'};
@@ -47,14 +47,15 @@ test('direct revision includes validated prior CAD and BOM, dimensions from user
  const previous={...base,deviceMotion:'stationary',parts:[{...part,unrelatedSecret:'internal metadata'}],rawResponse:'discard'};
  const updated={...base,deviceMotion:'stationary',parts:[{...part,dimensionSource:'specified',dimensionQuote:quote}]};
  const r=await response({prompt:'设备主动伸出',baseDesign:previous,conversation:history},sendResult(updated,input=>{
-  const ctx=JSON.parse(input.input);assert.equal(ctx.prompt,'设备主动伸出');
-  assert.deepEqual(ctx.baseDesign.cadPlan,base.cadPlan);assert.deepEqual(ctx.baseDesign.parts,[part]);assert.equal(ctx.baseDesign.deviceMotion,'stationary');
-  assert.deepEqual(ctx.conversation,history);assert.equal(ctx.baseDesign.rawResponse,undefined);
-  assert.match(input.instructions,/保留无关零件/);assert.equal(input.text.format.name,'hardware_design');
+  const ctx=JSON.parse(input.input[0].content),prior=JSON.parse(input.input.at(-1).content).rejectedDraft;assert.equal(ctx.prompt,'设备主动伸出');
+  assert.deepEqual(prior.cadPlan,base.cadPlan);assert.deepEqual(prior.parts,[part]);assert.equal(prior.deviceMotion,'stationary');
+  assert.deepEqual(ctx.conversation,history);assert.equal(prior.rawResponse,undefined);assert.equal(ctx.baseDesign,undefined,'the patch base is not repeated in conversation context');
+  assert.match(input.instructions,/保留无关零件/);assert.equal(input.text.format.name,'hardware_design_revision');
  }));
  assert.equal(r.status,200);const result=(await r.json()).design;
  assert.equal(result.parts[0].dimensionSource,'specified');assert.equal(result.parts[0].dimensionQuote,quote);assert.equal(result.parts[0].placement,'mounted');
  assert.equal(result.deviceMotion,'stationary');assert.deepEqual(result.cadPlan,base.cadPlan);
+ assert.equal(result.generation.assemblyRevision.mode,'incremental');assert.equal(result.generation.assemblyRevision.baseSource,'existing-design');
 });
 
 test('a suggested size in an assistant question does not become user-specified dimensional evidence',async()=>{
@@ -74,6 +75,15 @@ test('invalid history, malformed prior CAD and invalid decisions never publish a
  }
  const legacy=await readDesignRequest(req({prompt:'让它更小',baseDesign:{...base,cadPlan:null}}));
  assert.equal(legacy.baseDesign.cadPlan,undefined);
+});
+
+test('an explicit retry retains system-event evidence in the inert rejected draft',async()=>{
+ const systemEvents=[{id:'lost',label:'连接断开',kind:'connection',partIndex:0,sourcePins:['USB_DP','USB_DM'],condition:'USB detached',delayMs:null}];
+ const rejected={...base,interaction:{version:1,systemEvents,states:[],transitions:[],unrelatedMetadata:'discard'}};
+ const context=await readDesignRequest(req({prompt:'继续修复',repairCandidate:{design:rejected,issues:['补全连接恢复状态。']}}));
+ assert.deepEqual(context.repairCandidate.design.interaction.systemEvents,systemEvents);
+ assert.equal(context.repairCandidate.design.interaction.unrelatedMetadata,undefined);
+ assert.equal(context.baseDesign,null);
 });
 
 test('a revised single powered stroke follows the latest unambiguous world direction',async()=>{

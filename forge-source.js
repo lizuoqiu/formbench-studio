@@ -4,6 +4,7 @@ import {matchOled938Reference,oled938Id} from './panel-hardware-reference.js';
 import {forgeNativeFeature} from './native-features.js';
 import {forgeJointAssembly,forgeWiring,forgeWireShape,referenceWireBuilder} from './forge-joints.js';
 import {encoderElectricalPins} from './purchased-body-details.js';
+import {importedPartAnchors} from './part-records.js';
 
 const axisVectors = [[1,0,0], [0,1,0], [0,0,1]];
 const nativeFiles=new Map([
@@ -45,8 +46,8 @@ function bodyStatements(body,native,part) {
   ];
   if(native){
     const lines=native.external?[
-      '// Adafruit source STEP and matching display meshes are bundled with their licenses.',
-      '// Meshes preserve this assembly’s material groups, including EAGLE-derived plated rings.'
+      '// Source CAD and matching display meshes are included. See the bundled source records.',
+      '// Meshes preserve their original millimetre scale.'
     ]:[
       '// Embedded CC0-1.0 dimensional reference: '+native.id+' (millimetres).',
       'function catalogBoard(Param, param) {',
@@ -70,6 +71,7 @@ function bodyStatements(body,native,part) {
     lines.push(i === 0 ? 'let body = feature0;' :
       `body = ${feature.op === 'cut' ? 'difference' : 'union'}(body, feature${i});`);
   });
+  if(body.color)lines.push('body = body.color('+JSON.stringify(body.color)+');');
   const pins=encoderElectricalPins(body,part).filter(pin=>pin.supplemental);
   if(pins.length){
     lines.push('// Five electrical terminals reconstructed from the Bourns PEC11 drawing.',
@@ -123,10 +125,21 @@ export async function editableForgeSource(raw,parts,bodyIndex=null,interaction=n
     try{metadata.set(id,await getHardwareMetadata(id))}catch{/* Keep the authored features if registration is unavailable. */}
   }));
   const anchors=completeCatalogAnchors(plan.bodies,parts,p=>metadata.get(p.modelId||matchOled938Reference(p)));
+  const importedAnchors=importedPartAnchors(plan.bodies,parts);
   const natives=new Map(),assets=new Map();
   for(const [i,body] of plan.bodies.entries()){
     if(bodyIndex!==null&&i!==bodyIndex)continue;
     const part=parts[body.partIndex],id=part.modelId,anchor=anchors[i];
+    if(importedAnchors[i]&&externalAssets){
+      const model=part.importedModel,importedAnchor=importedAnchors[i],indices=importedAnchor.meshIndices;
+      const file=indices?'mesh-'+indices.join('-')+'.stl':'mesh.stl';
+      natives.set(i,{id:model.id,external:true,anchor:importedAnchor,layers:[{file,label:part.name,color:[129,156,167]}],
+        center:importedAnchor.sourceOriginMm||model.sizeMm.map(n=>n/2)});
+      let asset=externalAssets.find(a=>a.id===model.id);
+      if(!asset){asset={id:model.id,imported:model,files:[],meshes:new Map()};externalAssets.push(asset);}
+      asset.meshes.set(file,indices);
+      continue;
+    }
     if(anchor?.catalogId===oled938Id){
       if(!externalAssets){natives.set(i,{standaloneApproximation:true});continue;}
       const meta=metadata.get(oled938Id),{min,max}=meta.boundsMm;

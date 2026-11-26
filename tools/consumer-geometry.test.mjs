@@ -13,6 +13,15 @@ const part=(fields={})=>({name:'打印拳部',spec:'定制',model:'自建结构'
 const near=(a,b)=>a.forEach((v,k)=>assert.ok(Math.abs(v-b[k])<1e-5,`${a} != ${b}`));
 const volume=faces=>Math.abs(faces.reduce((sum,[a,b,c])=>sum+(a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]))/6,0));
 
+test('a streamed assembly above the former 32 MiB transport limit loads its full result',async()=>{
+ const p=plan([body('transport fixture',[feature('box',[5,4,3])])]),compiled=await compileSolid(p);
+ const encoder=new TextEncoder(),padding=encoder.encode(' '.repeat(1024*1024)+'\n');
+ let chunks=0;
+ const stream=new ReadableStream({pull(controller){if(chunks++<33)controller.enqueue(padding);else{controller.enqueue(encoder.encode(JSON.stringify({type:'result',result:compiled})+'\n'));controller.close();}}});
+ const result=await compileCadPlan(p,{baseUrl:'http://127.0.0.1/',fetcher:async()=>new Response(stream,{headers:{'Content-Type':'application/x-ndjson'}})});
+ near(meshBounds(result.bodies[0].meshes).sizeMm,[5,4,3]);assert.equal(chunks,34);
+});
+
 test('editable exports embed only the packaged board program in complete catalog anchors',async t=>{
  const {readFile}=await import('node:fs/promises');
  const seen=[];
@@ -51,11 +60,17 @@ test('a purchased part uses its complete placement box and exports the displayed
  const travel=[{axis:[0,0,1],travelMm:16,movingBodyIndices:[0]}];
  const [worldFace]=decodeSTL(assemblyStl(assembly,travel,[.5]));
  near(worldFace[0],[56,16,23]);
+ const joint={axis:[0,0,1],pivotMm:[50,20,10],movingBodyIndices:[0]};
+ const [rotatedFace]=decodeSTL(assemblyStl(assembly,travel,[.5],[joint],[90]));
+ near(rotatedFace[0],[54,26,23]);
  const split=assemble([anchor,body('输出杆',[feature('cylinder',[2,2,12])],{role:'reference'})]);
  assert.deepEqual(split.instances.map(i=>i.source),['generated','generated']);
  assert.equal(assemble([{...anchor,features:[feature('box',[12,10,4])]}]).instances[0].source,'generated');
- const copies=assemble([anchor,{...anchor,positionMm:[50,80,10]}],[{...p,qty:2}]);
+ const copies=assemble([{...anchor,instanceIndex:0},{...anchor,instanceIndex:1,positionMm:[50,80,10]}],[{...p,qty:2}]);
  assert.deepEqual(copies.instances.map(i=>i.source),['catalog','catalog']);
+ assert.deepEqual(copies.instances.map(i=>i.copy),[0,1]);
+ const unresolved=assemble([anchor,{...anchor,positionMm:[50,80,10]}],[{...p,qty:2}]);
+ assert.equal(unresolved.unplacedCount,2,'two unlabeled submeshes are not evidence of two installed units');
 });
 
 test('closed enclosure submits physical shafts to depth testing while keeping embedded reference pads inside',()=>{
@@ -83,7 +98,7 @@ test('the static built-in example reads a saved export only for the exact comple
  }
  const options={baseUrl,WorkerClass:WorkerMock,fetcher};
  const exact=await compileCadPlan(p,{...options,exampleAsset});
- assert.equal(exact.engine,cached.engine);assert.match(exact.notice,/示例保存/);assert.equal(workers,0);
+ assert.equal(exact.engine,cached.engine);assert.match(exact.notice,/已加载保存的/);assert.equal(workers,0);
  const ordinary=await compileCadPlan(p,options);
  assert.equal(ordinary.engine,'Manifold 3.5.1');assert.equal(assetReads,1);assert.equal(workers,1);
  const changed=structuredClone(p);changed.bodies[0].features[0].sizeMm[0]=7;
@@ -128,12 +143,16 @@ test('curved body preview has its declared shape, rotation and local coordinates
 });
 
 test('real kernel triangles retain cuts and the viewer adds whole-body translation once',async()=>{
- const p=plan([body('通孔试件',[feature('box',[12,10,8]),feature('box',[4,4,12],[0,0,0],'cut')])]);
+ const p=plan([body('通孔试件',[feature('box',[12,10,8]),feature('box',[4,4,12],[0,0,0],'cut')],{color:'#FAE050'})]);
  const result=await compileCadPlan(p,{baseUrl:'http://127.0.0.1:4173/',partCount:1,fetcher:async(_url,request)=>new Response(JSON.stringify(await compileSolid(JSON.parse(request.body).cadPlan)))});
  assert.equal(result.engine,'Manifold 3.5.1');assert.equal(result.exact,true);
+ assert.deepEqual(result.bodies[0].meshes[0].color,[250,224,80]);
+ assert.deepEqual(previewCadPlan(p).bodies[0].meshes[0].color,[250,224,80]);
+ assert.match(cadBodyToForgeScript(p.bodies[0]),/body\.color\("#FAE050"\)/);
  near(meshBounds(result.bodies[0].meshes).min,[-6,-5,-4]);assert.ok(Math.abs(volume(result.bodies[0].meshes[0].triangles)-832)<1e-4);
  const design={parts:[part()],cadPlan:p},parts=await resolveConsumerGeometry(design),assembly=buildDeclaredAssembly(design,parts,result);
  near(assembly.bounds.min,[24,35,46]);near(assembly.bounds.max,[36,45,54]);assert.equal(assembly.shell,null);
+ assert.deepEqual(assembly.instances[0].meshes[0].color,[250,224,80]);
  assert.equal(assembly.instances[0].role,'external');assert.ok(result.bodies[0].stlBytes.length>84);
 });
 
@@ -224,6 +243,13 @@ test('changing a purchase or dimensions invalidates only that body and exposes i
  const parts=await resolveConsumerGeometry(design),assembly=buildDeclaredAssembly(design,parts,previewCadPlan(active,2));
  assert.equal(assembly.instances.filter(item=>item.placed).length,1);assert.equal(assembly.unplacedCount,1);
  const changed=assembly.instances.find(item=>item.partIndex===0);assert.equal(changed.placed,false);near(meshBounds(changed.meshes).sizeMm,[65,46,57]);assert.match(parts[0].geometryNote,/旧形体与安装位置已撤下/);
+});
+
+test('BOM-only bulk fasteners keep their purchase quantity without consuming 3D instance slots',async()=>{
+ const p=plan([body('installed module',[feature('box',[20,10,4])],{role:'reference'})]);
+ const design={cadPlan:p,parts:[part({sizeMm:[20,10,4]}),part({name:'fasteners',qty:500,sizeMm:[3,3,8],placement:'loose',role:'external'})]};
+ const parts=await resolveConsumerGeometry(design),assembly=buildDeclaredAssembly(design,parts,previewCadPlan(p,2));
+ assert.equal(parts[1].qty,500);assert.equal(assembly.instances.length,1);assert.equal(assembly.omittedCount,500);
 });
 
 test('invalid kernel output and business errors never turn into a successful preview or download',async()=>{

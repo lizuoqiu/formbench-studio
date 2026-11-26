@@ -42,6 +42,8 @@ body[data-surface="workspace"] .studio-wordmark { display: inline; font: 700 18p
 }
 .file-actions button { display: block; width: 100%; text-align: left; border: 0; border-radius: 5px; padding: 8px 11px; background: transparent; color: #252a31; }
 .file-actions button:hover, .file-actions button:focus-visible { background: #edf3fb; }
+.file-actions #forge-connect-link:not([hidden]) { display: block; border-radius: 5px; padding: 8px 11px; text-decoration: none; color: #252a31; }
+.file-actions #forge-connect-link:hover, .file-actions #forge-connect-link:focus-visible { background: #edf3fb; }
 body[data-surface=studio] .site-band { border-color: #ffffff44; }
 body[data-surface=studio] .project-band { display: none; }
 body[data-surface=studio] .top { border-bottom: 0; }

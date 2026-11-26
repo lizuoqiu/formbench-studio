@@ -1,10 +1,10 @@
-import {initialInteraction,stepInteraction} from './interaction-model.js';
+import {initialInteraction,stepInteraction,usesHeldEvents} from './interaction-model.js';
 import {projectWorldPoint} from './mesh-renderer.js';
 
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
 const bodyId=id=>Number(/^body-(\d+)-/.exec(id||'')?.[1]??-1);
-const controlBodies=control=>control.kind==='touch'?[control.fixedBodyIndex]:control.movingBodyIndices;
+const controlBodies=control=>control.kind==='command'?[]:control.kind==='touch'?[control.fixedBodyIndex]:control.movingBodyIndices;
 const clock=value=>Math.floor(Math.max(0,value)/60).toString().padStart(2,'0')+':'+Math.floor(Math.max(0,value)%60).toString().padStart(2,'0');
 let viewerSequence=0;
 
@@ -74,23 +74,24 @@ export function interactionMesh(mesh,offset,bodyIndex,model,snapshot,gestures={}
  return {...mesh,points,projected:new Float64Array(points.length*3)};
 }
 
-export function mountCadInteraction(root,model,{design={},onChange=()=>{}}={}){
+export function mountCadInteraction(root,model,{design={},onChange=()=>{},onMotion=()=>{}}={}){
  if(!model?.controls?.length||!model?.states?.length)return null;
  const stage=root.querySelector('.cc-stage'),footer=root.querySelector('.cc-footer'),canvas=stage.querySelector('canvas');
  const overlay=document.createElement('div');overlay.className='ci-overlay';overlay.setAttribute('aria-hidden','true');
- const hint=document.createElement('p');hint.className='ci-gesture';hint.textContent='直接操作模型上的控件 · 拖动空白处转动视角';
+ const hint=document.createElement('p');hint.className='ci-gesture';hint.textContent=model.controls.some(c=>c.kind!=='command')?'可操作模型上的控件或下方控制台':'使用下方控制台试动作 · 拖动模型转动视角';
  const panel=document.createElement('section');panel.className='ci-panel';panel.setAttribute('aria-label','功能交互预览');
- panel.innerHTML=`<div class="ci-heading"><strong>试用交互</strong><output data-ci-state role="status" aria-live="polite"></output>${model.timer?'<button type="button" data-ci-finish>快进到结束</button>':''}</div><div class="ci-controls">${model.controls.map(control=>{
+ panel.innerHTML=`<div class="ci-heading"><strong>交互控制台</strong><output data-ci-state role="status" aria-live="polite"></output>${model.timer?'<button type="button" data-ci-finish>快进到结束</button>':''}</div><div class="ci-controls">${model.controls.map(control=>{
   const name=escape(control.label),id=escape(control.id);
-  if(control.kind==='turn')return `<div class="ci-control"><span>${name}</span><button type="button" data-ci-step="${id}" data-ci-delta="-1" aria-label="${name}减少">−</button><output data-ci-value="${id}"></output><button type="button" data-ci-step="${id}" data-ci-delta="1" aria-label="${name}增加">＋</button></div>`;
+  if(control.kind==='turn')return `<div class="ci-control"><span>${name}</span><button type="button" data-ci-step="${id}" data-ci-delta="${-Math.sign(control.step)}" aria-label="${name}减少">−</button><output data-ci-value="${id}"></output><button type="button" data-ci-step="${id}" data-ci-delta="${Math.sign(control.step)}" aria-label="${name}增加">＋</button></div>`;
   if(control.kind==='slide')return `<label class="ci-control"><span>${name}</span><input type="range" min="0" max="100" value="0" data-ci-slide="${id}" aria-label="${name}"><small>释放复位</small></label>`;
   return `<button type="button" class="ci-control ci-press" data-ci-press="${id}">${name}</button>`;
- }).join('')}</div><p class="ci-note">功能行为预览 · 尚未实物验证<span data-ci-feedback></span></p>`;
+ }).join('')}</div>${model.systemEvents?.length?`<details class="ci-events"><summary>模拟连接与故障</summary><p class="ci-note">查看事件发生后的响应，不模拟实际通信时延。</p><div class="ci-controls">${model.systemEvents.map(event=>`<button type="button" class="ci-control" data-ci-event="${escape(event.id)}" title="${escape(event.condition)}">${escape(event.label)}${event.kind==='timeout'?' · '+event.delayMs+' ms':''}</button>`).join('')}</div></details>`:''}<p class="ci-note">功能行为预览 · 尚未实物验证<span data-ci-feedback></span></p>`;
  stage.append(overlay,hint);footer.prepend(panel);
  const markers=new Map(),outputs=new Map(),tracks=new Map();
  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),arrow='ci-arrow-'+(++viewerSequence);
  svg.classList.add('ci-tracks');svg.innerHTML=`<defs><marker id="${arrow}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#5888a2"/></marker></defs>`;overlay.append(svg);
  for(const control of model.controls){
+  if(control.kind==='command')continue;
   // A combined turn/press knob gets one physical gesture marker.
   const key=controlBodies(control).join(',');if(markers.has(key))continue;
   const peers=model.controls.filter(c=>controlBodies(c).join(',')===key);
@@ -112,12 +113,14 @@ export function mountCadInteraction(root,model,{design={},onChange=()=>{}}={}){
  }
  let snapshot=initialInteraction(model),gestures={},camera=null,scene=[],pick=null,enabled=false,active=null,lastTick=performance.now(),poseRevision=0;
  const transformed=new WeakMap();
- const timers=new Set();
+ const timers=new Set(),heldControls=new Set();
  function renderState(){
   const state=model.states.find(state=>state.id===snapshot.stateId);
   panel.querySelector('[data-ci-state]').textContent=(state?.label||snapshot.stateId)+(model.timer?' · '+clock(snapshot.remainingSeconds):'');
   for(const element of panel.querySelectorAll('[data-ci-value]'))element.textContent=Number((snapshot.controlValues?.[element.dataset.ciValue]||0).toFixed(1))+'°';
+  for(const button of panel.querySelectorAll('[data-ci-step]')){const c=model.controls.find(c=>c.id===button.dataset.ciStep),angle=snapshot.controlValues[c.id]||0;button.disabled=Boolean(c.range&&(Number(button.dataset.ciDelta)*c.step>0?angle>=c.range.max:angle<=c.range.min));}
   const finish=panel.querySelector('[data-ci-finish]');if(finish)finish.disabled=state?.clock!=='run'||snapshot.remainingSeconds<=0;
+  for(const button of panel.querySelectorAll('[data-ci-event]'))button.disabled=!model.transitions.some(t=>t.from===snapshot.stateId&&t.event===button.dataset.ciEvent);
   panel.querySelector('[data-ci-feedback]').textContent=(model.outputs||[]).length?' · '+model.outputs.map(output=>output.label+' '+outputText(output)).join('，'):'';
   for(const {element,output} of outputs.values()){
    const mode=snapshot.outputs?.[output.id]||'off';element.dataset.mode=mode;
@@ -129,21 +132,38 @@ export function mountCadInteraction(root,model,{design={},onChange=()=>{}}={}){
   const mode=snapshot.outputs?.[output.id]||'off';
   if(mode==='remaining')return displayValue(output,design,snapshot.remainingSeconds);
   if(mode==='value')return model.timer?displayValue(output,design,snapshot.setSeconds):String(snapshot.setSeconds??0);
-  return {off:'关闭',on:'开启',breathe:'呼吸'}[mode]||mode;
+  return {off:'关闭',on:'开启',breathe:'呼吸',forward:'正向运动',reverse:'反向运动'}[mode]||mode;
  }
  function notify(){renderState();onChange(snapshot);}
- function dispatch(control,delta=1){
+ function dispatch(control,delta=1,phase){
   const now=performance.now();snapshot=stepInteraction(model,snapshot,{elapsedSeconds:(now-lastTick)/1000});lastTick=now;
-  snapshot=stepInteraction(model,snapshot,{controlId:control.id,delta});if(control.kind==='turn')poseRevision++;notify();
+  snapshot=stepInteraction(model,snapshot,{controlId:control.id,delta,...(phase?{phase}:{})});if(control.kind==='turn')poseRevision++;notify();
  }
  function pose(control,value){if((gestures[control.id]||0)===value)return;gestures={...gestures,[control.id]:value};poseRevision++;onChange(snapshot);}
  function pulse(control){pose(control,1);const timer=setTimeout(()=>{timers.delete(timer);pose(control,0)},160);timers.add(timer);}
+ function held(control,phase){
+  if(phase==='down'){if(heldControls.has(control.id))return;heldControls.add(control.id);}
+  else if(!heldControls.delete(control.id))return;
+  pose(control,phase==='down'?1:0);dispatch(control,1,phase);
+ }
+ function cancelHeld(){for(const id of [...heldControls])held(model.controls.find(c=>c.id===id),'cancel');if(active?.press)pose(active.press,0);active=null;}
  const aborter=new AbortController(),listen=(type,fn)=>panel.addEventListener(type,fn,{signal:aborter.signal});
+ const heldButton=event=>{const button=event.target.closest('[data-ci-press]'),control=button&&model.controls.find(c=>c.id===button.dataset.ciPress);return control&&usesHeldEvents(model,control)?{button,control}:null;};
+ listen('pointerdown',event=>{const item=heldButton(event);if(!item||event.button!==0)return;item.button.setPointerCapture(event.pointerId);held(item.control,'down');});
+ listen('pointerup',event=>{const item=heldButton(event);if(item)held(item.control,'up');});
+ listen('pointercancel',event=>{const item=heldButton(event);if(item)held(item.control,'cancel');});
+ listen('lostpointercapture',event=>{const item=heldButton(event);if(item)held(item.control,'cancel');});
+ listen('focusout',event=>{const item=heldButton(event);if(item)held(item.control,'cancel');});
+ listen('keydown',event=>{const item=heldButton(event);if(item&&[' ','Enter'].includes(event.key)){event.preventDefault();if(!event.repeat)held(item.control,'down');}});
+ listen('keyup',event=>{const item=heldButton(event);if(item&&[' ','Enter'].includes(event.key)){event.preventDefault();held(item.control,'up');}});
+ window.addEventListener('blur',cancelHeld,{signal:aborter.signal});
  listen('click',event=>{
   const step=event.target.closest('[data-ci-step]'),press=event.target.closest('[data-ci-press]');
   if(step){const c=model.controls.find(c=>c.id===step.dataset.ciStep);dispatch(c,Number(step.dataset.ciDelta));}
-  if(press){const c=model.controls.find(c=>c.id===press.dataset.ciPress);pulse(c);dispatch(c);}
+  if(press){const c=model.controls.find(c=>c.id===press.dataset.ciPress);if(!usesHeldEvents(model,c)){pulse(c);dispatch(c);}}
   if(event.target.closest('[data-ci-finish]')){snapshot=stepInteraction(model,snapshot,{elapsedSeconds:snapshot.remainingSeconds});notify();}
+  const system=event.target.closest('[data-ci-event]');
+  if(system&&!system.disabled){snapshot=stepInteraction(model,snapshot,{systemEventId:system.dataset.ciEvent});notify();}
  });
  listen('input',event=>{const c=model.controls.find(c=>c.id===event.target.dataset.ciSlide);if(c)pose(c,Number(event.target.value)/100)});
  listen('change',event=>{
@@ -152,12 +172,13 @@ export function mountCadInteraction(root,model,{design={},onChange=()=>{}}={}){
  });
  const interval=setInterval(()=>{
   const now=performance.now(),elapsed=(now-lastTick)/1000;lastTick=now;
+  if(enabled)onMotion(snapshot,Math.min(elapsed,.2));
   const state=model.states.find(state=>state.id===snapshot.stateId);
   if(state?.clock==='run'&&model.timer){
    const previous=snapshot;snapshot=stepInteraction(model,snapshot,{elapsedSeconds:elapsed});
    if(previous.stateId!==snapshot.stateId||Math.floor(previous.remainingSeconds)!==Math.floor(snapshot.remainingSeconds))notify();
   }
- },150);
+ },100);
  function point(event){const box=canvas.getBoundingClientRect();return [event.clientX-box.left,event.clientY-box.top]}
  function controlAt(point){
   if(!enabled||!pick)return [];
@@ -186,13 +207,14 @@ export function mountCadInteraction(root,model,{design={},onChange=()=>{}}={}){
  renderState();
  return {
   snapshot:()=>snapshot,
+  cancel:cancelHeld,
   transform(mesh,offset,index){
    const key=[index,...offset,poseRevision].join(','),cached=transformed.get(mesh);if(cached?.key===key)return cached.mesh;
    const moved=interactionMesh(mesh,offset,index,model,snapshot,gestures);transformed.set(mesh,{key,mesh:moved});return moved;
   },
   paint(nextCamera,nextScene,nextPick,mode){
    camera=nextCamera;scene=nextScene;pick=nextPick;enabled=Boolean(camera)&&(mode==='closed'||mode==='inside');
-   overlay.hidden=hint.hidden=!enabled;if(!enabled)return;
+   overlay.hidden=hint.hidden=!enabled;if(!enabled){cancelHeld();return;}
    for(const {element,indices} of markers.values())position(element,anchor(indices),true);
    for(const {element,output} of outputs.values())position(element,anchor(output.bodyIndices));
    for(const {element,control} of tracks.values()){
@@ -206,13 +228,13 @@ export function mountCadInteraction(root,model,{design={},onChange=()=>{}}={}){
    event.preventDefault();canvas.focus({preventScroll:true});
    const turn=controls.find(c=>c.kind==='turn'),slide=controls.find(c=>c.kind==='slide'),press=controls.find(c=>c.kind==='press'||c.kind==='touch');
    active={origin,turn,slide,press,steps:0,travel:0,moved:false};
-   if(press)pose(press,1);canvas.style.cursor=turn?'ew-resize':slide?'move':'pointer';return true;
+   if(press){pose(press,1);if(usesHeldEvents(model,press))held(press,'down');}canvas.style.cursor=turn?'ew-resize':slide?'move':'pointer';return true;
   },
   pointerMove(event){
    const current=point(event);
    if(!active){canvas.style.cursor=controlAt(current).length?'pointer':'';return false;}
    event.preventDefault();const dx=current[0]-active.origin[0],dy=current[1]-active.origin[1];
-   if(Math.hypot(dx,dy)>4){active.moved=true;if(active.press)pose(active.press,0);}
+   if(Math.hypot(dx,dy)>4){active.moved=true;if(active.press){pose(active.press,0);if(usesHeldEvents(model,active.press))held(active.press,'cancel');}}
    if(active.turn&&active.moved){
     const steps=Math.trunc((dx-dy)/9),delta=steps-active.steps;
     if(delta){active.steps=steps;dispatch(active.turn,delta);}
@@ -225,7 +247,7 @@ export function mountCadInteraction(root,model,{design={},onChange=()=>{}}={}){
   pointerUp(event,cancelled=false){
    if(!active)return false;
    const gesture=active;active=null;
-   if(gesture.press){pose(gesture.press,0);if(!cancelled&&!gesture.moved)dispatch(gesture.press);}
+   if(gesture.press){pose(gesture.press,0);if(usesHeldEvents(model,gesture.press))held(gesture.press,cancelled?'cancel':'up');else if(!cancelled&&!gesture.moved)dispatch(gesture.press);}
    if(gesture.slide){pose(gesture.slide,0);if(!cancelled&&gesture.travel>=.5)dispatch(gesture.slide);}
    canvas.style.cursor='';return true;
   },

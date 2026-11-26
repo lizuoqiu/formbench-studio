@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {buildAssemblyWiring} from '../assembly-wires.js';
+import {poseWireRoute} from '../consumer-wiring.js';
+import {jointPoint} from '../assembly-joints.js';
 
 const {design:v5}=JSON.parse(readFileSync(new URL('../samples/shared/reading-timer/v5.json',import.meta.url)));
 const connect=(kind,fromPartIndex,fromPin,toPartIndex,toPin)=>({kind,fromPartIndex,fromPin,toPartIndex,toPin});
@@ -13,6 +15,19 @@ const fixture=()=>({
 const sampleAnchor=(_,partIndex,pin)=>({
   bodyIndex:partIndex,localMm:[pin==='GND'?2:0,2,1],exitDirection:[0,0,1],kind:'modeled',
   evidence:'测试 CAD 针脚坐标',sourceUrl:''
+});
+
+test('reference wire terminals follow serial joints and linear offsets without changing the saved route',()=>{
+ const route={from:{bodyIndex:0},to:{bodyIndex:2},points:[[0,0,0],[0,5,0],[20,5,0],[20,0,0]]},before=structuredClone(route);
+ const joints=[{axis:[0,0,1],pivotMm:[0,0,0],parentIndex:null,movingBodyIndices:[1,2]},{axis:[0,1,0],pivotMm:[10,0,0],parentIndex:0,movingBodyIndices:[2]}];
+ const offsets=new Map([[2,[0,0,3]]]),values=[90,45],posed=poseWireRoute(route,offsets,joints,values);
+ assert.deepEqual(posed[0],[0,0,0]);jointPoint([20,0,3],2,joints,values).forEach((n,k)=>assert.ok(Math.abs(posed.at(-1)[k]-n)<1e-9));
+ assert.deepEqual(route,before);assert.deepEqual(poseWireRoute(route,new Map(),[],[]),route.points);
+ const rigid={...route,from:{bodyIndex:2}};
+ const moved=poseWireRoute(rigid,offsets,joints,values);
+ moved.forEach((point,i)=>assert.deepEqual(point,jointPoint(rigid.points[i].map((n,k)=>n+[0,0,3][k]),2,joints,values)));
+ const exploded=poseWireRoute(route,new Map([[0,[1,0,0]],[2,[0,4,0]]]));
+ assert.deepEqual(exploded[0],[1,0,0]);assert.deepEqual(exploded.at(-1),[20,4,0]);
 });
 
 test('Reading Timer V5 maps all twelve internal conductors and two USB mating contacts separately',()=>{

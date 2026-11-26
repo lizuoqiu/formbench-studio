@@ -50,6 +50,13 @@ async function pageCommand(m,s){
     all[j.id]=j;const t=await chrome.tabs.create({windowId:j.windowId,url:confirmPath()+'?batch='+j.id+'&key='+j.key,active:true});j.confirmTab=t.id;return results(j);
   });
 }
+async function readCartLine(j,line){
+  const tab=await chrome.tabs.create({windowId:j.windowId,url:'https://cart.taobao.com/cart.htm',active:false});
+  try{const until=Date.now()+9000;do{const t=await chrome.tabs.get(tab.id);if(t.status==='complete'&&t.url){const u=new URL(t.url);if(u.hostname==='login.taobao.com')return {known:false};if(u.origin==='https://cart.taobao.com'){
+    const r=await chrome.tabs.sendMessage(tab.id,{type:'FB_CART_READ_LINE',id:line.id,skuId:line.skuId},{frameId:0}).catch(()=>null);
+    if(r?.known&&r.id===line.id&&r.skuId===line.skuId&&Number.isInteger(r.qty)&&r.qty>=0)return r;
+   }}await sleep(350);}while(Date.now()<until);return {known:false};}finally{await chrome.tabs.remove(tab.id).catch(()=>{});}
+}
 async function inspect(j,index) {
   const line=j.lines[index],tab=await chrome.tabs.create({windowId:j.windowId,url:line.url,active:true}),id=tab.id;
   // Wait for the final document to load; no add request has been sent yet.
@@ -66,11 +73,15 @@ async function inspect(j,index) {
   if(u.origin!==target.origin||u.pathname!=='/item.htm'||u.searchParams.getAll('id').length!==1||u.searchParams.get('id')!==line.id||u.searchParams.getAll('skuId').length>1||(u.searchParams.has('skuId')&&u.searchParams.get('skuId')!==line.skuId))return {status:'not_confirmed',message:'未定位到指定商品或规格，请在官方页面核对。'};
   if(!line.skuId||!line.options.length)return {status:'needs_selection',message:'清单缺少确切 SKU 或规格；请在打开的官方商品页面选择并确认。'};
   // Never resend this message. Delivery without acknowledgement can already have changed the cart.
+  const before=await readCartLine(j,line);
+  if(!before.known)return {status:'not_confirmed',message:'无法从官方购物车确认此规格的原有数量，本项未加购。'};
   let timer;
   try{
     const result=await Promise.race([chrome.tabs.sendMessage(id,{type:'FORMBENCH_ADD_LINE',line},{frameId:0}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('等待页面回执超时')),38000);})]);
     if(!allowedStatus.has(result?.status))throw Error('没有可验证的页面回执');
-    return {status:result.status,message:String(result.message||'').slice(0,600)};
+    if(result.status!=='added')return {status:result.status,message:String(result.message||'').slice(0,600)};
+    const after=await readCartLine(j,line);if(!after.known||after.qty!==before.qty+line.qty)return {status:'not_confirmed',message:'商品页已提示加购，但未在购物车核对到该规格的预期数量变化。请自行核对，不要重复添加。'};
+    return {status:'added',message:'已在淘宝购物车核对规格与数量：'+before.qty+' → '+after.qty+'。',receipt:{id:line.id,skuId:line.skuId,before:before.qty,after:after.qty}};
   }finally{clearTimeout(timer);}
 }
 async function confirmCommand(m,s){

@@ -6,14 +6,16 @@ import {randomUUID} from 'node:crypto';
 const code=await readFile(new URL('../extension/background.js',import.meta.url),'utf8');
 const id=randomUUID(), item={title:'红色按钮',url:'https://item.taobao.com/item.htm?id=417&skuId=83&utm_source=test',skuId:'83',qty:2,options:['红色']},second={...item,skuId:'84',url:item.url.replace('83','84')};
 const studio={url:'https://lizuoqiu.github.io/formbench-studio/',tab:{id:3,windowId:9},id:'ext',frameId:0,documentId:'doc1'};
-function harness(replies=[]){
+function harness(replies=[],cartReads){
+  const nread=new Map();
   const created=[],sent=[],captured=[],forwarded=[],focused=[],storage={},map=new Map(),handlers=[],remove=[];
   let action;
   const chrome={action:{onClicked:{addListener:fn=>action=fn}},
     storage:{session:{get:async k=>structuredClone({[k]:storage[k]}),set:async obj=>Object.assign(storage,structuredClone(obj))}},
     runtime:{id:'ext',getURL:s=>'chrome-extension://ext/'+s,onMessage:{addListener:fn=>handlers.push(fn)}},
     tabs:{onRemoved:{addListener:fn=>remove.push(fn)},create:async p=>{const t={...p,id:10+created.length,status:'complete'};created.push(t);map.set(t.id,t);return t;},get:async i=>map.get(i),
-      update:async i=>{focused.push(i);},sendMessage:async(i,m,opt)=>{
+      remove:async i=>{map.delete(i);},update:async i=>{focused.push(i);},sendMessage:async(i,m,opt)=>{
+        if(m.type==='FB_CART_READ_LINE'){const n=nread.get(m.skuId)||0;nread.set(m.skuId,n+1);return {known:true,id:m.id,skuId:m.skuId,qty:cartReads?cartReads[n]:n*item.qty};}
         if(m.type==='FORMBENCH_ADD_LINE'){sent.push(m.line);return await (replies.shift()||{status:'not_confirmed',message:'无回执'});}
         if(m.type==='FORMBENCH_CAPTURE_LINE'){captured.push(i);return await replies.shift();}
         if(m.type==='FB_PICK_RESULT'){forwarded.push({i,m,opt});}
@@ -66,4 +68,8 @@ test('picker rejects incorrect product, incomplete variant, expired and foreign 
   await x.capture({id:40,windowId:9,active:true,url:item.url});
   assert.equal(x.forwarded[0].m.state,'error');assert.equal(x.sent.length,0);assert.equal(x.captured.length,kind==='expired'?0:1);
  }
+});
+
+test('storefront toast alone cannot confirm the cart or trigger another click',async()=>{
+ const h=harness([{status:'added'}],[3,4]);await h.msg('FB_CART_PREPARE',studio,{items:[item]});const c=h.confirmation();await h.msg('FB_EXT_APPROVE',c);const r=await h.msg('FB_EXT_NEXT',c);assert.equal(r.results[0].status,'not_confirmed');await h.msg('FB_EXT_NEXT',c);assert.equal(h.sent.length,1);
 });

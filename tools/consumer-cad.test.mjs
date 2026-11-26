@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {buildConsumerConcept,resolveConsumerGeometry} from '../consumer-cad.js';
+import {buildConsumerConcept,buildDeclaredAssembly,resolveConsumerGeometry} from '../consumer-cad.js';
 import {encodeSTL,decodeSTL} from '../assembly-hardware.js';
+import {editableForgeSource} from '../forge-source.js';
+import {importedModel,importedSubsetIssues} from '../part-records.js';
+import {MAX_CAD_BODIES,validateCadPlan} from '../cad-plan.js';
 
 const board={name:'接口板',spec:'M-1',model:'M-1',qty:1,sizeMm:[42,24,9],dimensionSource:'specified',role:'internal'};
 const panel={name:'操作按钮',spec:'P-1',model:'P-1',qty:2,sizeMm:[10,10,6],dimensionSource:'specified',role:'panel'};
@@ -62,6 +65,38 @@ test('catalog geometry keeps its native size; edited envelope does not deform it
  }finally{globalThis.fetch=previous}
 });
 
+test('declared supplier submeshes retain native dimensions and separate placements',async()=>{
+ const part={...board,index:0,qty:1,sizeMm:[12,8,10],geometryKind:'catalog'};
+ const model={id:'01234567-0123-0123-0123-012345678901',sourceModel:part.model,sourceType:'manufacturer',format:'step',sizeMm:part.sizeMm,
+  geometrySummary:{meshes:[
+   {index:0,label:'fixed case',boundsMm:[[-6,-4,-5],[6,4,1]]},
+   {index:1,label:'output',boundsMm:[[-2,-2,1],[2,2,5]]}
+  ]}};
+ part.importedModel=importedModel(model,part);
+ part.meshes=[
+  {label:'fixed case',triangles:[[[0,0,0],[12,0,6],[0,8,6]]]},
+  {label:'output',triangles:[[[4,2,6],[8,2,10],[4,6,10]]]}
+ ];
+ const body=(name,index,sizeMm,centerMm,rotationDeg=[0,0,0])=>({name,partIndex:0,role:'reference',positionMm:[0,0,0],
+  features:[{op:'add',shape:'box',sizeMm,centerMm,rotationDeg}],sourceMeshes:{instanceIndex:0,meshIndices:[index]}});
+ const fixed=body('case',0,[12,8,6],[0,0,3]),moving=body('output',1,[4,4,4],[0,0,8],[0,0,90]);
+ const bodies=[fixed,moving],cadPlan={version:1,bodies};
+ assert.deepEqual(importedSubsetIssues(bodies,part,model),[]);
+ assert.match(importedSubsetIssues([...bodies,moving],part,model)[0],/重复使用/);
+ const dimensioned={...moving,sourceMeshes:{instanceIndex:0,meshIndices:[],dimensionBasis:'source assembly drawing, detail B'},
+  features:[{...moving.features[0],shape:'cylinder'}]};
+ assert.doesNotThrow(()=>validateCadPlan({version:1,bodies:[fixed,dimensioned]},1));
+ assert.deepEqual(importedSubsetIssues([fixed,dimensioned],part,model),[]);
+ assert.match(importedSubsetIssues([dimensioned],part,model)[0],/原厂分件/);
+ const {instances}=buildDeclaredAssembly({cadPlan,parts:[part]},[part],{exact:true,bodies});
+ assert.deepEqual(instances.map(item=>item.meshes.map(mesh=>mesh.label)),[['fixed case'],['output']]);
+ assert.deepEqual(instances[1].meshes[0].triangles[0][0].map(Math.round),[2,-2,6]);
+ const externalAssets=[];
+ const source=await editableForgeSource(cadPlan,[part],null,null,null,{externalAssets});
+ assert.match(source,/mesh-0\.stl/);assert.match(source,/mesh-1\.stl/);
+ assert.deepEqual([...externalAssets[0].meshes.values()],[[0],[1]]);
+});
+
 test('changed explicit model or missing modelId never falls back to a familiar BOM name',async()=>{
  const previous=globalThis.fetch;let calls=0;globalThis.fetch=()=>{calls++;throw Error('unexpected catalog lookup')};
  try{
@@ -88,5 +123,6 @@ test('specified cylinders keep their shape and dimensions; unequal diameters are
 
 test('invalid input fails with an actionable dimension or quantity message',()=>{
  assert.throws(()=>buildConsumerConcept({parts:[{...board,sizeMm:[0,2,3]}]}),/长、宽、高/);
- assert.throws(()=>buildConsumerConcept({parts:[{...board,qty:161}]}),/160/);
+ assert.equal(buildConsumerConcept({parts:[{...board,qty:203}]}).instances.length,203);
+ assert.throws(()=>buildConsumerConcept({parts:[{...board,qty:MAX_CAD_BODIES+1}]}),new RegExp(String(MAX_CAD_BODIES)));
 });

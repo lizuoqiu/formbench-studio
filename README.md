@@ -14,11 +14,22 @@
 
 ```sh
 npm ci --prefix server
+npm ci --prefix tools
 node tools/build.mjs
 node server/local.mjs
 ```
 
-打开 <http://127.0.0.1:4173/>。GitHub Pages 提供静态用户端、示例 CAD 及浏览器加购助手。生成新设计只通过服务端的 OpenAI Responses API。本机和私有 Worker 均须配置 `OPENAI_API_KEY` 以及项目有权使用的模型 ID `OPENAI_MODEL`；缺少任一项，生成按钮显示未连接，设计接口返回 503。本机可使用被 Git 忽略的 `.env.local`，Worker 使用服务端秘密变量。网页不接触密钥。
+打开 <http://127.0.0.1:4173/>。GitHub Pages 提供静态用户端、示例 CAD 及浏览器加购助手。Mac 本机默认先用 OpenAI API，所有配置密钥均明确用尽额度才切换到本机 Codex；两者均用尽即停止。用 `FORMBENCH_ALLOW_LOCAL_CODEX=1` 启用本机接力；增加 `FORMBENCH_DEBUG=1` 可在终端与本机日志中跟踪进度。在高级选项也可以指定只用其中一种。私有 Worker 只能运行 API，需配置密钥和 `OPENAI_MODEL`。本机使用被 Git 忽略的 `.env.local`，Worker 使用服务端秘密变量。网页不接触密钥。
+
+保留主密钥 `OPENAI_API_KEY`，备用密钥依次写入 `OPENAI_API_KEY_2`、`OPENAI_API_KEY_3` 等。当前密钥明确耗尽余额、达到组织/项目支出上限或组织用量上限时，后台自动用下一把不同密钥重试当前步骤；HTTP 和生成中的流式错误都支持切换。成功后继续使用可用密钥，本机运行期间跳过已耗尽项。普通速率限制、网络、鉴权或模型权限错误不触发额度切换。所有备用密钥使用同一个 `OPENAI_MODEL` 和 `OPENAI_REASONING_EFFORT`；当前本机设为 `gpt-6.2-sol` / `max`。同组织的密钥仍共享该组织的余额或上限。
+
+修改 `.env.local` 后重启本机服务加载配置。全部密钥额度不可用时才保存并停止任务，恢复额度后用原任务的“继续”重新检查；本机重启会重建密钥状态。密钥仅用于服务端请求，任务、日志和前端不保存明文；切换日志只记录配置项名称。Cloudflare 的切换在请求内执行，不能据此声称已部署本机的持久任务。
+
+## 在本机查看机构运动
+
+打开有活动关节的项目，在装配视图中拖动关节，旁边可查看父关节、初始轴向和限位，展开可见固定端和随动实体。在「零件 CAD 文件 → 运动学 URDF」下载 ZIP，其中包含关节描述和可用的零位网格。
+
+要查看 RobotCAD 或 ROS 导出的机构，在「工程工作台 → 文件 → 查看本地 URDF…」选择展开后的 URDF。这个入口在浏览器本地加载连杆骨架，可逐轴操作并读出位置。项目自身带外壳和硬件的装配仍在项目 CAD 视图查看。
 
 ## 淘宝与项目
 

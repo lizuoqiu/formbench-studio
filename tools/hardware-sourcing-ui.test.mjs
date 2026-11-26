@@ -66,6 +66,7 @@ test('shared hardware references connect each V5 model row to its own supplier o
  assert.equal(bytes.readUInt32LE(80),Buffer.from(saved.bodies[0].stlBase64,'base64').readUInt32LE(80),'front-shell download uses its own mesh');
 
  await page.setViewportSize({width:390,height:840});
+ await page.locator('#mobile-components #model-components').waitFor({state:'attached'});
  assert.equal(await page.locator('#mobile-components #model-components').count(),1);
  assert.ok(await row(4).isVisible());
  await page.getByRole('button',{name:/零件清单/}).click();

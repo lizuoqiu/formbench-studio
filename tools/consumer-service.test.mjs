@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {serviceCapabilities,generateDesign,findProducts,makeCart,sampleDesign} from '../consumer-service.js';
+import {readDesignRequest} from '../server/design-conversation.mjs';
 
 const at=(t,href,fetcher)=>{
   const old=Object.getOwnPropertyDescriptor(globalThis,'location');
@@ -11,6 +12,17 @@ const at=(t,href,fetcher)=>{
 };
 const part={name:'红色 LED',spec:'5 mm 直插'};
 const choice={url:'https://item.taobao.com/item.htm?id=123&skuId=42',title:'测试商品',qty:2,options:['红色']};
+
+test('a complete multi-axis BOM can open and return for editing with 132 rows',async t=>{
+  const raw={name:'multi-axis test assembly',summary:'A complete assembly and supplied parts',steps:['Build the specified assembly'],parts:Array.from({length:132},(_,i)=>({name:'part '+i,model:'M'+i,qty:1,spec:'fixture part'}))};
+  at(t,'https://test.example/site/',()=>Response.json({design:raw}));
+  const design=await generateDesign('a complete multi-axis assembly');
+  assert.equal(design.parts.length,132);assert.equal(design.parts[131].model,'M131');
+  const request=()=>new Request('https://test.example/api/design',{method:'POST',body:JSON.stringify({prompt:'Revise the enclosure',baseDesign:design})});
+  assert.equal((await readDesignRequest(request())).baseDesign.parts.length,132);
+  design.parts=Array.from({length:133},()=>design.parts[0]);
+  await assert.rejects(readDesignRequest(request()),/零件或步骤无效/);
+});
 
 test('review rejection stays an error and explicit repair preserves its draft without normalizing it as a project',async t=>{
   const repairCandidate={design:{name:'未通过的草稿',parts:[{name:'轴套',qty:1}],interaction:{invalid:'intentionally rejected'}},issues:['旋钮轴心没有与固定轴套重合。']};
@@ -115,8 +127,13 @@ test('compatible browser helper confirms items individually including ones witho
   const batch=[choice,{title:'选规格',url:'https://item.taobao.com/item.htm?id=456',qty:1,options:[]}];
   const a=makeCart(batch),b=makeCart(batch);await new Promise(setImmediate);
   assert.equal(sent.filter(x=>x==='FB_CART_PREPARE').length,1);assert.equal(submitted.items[1].skuId,undefined);
-  answer(submitted,{type:'FB_CART_UPDATE',state:'finished',results:[{index:0,status:'added',message:'页面显示已成功加入购物车'},{index:1,status:'needs_selection',message:'须先确认型号'}]});
+  answer(submitted,{type:'FB_CART_UPDATE',state:'finished',results:[{index:0,status:'added',receipt:{id:'123',skuId:'42',before:3,after:5},message:'购物车已核对'},{index:1,status:'needs_selection',message:'须先确认型号'}]});
   const [one,two]=await Promise.all([a,b]);assert.equal(one.state,'partial');assert.deepEqual(one,two);assert.deepEqual(one.items.map(i=>i.status),['added','needs_selection']);assert.equal(one.verified,false);
+  for(const receipt of [undefined,{id:'123',skuId:'41',before:3,after:5},{id:'123',skuId:'42',before:3,after:4}]){
+    const pending=makeCart([choice]);await new Promise(setImmediate);
+    answer(submitted,{type:'FB_CART_UPDATE',state:'finished',results:[{index:0,status:'added',receipt}]});
+    const result=await pending;assert.equal(result.verified,false);assert.equal(result.items[0].status,'not_confirmed');
+  }
 });
 test('lost or forged helper delivery never triggers a second preparation or an API cart fallback',async t=>{
   const network=at(t,'https://example.github.io/studio/',()=>{throw Error('unexpected request')});

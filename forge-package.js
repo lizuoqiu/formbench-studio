@@ -1,4 +1,5 @@
 import {editableForgeSource} from './forge-source.js';
+import {encodeSTL} from './assembly-hardware.js';
 
 // Pack only dependencies selected by our catalog registration. A plain design
 // needs no archive or compression library and keeps its standalone source.
@@ -12,6 +13,19 @@ export async function editableForgeDownload(plan,parts,bodyIndex=null,interactio
   const encoder=new TextEncoder();
   const entries={'main.forge.js':encoder.encode(source),'forgecad.json':encoder.encode('{}\n')};
   const paths=new Set();
+  for(const asset of externalAssets.filter(a=>a.imported)){
+    const model=asset.imported,prefix='assets/hardware/'+asset.id+'/';
+    const [meshResponse,sourceResponse]=await Promise.all([fetch(model.meshUrl,{mode:'same-origin',redirect:'error'}),fetch(model.fileUrl,{mode:'same-origin',redirect:'error'})]);
+    if(!meshResponse.ok||!sourceResponse.ok)throw Error('下载的原厂模型暂不可用，请重新加载项目。');
+    const mesh=await meshResponse.json();
+    for(const [file,indices] of asset.meshes){
+      const selected=indices?indices.map(index=>mesh.meshes[index]):mesh.meshes;
+      if(selected.some(part=>!part))throw Error('原厂模型文件缺少已检查的分件。');
+      entries[prefix+file]=new Uint8Array(encodeSTL(selected.flatMap(m=>m.triangles)));
+    }
+    entries[prefix+'source.'+model.format]=new Uint8Array(await sourceResponse.arrayBuffer());
+    entries[prefix+'source.json']=encoder.encode(JSON.stringify(model,null,2));
+  }
   for(const asset of externalAssets)for(const file of asset.files){
     paths.add('assets/hardware/'+asset.id+'/'+file);
   }

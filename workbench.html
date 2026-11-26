@@ -24,6 +24,8 @@
           <button type="button" data-action="project-import">导入项目包…</button>
           <button type="button" data-action="export">导出装配项目包</button>
           <button type="button" data-action="csv">导出零件清单 CSV</button>
+          <a href="./urdf-viewer.html">查看本地 URDF…</a>
+          <a id="forge-connect-link" href="./forge-connect.html" hidden>连接 ForgeCAD</a>
         </div>
       </details>
   </div></div>
@@ -32,4 +34,4 @@
 <div class="shell">
 <main class="workspace"><h1 id="view-title" class="workspace-title">设计总览</h1>
 <div id="app" aria-live="polite"></div><noscript>请启用 JavaScript 以查看和编辑项目。</noscript></main>
-<aside class="delivery"><h2>交付状态</h2><div class="summary-card"><div class="status-top"><i></i><strong id="ready-status">待核对</strong></div><p id="next-action">核对采购、报价与组装安排后再下单。</p><div class="divider"></div><div class="srow"><span>已核对购物车</span><b id="cart-progress">待核对</b></div><div class="srow"><span>外壳加工</span><b id="quote-progress">待报价</b></div><button data-view="procurement" class="btn btn-dark">查看采购清单 <span aria-hidden="true">→</span></button></div></aside></div><script type="module" src="./app.js"></script><script type="module" src="./studio.js"></script></body></html>
+<aside class="delivery"><h2>交付状态</h2><div class="summary-card"><div class="status-top"><i></i><strong id="ready-status">待核对</strong></div><p id="next-action">核对采购、报价与组装安排后再下单。</p><div class="divider"></div><div class="srow"><span>已核对购物车</span><b id="cart-progress">待核对</b></div><div class="srow"><span>外壳加工</span><b id="quote-progress">待报价</b></div><button data-view="procurement" class="btn btn-dark">查看采购清单 <span aria-hidden="true">→</span></button></div></aside></div><script type="module" src="./app.js"></script><script type="module" src="./studio.js"></script><script type="module" src="./forge-connect.js"></script></body></html>

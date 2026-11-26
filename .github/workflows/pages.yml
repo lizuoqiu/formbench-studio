@@ -18,8 +18,8 @@ jobs:
           node-version: 22
       - run: npm ci --prefix server
       - run: npm ci --prefix tools --ignore-scripts
-      - run: node --test tools/*.test.mjs tools/product-extension.test.cjs server/*.test.mjs
       - run: node tools/build.mjs
+      - run: node --test tools/*.test.mjs tools/product-extension.test.cjs server/*.test.mjs
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

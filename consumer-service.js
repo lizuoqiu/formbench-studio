@@ -1,6 +1,9 @@
 // Browser adapter. A static deployment never forwards a prompt, login or cart to another origin.
 import {catalog as models} from './assembly-hardware.js';
 import {validateInteraction} from './interaction-model.js';
+import {hardwareReference,importedModel} from './part-records.js';
+import {runDesignJob} from './consumer-jobs.js';
+import {MAX_DESIGN_PARTS} from './cad-plan.js';
 
 const localUrl='http://127.0.0.1:4173/', cartUrl='https://cart.taobao.com/cart.htm';
 const text=(s,max=500)=>typeof s==='string'?s.trim().slice(0,max):'';
@@ -13,11 +16,11 @@ async function call(path,body,signal){
   if(isPages())throw Object.assign(Error('此静态页面未连接生成服务，请在本机打开设计工作台。'),{localUrl});
   const response=await fetch(new URL('./api/'+path,place()),{
     method:body===undefined?'GET':'POST',credentials:'same-origin',mode:'same-origin',redirect:'error',cache:'no-store',signal,
-    ...(body===undefined?{}:{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    ...(body===undefined?{}:{headers:{'Content-Type':'application/json',...(path==='design'&&body.provider?{'X-Formbench-Provider':body.provider}:{})},body:JSON.stringify(body)})
   });
   const data=await response.json().catch(()=>null);
   if(!response.ok||!data||typeof data!=='object'){
-    const error=Error(text(data?.error)||'暂时无法连接服务。');
+    const error=Object.assign(Error(text(data?.error)||'暂时无法连接服务。'),{actionRequired:data?.actionRequired,status:response.ok?503:response.status});
     const candidate=data?.repairCandidate;
     if(path==='design'&&response.status===502&&candidate?.design&&typeof candidate.design==='object'&&!Array.isArray(candidate.design)&&Array.isArray(candidate.issues)){
       const issues=candidate.issues.slice(0,12).map(issue=>text(issue,2000)).filter(Boolean);
@@ -46,7 +49,7 @@ function helperPresent(){
 export async function serviceCapabilities(){
   const fallback=capabilityFallback();
   const [ext,d]=await Promise.all([helperPresent(),isPages()?null:call('capabilities').catch(()=>null)]);
-  return {...fallback,...(d?.cadEngine==='forgecad'?{cadEngine:'forgecad'}:{}),ai:d?.ai===true,...(d?.ai===true&&d.aiProvider==='openai-api'&&d.designImages===true?{designImages:true}:{}),...(d?.ai===true&&text(d.aiModel,180)?{aiModel:text(d.aiModel,180)}:{}),...(['local-codex','openai-api'].includes(d?.aiProvider)?{aiProvider:d.aiProvider}:{}),catalog:d?.catalog===true,cart:ext?'browser':d?.cart==='official'?'official':'manual'};
+  return {...fallback,...(d?.designJobs===true?{designJobs:true}:{}),...(d?.cadEngine==='forgecad'?{cadEngine:'forgecad'}:{}),...(hereIsLocal()&&d?.shoppingWindow===true?{shoppingWindow:true}:{}),ai:d?.ai===true,...(d?.ai===true&&d.aiProvider==='openai-api'&&d.designImages===true?{designImages:true}:{}),...(d?.ai===true&&text(d.aiModel,180)?{aiModel:text(d.aiModel,180)}:{}),...(['local-codex','openai-api'].includes(d?.aiProvider)?{aiProvider:d.aiProvider}:{}),catalog:d?.catalog===true,cart:ext?'browser':d?.cart==='official'?'official':'manual'};
 }
 
 const sampleRows=[
@@ -83,9 +86,13 @@ function designPart(raw){
   const dimensionSource=sizeMm&&raw.dimensionSource==='specified'?'specified':sizeMm&&ref?'catalog':
     sizeMm&&raw.dimensionSource==='datasheet'&&reference?.kind==='datasheet-approximation'&&sourceUrl?'datasheet':'estimated';
   return {name:text(raw.name,200),spec:text(raw.spec,800),qty:raw.qty,model:text(raw.model,240)||'待选型',
+    ...(['purchase','custom','material','included','provided'].includes(raw.kind)?{kind:raw.kind}:{}),
     ...(ref&&dimensionSource==='catalog'?{modelId:ref}:{}),sizeMm,dimensionSource,
     dimensionNote:text(raw.dimensionNote,900),dimensionSourceUrl:sourceUrl,sourceUrl,
     ...(reference?{geometryReference:reference}:{}),
+    ...(hardwareReference(raw.hardwareReference)?{hardwareReference:hardwareReference(raw.hardwareReference)}:{}),
+    ...(importedModel(raw.importedModel,raw)?{importedModel:importedModel(raw.importedModel,raw)}:{}),
+    ...(raw.sourcing?{sourcing:raw.sourcing}:{}),
     ...(typeof raw.mechanicalEvidenceReceipt==='string'&&raw.mechanicalEvidenceReceipt.length<=8192?{mechanicalEvidenceReceipt:raw.mechanicalEvidenceReceipt}:{}),
     ...(['internal','panel','external','enclosure'].includes(raw.role)?{role:raw.role}:{}),
     ...(['mounted','loose'].includes(raw.placement)?{placement:raw.placement}:{}),
@@ -93,12 +100,14 @@ function designPart(raw){
     ...(['box','cylinder'].includes(raw.shape)?{shape:raw.shape}:{}),purpose:text(raw.purpose,500)};
 }
 function normalizeDesign(d){
-  if(!text(d?.name,200)||!Array.isArray(d.parts)||!d.parts.length||d.parts.length>60)throw Error('没有收到有效的硬件方案，请重新生成。');
+ if(!text(d?.name,200)||!Array.isArray(d.parts)||!d.parts.length||d.parts.length>MAX_DESIGN_PARTS)throw Error('没有收到有效的硬件方案，请重新生成。');
   const g=d.generation;
   const project=g?.skill?.project;
   const skill=g?.skill?.name?{name:text(g.skill.name,200),revision:text(g.skill.revision,150),sourceUrl:citationUrl(g.skill.sourceUrl),
     ...(project?.name==='interaction-hardware'&&text(project.revision,150)?{project:{name:project.name,revision:text(project.revision,150),sourcePath:'skills/interaction-hardware/SKILL.md'}}:{})}:null;
   const generation=g&&['openai-api','local-codex'].includes(g.provider)?{provider:g.provider,modelId:text(g.modelId,200)||null,modelSource:['response','configured'].includes(g.modelSource)?g.modelSource:'undisclosed',...(skill?{skill}:{})}:undefined;
+  if(generation&&/^\/api\/design-jobs\/[a-f0-9-]{36}\/cad\.json$/.test(g.cadUrl||''))generation.cadUrl=g.cadUrl;
+  if(generation&&g.workflow)generation.workflow=g.workflow;
   if(generation&&g.designReview?.status==='preview-reviewed'&&Array.isArray(g.designReview.checks)){
     generation.designReview=structuredClone(g.designReview);
   }
@@ -121,12 +130,19 @@ export async function discussDesign(context,signal){
   }
   throw Error('没有收到有效的设计回复，请重试。');
 }
-export async function generateDesign(prompt,{onProgress,context,signal}={}){
+export async function generateDesign(prompt,{onProgress,context,signal,iterative=false}={}){
   if(typeof prompt!=='string'||!prompt.trim()||prompt.length>10000)throw Error('请填写 1–10000 字的设计需求。');
   onProgress?.('request');
-  const data=await call('design',{...(context?{...context,action:'generate'}:{}),prompt:prompt.trim()},signal);
+  const input={...(context?{...context,action:'generate'}:{}),prompt:prompt.trim()};
+  const data=iterative?await runDesignJob(input,{call,signal,onProgress}):await call('design',input,signal);
   onProgress?.('response');
   return normalizeDesign(data.design);
+}
+export async function loadCompletedDesignJob(id){
+  if(!/^[a-f0-9-]{36}$/.test(id))throw Error('设计任务地址无效。');
+  const job=await call('design-jobs/'+id);
+  if(job.status!=='complete')throw Error(job.error||job.progress?.message||'设计任务尚未完成。');
+  return {design:normalizeDesign(job.design),prompt:text(job.prompt,10000)};
 }
 function detail(raw){
   if(!raw||typeof raw!=='object')return null;
@@ -223,8 +239,12 @@ function extensionCart(items){
       if(!['awaiting_confirmation','running','finished','cancelled','error'].includes(u.state))return;
       if(Array.isArray(u.results))for(const r of u.results){
         if(!Number.isInteger(r?.index)||r.index<0||r.index>=items.length||!outcomes.includes(r.status))continue;
-        // An explicit added result is issued only for observed marketplace feedback. A click or opened URL is not one.
-        if(progress.get(r.index)?.status!=='added')progress.set(r.index,{status:r.status,message:text(r.message,500)});
+        if(progress.get(r.index)?.status==='added')continue;
+        const item=items[r.index],receipt=r.receipt;
+        if(r.status==='added'){
+          const valid=receipt&&receipt.id===new URL(item.url).searchParams.get('id')&&item.skuId&&receipt.skuId===item.skuId&&Number.isSafeInteger(receipt.before)&&receipt.before>=0&&Number.isSafeInteger(receipt.after)&&receipt.after===receipt.before+item.qty;
+          progress.set(r.index,valid?{status:'added',receipt:{id:receipt.id,skuId:receipt.skuId,before:receipt.before,after:receipt.after},message:text(r.message,500)}:{status:'not_confirmed',message:'没有与所选商品、规格和数量一致的购物车回读，请核对后再操作。'});
+        }else progress.set(r.index,{status:r.status,message:text(r.message,500)});
       }
       if(['finished','cancelled','error'].includes(u.state))finish(u.state,text(u.message,500)||(u.state==='cancelled'?'本批次已取消。':''));
     };

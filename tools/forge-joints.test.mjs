@@ -21,6 +21,17 @@ const turn={id:'turn',label:'Turn dial',kind:'turn',fixedBodyIndex:0,movingBodyI
 const press={id:'press',label:'Press dial',kind:'press',fixedBodyIndex:0,movingBodyIndices:[1],axis:[0,0,-1],pivotMm:[20,3,7],step:1};
 const interaction={controls:[turn,press]};
 
+test('a phone command leaves the editable assembly driven by its declared robot joint',async()=>{
+  const arm={...plan,joints:[{name:'Elbow',axis:[0,0,1],pivotMm:[20,3,7],
+    minDegrees:-45,maxDegrees:60,movingBodyIndices:[1,2],fixedBodyIndex:0,actuatorPartIndex:0,parentIndex:null}]};
+  const command={id:'home',label:'Return home',kind:'command',fixedBodyIndex:null,
+    movingBodyIndices:[],axis:[],pivotMm:[],step:0,range:null};
+  const source=await editableForgeSource(arm,parts,null,{controls:[command]});
+  assert.equal(source,await editableForgeSource(arm,parts,null,null));
+  assert.match(source,/addRevolute\("1\. Elbow"/);
+  assert.match(source,/min:-45, max:60/);
+});
+
 test('native editable source keeps shared controls, dependent bodies and resting geometry',async()=>{
   const source=await editableForgeSource(plan,parts,null,interaction);
   assert.match(source,/addRevolute\(/);

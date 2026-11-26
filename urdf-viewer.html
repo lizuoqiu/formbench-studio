@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'">
+<title>URDF 运动预览 · Formwork</title><link rel="stylesheet" href="./urdf-viewer.css">
+</head>
+<body>
+<header><a class="brand" href="./">Formwork</a><a href="./workbench.html#overview">工程工作台</a></header>
+<main><h1>URDF 运动预览</h1>
+<p class="description">打开 RobotCAD 或 ROS 导出的 URDF，查看连杆、坐标轴和关节行程。视图显示运动骨架，模型文件留在本机。</p>
+<div class="actions"><label class="button">打开 URDF<input type="file" id="file" accept=".urdf,.xml"></label><label class="button secondary">选择项目文件夹<input type="file" id="folder" webkitdirectory multiple></label>
+<label id="picker" hidden>描述文件 <select id="files"></select></label></div>
+<p id="status" role="status">等待选择文件</p>
+<section id="workspace" hidden>
+<div class="heading"><h2 id="name"></h2><span id="summary"></span></div>
+<div class="layout"><div><figure>
+<canvas id="scene" width="800" height="560" aria-label="连杆骨架和所选关节的子连杆坐标系"></canvas>
+<figcaption>拖动旋转视角 · 滚轮缩放 <button id="fit" type="button">适应视图</button></figcaption>
+</figure>
+<p id="coordinates" aria-live="off"></p>
+<p class="footnote">红、绿、蓝分别表示子连杆的 X、Y、Z 轴。几何外形、碰撞与控制器不在本预览中。</p>
+</div><aside><div class="heading"><h2>关节</h2><button type="button" id="reset">复位</button></div><div id="joints"></div></aside></div>
+</section></main><script type="module" src="./assets/urdf/viewer.js"></script>
+</body></html>

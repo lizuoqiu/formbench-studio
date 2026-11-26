@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {design} from './design.mjs';
+import {candidateForModel,geometryForModel} from './model-geometry-input.mjs';
+import {revisionFixture} from './test-fixtures/design-review.mjs';
 
 const env={OPENAI_API_KEY:'fixture',OPENAI_MODEL:'fixture'};
 const part={name:'针织顶针',model:'自制触面',spec:'柔性材料',sizeMm:[18,18,20],qty:1,dimensionSource:'estimated',dimensionQuote:'',
@@ -12,18 +14,54 @@ function draft(shape){
 }
 const physical='实际打印后核对表面柔度与贴合程度。';
 function report(repair=false){
- return {requiresInteraction:false,checks:['intent','form','mechanism','control'].map(area=>({
+ return {motionRequirements:{minRotaryAxes:0,minLinearAxes:0,minSerialRotaryDepth:0},requiresInteraction:false,checks:['intent','form','mechanism','control'].map(area=>({
   area,status:area==='form'&&repair?'repair':['mechanism','control'].includes(area)?'not-applicable':'pass',
   note:area==='form'&&repair?'接触面是棱角方块，应改为所需圆弧。':'主体与需求中的被动支托一致。',
   partIndices:[0],bodyIndices:[0]})),physicalChecks:[physical]};
 }
 const completed=value=>Response.json({model:'fixture-snapshot',status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(value)}]}]});
+test('relay groups repeated part geometry and preserves installed datum coordinates in CAD order',()=>{
+ const shared={partIndex:3,sourceUrl:'https://manufacturer.example/spec',assumptions:['Solder fillets omitted']};
+ const datum={id:'axis',positionMm:[0,0,1],axis:[0,0,1],basis:'datasheet'};
+ const placed=(bodyIndex,local,positionWorldMm,axisWorld)=>({bodyIndex,...shared,datums:[{...local,positionWorldMm,axisWorld}]});
+ const geometry={status:'checked',checks:['fixture check'],reconstructedParts:[
+  placed(2,datum,[1,2,3],[0,0,1]),placed(8,datum,[4,5,6],[1,0,0]),
+  placed(9,{...datum,positionMm:[1,0,1]},[4,5,7],[1,0,0]),{bodyIndex:10,partIndex:4}]};
+ const {reconstructedParts:{models,placements},checks}=geometryForModel(geometry);
+ assert.equal(models.length,3);
+ assert.deepEqual(placements.map(p=>p.modelIndex),[0,0,1,2]);
+ assert.deepEqual(checks,geometry.checks);
+ assert.deepEqual(placements.map(({bodyIndex,modelIndex,worldDatums})=>{
+  const {datums,...model}=models[modelIndex];
+  return {bodyIndex,...model,...(datums?{datums:datums.map((local,i)=>({...local,...worldDatums[i]}))}:{})};
+ }),geometry.reconstructedParts);
+});
+test('relay review retains each CAD feature and its index without repeating field names',()=>{
+ const candidate=draft('ellipsoid'),body=candidate.cadPlan.bodies[0];
+ body.features.push({op:'cut',shape:'box',sizeMm:[3,4,5],centerMm:[0,5,0]});
+ const before=structuredClone(candidate),projected=candidateForModel(candidate);
+ assert.deepEqual(projected.cadPlan.bodies[0].features,[
+  ['add','ellipsoid',[18,18,20],[0,0,0],[0,0,0]],
+  ['cut','box',[3,4,5],[0,5,0],null]
+ ]);
+ assert.deepEqual(candidate,before);
+});
+test('an incomplete autonomous motion check cannot be promoted by a positive reviewer verdict',async()=>{
+ const {evaluateDraft}=await import('./design-review.mjs');
+ for(const status of ['unavailable','checked','not-applicable']){
+  const result=await evaluateDraft({ctx:{prompt:'A static test object',history:[],images:[]},candidate:draft('ellipsoid'),
+   geometry:{status,checks:['几何检测未完成：余下姿态未测。'],issues:[]},definitionIssues:[],previousIssues:[],
+   skill:{text:''},env,send:async()=>completed(report()),signal:new AbortController().signal,workflow:true});
+  assert.equal(result.issues.length,status==='unavailable'?1:0);
+  if(status==='unavailable')assert.match(result.issues[0],/不能发布.*余下姿态未测/);
+ }
+});
 async function run({requirements={},generate,review}){
  let generated=0,reviewed=0;const calls=[];
  const result=await design(new Request('https://example.test/api/design',{method:'POST',body:JSON.stringify({prompt:'制作贴合手指的圆面支托',...requirements})}),env,async(_,opt)=>{
   const value=JSON.parse(opt.body),type=value.text?.format?.name;calls.push(type);
   if(type==='mechanical_shortlist')return completed({parts:[]});
-  if(type==='hardware_design')return completed(generate(++generated,value));
+  if(type==='hardware_design'||type==='hardware_design_revision')return completed(revisionFixture(value,generate(++generated,value)));
   assert.equal(type,'hardware_design_review');
   const result=review(++reviewed,value);
   return result instanceof Response?result:completed(result);
@@ -46,9 +84,10 @@ test('independent review identifies a geometric defect, sends the actual rejecte
    return report(n===1);
   }});
  assert.equal(out.status,200);assert.deepEqual(seen,['box','ellipsoid']);
- assert.deepEqual(out.calls,['mechanical_shortlist','hardware_design','hardware_design_review','hardware_design','hardware_design_review']);
+ assert.deepEqual(out.calls,['mechanical_shortlist','hardware_design_revision','hardware_design_review','hardware_design_revision','hardware_design_review']);
  const receipt=out.result.design.generation.designReview;
  assert.equal(receipt.attempts,2);assert.equal(receipt.skill.name,'functional-review');assert.deepEqual(receipt.physicalChecks,[physical]);
+ assert.equal(receipt.skill.policy.name,'hardware-design-policy');assert.equal(receipt.skill.policy.stage,'review');
  assert.equal(out.result.design.cadPlan.bodies[0].features[0].shape,'ellipsoid');assert.match(receipt.correctedIssues[0],/棱角方块/);
 });
 test('static draft cannot pass an explicit programmable rotary request, even if both independent judgments say pass',async()=>{
@@ -84,6 +123,17 @@ test('bounded runtime evidence dispatches both encoder directions, button events
  const expiry=report.observations.find(e=>e.event==='timer.expired');
  assert.deepEqual(expiry.outputChanges,{led:'breathe'});assert.deepEqual(expiry.remainingSeconds,[60,0]);
  assert.deepEqual(replayInteraction(machine),report);
+});
+test('system-event replay records an injected event without claiming measured timeout performance',async()=>{
+ const {replayInteraction}=await import('./design-review.mjs');
+ const machine={controls:[{id:'go',kind:'touch'}],initialState:'idle',timer:null,
+  systemEvents:[{id:'watchdog',kind:'timeout',partIndex:0,delayMs:120}],
+  states:['idle','running','stopped'].map(id=>({id,clock:'hold',outputs:[{outputId:'motor',mode:id==='running'?'on':'off'}]})),
+  transitions:[{from:'idle',event:'go',to:'running',effect:'none'},{from:'running',event:'watchdog',to:'stopped',effect:'none'}]};
+ const report=replayInteraction(machine);assert.deepEqual(report.issues,[]);assert.deepEqual(report.visitedStates,['idle','running','stopped']);
+ const event=report.observations.find(o=>o.event==='watchdog');
+ assert.deepEqual(event.action,{systemEventId:'watchdog'});assert.deepEqual(event.outputChanges,{motor:'off'});
+ assert.equal(event.declaredDelayMs,120);assert.match(event.scope,/timing are not simulated/);
 });
 
 test('a wiring failure preserves matched board shape, USB mouth and successfully checked mechanical controls in the V4-derived review',async()=>{
@@ -127,7 +177,7 @@ test('explicit retry starts from a rejected draft and its issues and runs a fres
   return draft('ellipsoid');
  },review:()=>report()});
  assert.equal(retried.status,200);assert.equal(retried.result.design.generation.designReview.attempts,1);
- assert.deepEqual(retried.calls,['mechanical_shortlist','hardware_design','hardware_design_review']);
+ assert.deepEqual(retried.calls,['mechanical_shortlist','hardware_design_revision','hardware_design_review']);
 });
 test('a retained timer draft with a uniquely recoverable expiry alias goes straight to independent review and keeps every CAD body',async()=>{
  const {readFile}=await import('node:fs/promises');
@@ -150,4 +200,22 @@ test('a retained timer draft with a uniquely recoverable expiry alias goes strai
  assert.equal(out.result.design.generation.modelSource,'configured');assert.equal(out.result.design.generation.designReview.modelId,'fixture-snapshot');
  assert.equal(out.result.design.generation.designReview.draftSource,'retained-candidate');
  assert.equal(out.result.design.generation.designReview.normalizations[0].toEvent,'timer.expired');
+});
+
+test('a positive model verdict cannot close a failed linear drawing until the matching stroke has measured poses',async()=>{
+ const {evaluateDraft}=await import('./design-review.mjs');
+ const candidate=draft('box');
+ candidate.cadPlan.motions=[{name:'滑台升降',guidePartIndex:0,movingBodyIndices:[0]}];
+ let previous=[];
+ for(const [attempt,status] of ['failed','not-exercised','passed'].entries()){
+  const observation={name:'滑台升降',index:0,status,samples:['intermediate','extended','retracted'].map(phase=>({phase,sliderPassed:true,pose:{status}}))};
+  const result=await evaluateDraft({ctx:{prompt:'试验滑台',history:[],images:[]},candidate,
+   geometry:{status:'checked',issues:[],checks:[],compilation:{status:'compiled'},browserPreview:{status:'observed',travel:{observations:[observation]}}},
+   definitionIssues:[],previousIssues:[],skill:{text:''},env,send:async()=>completed({...report(),findings:[]}),
+   signal:new AbortController().signal,workflow:true,tracking:{attempt:attempt+1,previous,history:[],physicalValid:true,interactiveValid:true}});
+  assert.equal(result.ledger.length,1);
+  assert.equal(result.ledger[0].check,'browser-travel');
+  assert.equal(result.ledger[0].status,status==='passed'?'closed':'open');
+  previous=result.ledger;
+ }
 });

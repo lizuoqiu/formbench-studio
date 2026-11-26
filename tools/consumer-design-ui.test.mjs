@@ -142,6 +142,11 @@ test('prompt, immutable regeneration, truthful backend model receipts, old proje
       };
       const assembly=await readDownload(publicPage.locator('#download-forge'));
       await publicPage.locator('[data-cc-files] summary').click();
+      const [urdf]=await Promise.all([publicPage.waitForEvent('download'),publicPage.getByRole('button',{name:'下载运动学 URDF 工程'}).click()]);
+      assert.equal(urdf.suggestedFilename(),'formbench-kinematics.zip');
+      const zip=await readFile(await urdf.path());
+      assert.equal(zip.readUInt32LE(0),0x04034b50);
+      assert.ok(zip.includes(Buffer.from('model.urdf'))&&zip.includes(Buffer.from('meshes/body_')));
       const board=await readDownload(publicPage.getByRole('button',{name:/固定交互控制板.*可编辑模型/}));
       for(const source of [assembly,board]){
         assert.match(source,/xiao-esp32s3/);assert.match(source,/const portSolid=/);assert.match(source,/castellated/);

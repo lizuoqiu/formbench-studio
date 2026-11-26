@@ -48,6 +48,8 @@ test('review failure can repair the same new draft and revision, retain photos, 
  const prompt='按照片做一个带按钮的桌面盒，保持它的外形';
  await page.locator('#wish').fill(prompt);await page.locator('#generate').click();
  const repair=page.getByRole('button',{name:'按评审意见修订',exact:true});await repair.waitFor();
+ assert.equal(await page.getByText('活动轴与固定轴套没有对齐',{exact:false}).first().isVisible(),false);
+ await page.getByText('查看检查结果',{exact:true}).click();
  assert.match(await page.locator('#entry-conversation').innerText(),/活动轴与固定轴套没有对齐/);
  assert.equal(await page.locator('#project').isVisible(),false);assert.equal((await saved(page)).length,0);
  assert.equal(requests.length,2);assert.equal(newGenerations,1);assert.equal(await page.locator('#wish').inputValue(),prompt);
@@ -58,6 +60,8 @@ test('review failure can repair the same new draft and revision, retain photos, 
  assert.equal(await repair.count(),0);assert.equal(await page.locator('#generate').isDisabled(),true);
  assert.equal(newGenerations,2);releaseRepair();await repair.waitFor();
  assert.equal(newGenerations,2);assert.equal((await saved(page)).length,0);
+ assert.equal(await page.getByText('开孔位置不一致',{exact:false}).first().isVisible(),false);
+ await page.getByText('查看检查结果',{exact:true}).click();
  assert.match(await page.locator('#entry-conversation').innerText(),/开孔位置不一致/);
  assert.doesNotMatch(await page.locator('#entry-conversation').innerText(),/活动轴与固定轴套没有对齐/);
  assert.deepEqual(requests.at(-1),{...original,repairCandidate:first});
@@ -74,6 +78,8 @@ test('review failure can repair the same new draft and revision, retain photos, 
  assert.equal(originalRevision.baseDesign.name,approved.name);assert.equal(originalRevision.prompt,prompt);
  assert.equal(originalRevision.conversation.at(-1).text,feedback);assert.deepEqual(originalRevision.images,original.images);
  assert.equal((await saved(page)).length,1);assert.equal(await page.locator('#version-label').innerText(),'第 1 版');
+ assert.equal(await page.getByText('会碰到内部控制板',{exact:false}).first().isVisible(),false);
+ await page.getByText('查看检查结果',{exact:true}).click();
  assert.match(await page.locator('#revision-conversation').innerText(),/会碰到内部控制板/);
  await repair.click();await page.getByRole('heading',{name:'修订后通过的第二版',exact:true}).first().waitFor();
  await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)||'[]').length===2,guestKey);

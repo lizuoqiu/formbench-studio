@@ -1,4 +1,4 @@
-import {reviewedFixture} from './test-fixtures/design-review.mjs';
+import {reviewedFixture,revisionFixture} from './test-fixtures/design-review.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import {design,normalizeDesign,schema,instructions} from './design.mjs';
 const row={name:'Raspberry Pi Pico',spec:'初代 RP2040，无排针 Micro-B',qty:1,model:'Raspberry Pi Pico R3',modelId:'pico',sizeMm:[90,80,70],dimensionSource:'catalog',dimensionQuote:'',role:'internal',purpose:'控制开关'};
 const raw=p=>({name:'传感盒',summary:'采集环境读数',parts:[p],steps:['检查装配空间'],cadPlan:{version:1,bodies:[] }});
@@ -35,6 +35,8 @@ test('powered translation cannot be published with a static assembly; passive re
   assert.doesNotThrow(()=>normalizeDesign(stationary,prompt));
  }
  assert.throws(()=>normalizeDesign({...stationary,deviceMotion:'powered-linear'},'桌面互动'),/主动伸缩/);
+ assert.throws(()=>normalizeDesign({...stationary,deviceMotion:'powered-rotary'},'桌面互动'),/主动旋转/);
+ assert.throws(()=>normalizeDesign({...stationary,deviceMotion:'powered-mixed'},'桌面互动'),/主动伸缩/);
  assert.throws(()=>normalizeDesign({...stationary,summary:'设备主动伸出面板'},'桌面互动'),/主动伸缩/);
  assert.throws(()=>normalizeDesign(raw({...row,placement:'mounted'}),''),/缺少已安装零件的位置/);
  assert.doesNotThrow(()=>normalizeDesign(raw({...row,placement:'loose'}),''));
@@ -44,13 +46,13 @@ test('API returns a useful assembly diagnostic or timeout while withholding inco
  const env={OPENAI_API_KEY:'fixture',OPENAI_MODEL:'unit'}, req=()=>new Request('https://test.invalid/api/design',{method:'POST',body:JSON.stringify({prompt:'动态组件'})});
  const missing={...raw(row),deviceMotion:'powered-linear'};
  const result=await design(req(),env,async(_url,options)=>{
-  const review=reviewedFixture(JSON.parse(options.body));
-  return review||Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(missing)}]}]});
+  const input=JSON.parse(options.body),review=reviewedFixture(input);
+  return review||Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(revisionFixture(input,missing))}]}]});
  });
  assert.equal(result.status,502);
  const error=await result.json();assert.match(error.error,/主动伸缩/);assert.equal(error.design,undefined);
  const timeout=await design(req(),env,async()=>{throw new DOMException('timeout','TimeoutError');});
- assert.equal(timeout.status,504);assert.match((await timeout.json()).error,/5 分钟/);
+ assert.equal(timeout.status,504);assert.equal((await timeout.json()).retryable,true);
 });
 
 test('exact catalog identity restores an omitted model ID and rejects conflicting variants',()=>{

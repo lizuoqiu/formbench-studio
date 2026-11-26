@@ -9,6 +9,20 @@ const plan={version:1,bodies:[
   body([feature('add','box',[12,10,8]),feature('cut','box',[4,4,12])]),
   body([feature('add','ellipsoid',[8,10,6],[3,4,5]),feature('add','cylinder',[3,3,8],[3,4,5])],{name:'曲面和圆柱',role:'reference'})]};
 const req=p=>new Request('http://127.0.0.1/api/forge/plan',{method:'POST',body:JSON.stringify(p)});
+test('CAD compilation and preview accept the final BOM row while explicit counts remain bounded',async()=>{
+  const {MAX_DESIGN_PARTS,validateCadPlan}=await import('../cad-plan.js');
+  const {previewCadPlan}=await import('../consumer-geometry.js');
+  const last=MAX_DESIGN_PARTS-1;
+  const cadPlan={version:1,bodies:[body([feature('add','box',[4,6,8])],{partIndex:last})]};
+  assert.equal(previewCadPlan(cadPlan).bodies[0].partIndex,last);
+  assert.throws(()=>validateCadPlan(cadPlan,last));
+  assert.throws(()=>previewCadPlan(cadPlan,last));
+  const response=await forgePlan(req({cadPlan})),result=await response.json();
+  assert.equal(response.status,200,JSON.stringify(result));
+  assert.equal(result.bodies[0].partIndex,last);
+  assert.ok(Math.abs(summary(result.bodies[0].stlBase64).volume-192)<1e-6);
+  assert.equal((await forgePlan(req({cadPlan:{version:1,bodies:[{...cadPlan.bodies[0],partIndex:MAX_DESIGN_PARTS}]}}))).status,400);
+});
 function summary(data){
   const b=Buffer.from(data,'base64'),n=b.readUInt32LE(80);assert.equal(b.length,84+n*50);
   const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];let vol=0;
@@ -80,6 +94,20 @@ test('the selected CLI receives separate generated parts and its binary STL reac
     assert.deepEqual(result.bodies.map(b=>b.role),['printed','reference']);
     assert.equal(new Set(result.bodies.map(b=>b.fileName)).size,2);
     assert.equal(Buffer.from(result.bodies[1].stlBase64,'base64').length,134);
+    await writeFile(bin,program.replace('const bytes=Buffer.alloc(134);',
+      "if(args[2].endsWith('part-2.forge.js')){fs.writeFileSync(args[4],Buffer.alloc(84));process.exit(0)} const bytes=Buffer.alloc(134);"),{mode:0o700});
+    const failed=await forgePlan(req({cadPlan:plan}),env),error=await failed.json();
+    assert.equal(failed.status,422);assert.equal(error.bodies,undefined);
+    assert.match(error.error,/实体 #1「曲面和圆柱」（BOM #0）.*实体为空/);
+    await writeFile(bin,program.replace('const bytes=Buffer.alloc(134);','const bytes=Buffer.alloc(84+50000*50);').replace('bytes.writeUInt32LE(1,80);','bytes.writeUInt32LE(50000,80);'),{mode:0o700});
+    const largePlan={version:1,bodies:Array.from({length:15},(_,i)=>({...plan.bodies[0],name:'Dense fixture '+i}))};
+    const largeResponse=await forgePlan(req({cadPlan:largePlan}),env),large=await largeResponse.json();
+    assert.equal(largeResponse.status,200,large.error);assert.equal(large.bodies.length,15);
+    assert.ok(JSON.stringify(large).length>32*1024*1024);
+    assert.ok(JSON.stringify(large).length<144*1024*1024);
+    const tooLarge={version:1,bodies:Array.from({length:41},(_,i)=>({...plan.bodies[0],name:'Dense fixture '+i}))};
+    const oversized=await forgePlan(req({cadPlan:tooLarge}),env),oversizedResult=await oversized.json();
+    assert.equal(oversized.status,422);assert.match(oversizedResult.error,/整机网格总量超出 96 MiB/);assert.equal(oversizedResult.bodies,undefined);
   } finally {await rm(dir,{recursive:true,force:true})}
 });
 

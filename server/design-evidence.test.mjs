@@ -1,4 +1,4 @@
-import {reviewedFixture} from './test-fixtures/design-review.mjs';
+import {reviewedFixture,revisionFixture} from './test-fixtures/design-review.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {design} from './design.mjs';
@@ -20,7 +20,7 @@ async function run({request={},rows=[cited],sources=[url,file],candidates=[chose
   calls.push(data);
   if(data.text?.format?.name==='mechanical_shortlist')return completed({parts:candidates});
   if(data.tools)return fail?Response.json({}, {status:503}):completed({parts:rows},[{type:'web_search_call',status:'completed',action:{type:'search',sources:sources.map(url=>({url}))}}]);
-  return completed(final);
+  return completed(revisionFixture(data,final));
  });
  assert.equal(result.status,200);
  return {calls,design:(await result.json()).design};
@@ -34,8 +34,8 @@ test('sources reach the model before CAD on initial and revised designs; public 
   assert.deepEqual(JSON.parse(calls[1].input),[{manufacturer:'Pololu',mpn:'U3V16F6'}]);
   assert.deepEqual(calls[1].tools,[{type:'web_search',filters:{allowed_domains:['pololu.com']}}]);
   assert.doesNotMatch(JSON.stringify(calls[1]),/不公开|未发表项目|data:image/);
-  assert.equal(calls[2].text.format.name,'hardware_design');
-  const data=JSON.parse(calls[2].input.at(-1).content);
+  assert.equal(calls[2].text.format.name,request.baseDesign?'hardware_design_revision':'hardware_design');
+  const data=calls[2].input.map(message=>{try{return JSON.parse(message.content);}catch{return {};}}).find(message=>message.mechanicalResearch);
   assert.equal(data.mechanicalResearch.sources[0].sourceQuote,cited.sourceQuote);
   assert.ok(!calls[2].instructions.includes(cited.sourceQuote));
   assert.deepEqual(d.generation.mechanicalResearch,{status:'searched',requested:1,found:1});
@@ -103,7 +103,7 @@ test('signed 2226 partial evidence survives a revised BOM, different shortlist a
  assert.deepEqual(next.design.generation.mechanicalResearch,{status:'searched',requested:1,found:1,inherited:1});
  assert.notEqual(result.mechanicalEvidenceReceipt,proof);
  assert.ok(!JSON.stringify(next.calls).includes(proof));assert.ok(!JSON.stringify(next.calls).includes('mechanicalEvidenceReceipt'));
- assert.ok(JSON.parse(next.calls[2].input.at(-1).content).mechanicalResearch.sources.some(r=>r.model==='Adafruit 2226'));
+ assert.ok(next.calls[2].input.map(message=>{try{return JSON.parse(message.content);}catch{return {};}}).find(message=>message.mechanicalResearch).mechanicalResearch.sources.some(r=>r.model==='Adafruit 2226'));
  const third=await run({request:{baseDesign:next.design},candidates:[],final:revised});
  assert.equal(third.design.parts[0].geometryReference.sourceUrl,product);
  const changed=await run({request:{baseDesign:first},candidates:[],final:{...assembly,parts:[{...row,spec:'已焊排针版本'}]}});

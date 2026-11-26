@@ -7,10 +7,11 @@ import {delimiter,dirname,isAbsolute,join,resolve} from 'node:path';
 import {promisify} from 'node:util';
 import {cadBodyToForgeScript} from '../forge-source.js';
 import {cadBodyProgress} from '../cad-plan.js';
+import {MAX_ASSEMBLY_STL_BYTES} from '../cad-limits.js';
 
 const run = promisify(execFile);
 export const researchVersion = '0.8.2';
-const maxBytes = 12 * 1024 * 1024;
+const maxBytes = MAX_ASSEMBLY_STL_BYTES;
 const failure = (message,status) => Object.assign(new Error(message),{status});
 
 export function forgeMode(env) {
@@ -54,8 +55,9 @@ export function configuredForgeEngine(env={}) {
 
 async function readExport(file,remaining) {
   const size = (await stat(file)).size;
-  if (size < 134 || size > remaining || size > 84+50*65000)
-    throw failure('ForgeCAD 导出的实体为空或超出允许的网格大小。',422);
+  if (size < 134) throw failure('ForgeCAD 导出的实体为空；请检查切削是否完全消除了该实体。',422);
+  if (size > remaining) throw failure(`整机网格总量超出 ${maxBytes/1024/1024} MiB；请降低非配合曲面的离散精度并保留所需零件。`,422);
+  if (size > 84+50*65000) throw failure('此实体网格超出 65,000 个三角面的上限。',422);
   const data = await readFile(file);
   const n = data.readUInt32LE(80);
   if (n === 0 || data.length !== 84+n*50) throw failure('ForgeCAD 导出的二进制 STL 无效。',502);
@@ -69,9 +71,9 @@ async function readExport(file,remaining) {
 
 export async function compileWithForge(plan,env,mode,requestSignal,onProgress) {
   const binary = env.FORGECAD_BIN || 'forgecad';
-  const deadline = AbortSignal.timeout(80_000);
+  const deadline = AbortSignal.timeout(Math.max(80_000,plan.bodies.length*4000));
   const signal = AbortSignal.any([requestSignal,deadline]);
-  let dir;
+  let dir,currentBody='';
   try {
     dir = await mkdtemp(join(tmpdir(),'formbench-forge-plan-'));
     await writeFile(join(dir,'forgecad.json'),'{}');
@@ -90,6 +92,7 @@ export async function compileWithForge(plan,env,mode,requestSignal,onProgress) {
     let remaining = maxBytes;
     for (const [i,body] of plan.bodies.entries()) {
       signal.throwIfAborted();
+      currentBody=`实体 #${i}「${body.name}」（BOM #${body.partIndex}）：`;
       onProgress?.(cadBodyProgress(plan,i,'start'));
       const fileName = `part-${body.partIndex+1}-body-${i+1}.stl`;
       const source = join(dir,`part-${i+1}.forge.js`), output = join(dir,fileName);
@@ -105,11 +108,11 @@ export async function compileWithForge(plan,env,mode,requestSignal,onProgress) {
   } catch(e) {
     if (requestSignal.aborted) throw failure('已取消 ForgeCAD 编译。',408);
     if (deadline.aborted) throw failure('ForgeCAD 编译超时，请减少实体特征后重试。',504);
-    if (e.status) throw e;
+    if (e.status) {e.message=currentBody+e.message;throw e;}
     if (/not (?:logged|signed) in|log[ -]?in required|please (?:log|sign) in|forgecad login|requires authentication/i.test(String(e.stderr)))
       throw failure('ForgeCAD CLI 需要登录。请先使用本机 ForgeCAD 账户登录，再重新计算。',503);
     if (e.code === 'ENOENT') throw failure('找不到 ForgeCAD 可执行文件或预期的 STL 输出，请检查本机安装。',503);
-    throw failure('ForgeCAD 无法完成实体导出，请检查设计特征与本机运行配置。',422);
+    throw failure(currentBody+'ForgeCAD 无法完成实体导出，请检查设计特征与本机运行配置。',422);
   } finally {
     if (dir) await rm(dir,{recursive:true,force:true});
   }

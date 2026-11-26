@@ -1,7 +1,10 @@
-import {validateCadPlan} from '../cad-plan.js';
+import {deviceMotionTypes,validMotionRequirements} from './design-architecture.mjs';
+import {MAX_DESIGN_PARTS,validateCadPlan} from '../cad-plan.js';
 import {validateInteraction} from '../interaction-model.js';
+import {hardwareReference,importedModel} from '../part-records.js';
 
 export const maxDesignRequestBytes=2*1024*1024;
+export const maxDesignSteps=80;
 const encoder=new TextEncoder();
 const isObject=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const nonempty=(value,max)=>typeof value==='string'&&value.trim().length>0&&value.length<=max;
@@ -30,14 +33,14 @@ function readImages(images=[]){
 
 function previousDesign(raw){
  if(!isObject(raw)||!nonempty(raw.name,200)||!nonempty(raw.summary,5000)||
-    !Array.isArray(raw.parts)||!raw.parts.length||raw.parts.length>60||
-    !Array.isArray(raw.steps)||raw.steps.length>60||!raw.steps.every(step=>nonempty(step,2000)))
+    !Array.isArray(raw.parts)||!raw.parts.length||raw.parts.length>MAX_DESIGN_PARTS||
+    !Array.isArray(raw.steps)||raw.steps.length>maxDesignSteps||!raw.steps.every(step=>nonempty(step,2000)))
   throw new DesignInputError('上一版设计的名称、简介、零件或步骤无效。');
  const parts=raw.parts.map((part,index)=>{
   if(!isObject(part)||!nonempty(part.name,200)||!Number.isInteger(part.qty)||part.qty<1||part.qty>999)
    throw new DesignInputError('上一版设计的第 '+(index+1)+' 个零件缺少有效的名称或数量。');
   const result={name:part.name,qty:part.qty};
-  for(const [field,max] of Object.entries({spec:800,model:240,modelId:200,role:24,purpose:500,placement:12,shape:24,dimensionSource:20,dimensionNote:900,dimensionQuote:500,dimensionSourceUrl:4096})){
+  for(const [field,max] of Object.entries({spec:800,model:240,modelId:200,kind:24,role:24,purpose:500,placement:12,shape:24,dimensionSource:20,dimensionNote:900,dimensionQuote:500,dimensionSourceUrl:4096})){
    if(part[field]==null)continue;
    if(typeof part[field]!=='string'||part[field].length>max)throw new DesignInputError('上一版零件信息无效。');
    result[field]=part[field];
@@ -48,12 +51,15 @@ function previousDesign(raw){
    result.sizeMm=part.sizeMm;
   }
   if(part.modelSourceInvalidated===true)result.modelSourceInvalidated=true;
+  const source=hardwareReference(part.hardwareReference),model=importedModel(part.importedModel,part);
+  if(source&&!part.modelSourceInvalidated)result.hardwareReference=source;
+  if(model)result.importedModel=model;
   if(nonempty(part.mechanicalEvidenceReceipt,8192))result.mechanicalEvidenceReceipt=part.mechanicalEvidenceReceipt;
   return result;
  });
  const base={name:raw.name,summary:raw.summary,parts,steps:raw.steps};
  if(raw.deviceMotion!=null){
-  if(!['stationary','powered-linear','other'].includes(raw.deviceMotion))throw new DesignInputError('上一版设计的动作类型无效。');
+  if(!deviceMotionTypes.includes(raw.deviceMotion))throw new DesignInputError('上一版设计的动作类型无效。');
   base.deviceMotion=raw.deviceMotion;
  }
  if(raw.cadPlan!=null){
@@ -77,7 +83,7 @@ function readRepairCandidate(raw){
  const model=raw.design.interaction;
  if(model!=null){
   if(!isObject(model)||encoder.encode(JSON.stringify(model)).length>160000)throw new DesignInputError('续修交互草稿格式无效。');
-  design.interaction=Object.fromEntries(['version','controllerPartIndex','controls','outputs','connections','terminals','signalChannels','timer','initialState','states','transitions']
+  design.interaction=Object.fromEntries(['version','controllerPartIndex','controls','systemEvents','outputs','connections','terminals','signalChannels','timer','initialState','states','transitions']
     .filter(k=>Object.hasOwn(model,k)).map(k=>[k,model[k]]));
  }
  return {design,issues:raw.issues.map(s=>s.trim())};
@@ -100,7 +106,8 @@ export async function readDesignRequest(request){
   throw new DesignInputError('讨论记录超过本次请求上限。',413);
  if(!Number.isInteger(discussionStart)||discussionStart<0||discussionStart>history.length)
   throw new DesignInputError('本轮讨论的起始位置无效。');
- return {action,prompt:prompt.trim(),history,discussionStart,images:readImages(body.images),repairCandidate:readRepairCandidate(body.repairCandidate),baseDesign:body.baseDesign==null?null:previousDesign(body.baseDesign)};
+ const priorMinimum=body.baseDesign?.generation?.designReview?.motion?.required;
+ return {action,prompt:prompt.trim(),history,discussionStart,...(validMotionRequirements(priorMinimum)?{previousMotionRequirements:priorMinimum}:{}),images:readImages(body.images),repairCandidate:readRepairCandidate(body.repairCandidate),baseDesign:body.baseDesign==null?null:previousDesign(body.baseDesign)};
 }
 
 export const ready=()=>({decision:'ready',question:'',options:[]});
@@ -110,7 +117,7 @@ export const discussionSchema={
 };
 export const discussionInstructions=`你是与用户共同设计可触摸硬件的设计师。读原始需求、之前的提问回答、已有方案以及最新意见。判断现在是否可以着手生成或修改。用户可以随时直接开始，也可以随时改变之前的决定；后来明确的意见优先。
 只有两种都合理、但会明显改变用户如何使用或体验成品的方向尚未确定时，才返回 ask。用自然中文只问一个普通使用者能回答的问题，可以给 0–3 个简短、彼此不同的具体选项，也允许自由回答。不要让使用者选电机型号、接线、制造流程。不要重问已回答或用户已交由你决定的问题。用户已经说清动作、交互方式或修改目标，或者希望先按目前设想试做时，返回 ready，question 留空，options 为空数组。这个阶段只讨论影响体验的选择。`;
-export const revisionInstructions=`这是一项连续设计任务。按原始需求和历次讨论理解目标，后来明确的用户意见优先。助手提出的备选项并不代表用户已经选择。若给出 baseDesign，以上一版完整 BOM、实体、运动关系、毫米尺寸和装配位置为起点。对于局部修改，保留无关零件的型号、尺寸、位置、特征和顺序，仅更新相关实体和必要的关联部件；增删零件后校正所有 BOM/body 索引。modelSourceInvalidated=true 代表原有尺寸或型号后来变更，按当前值重新确定该件的 CAD。始终返回一份完整、相互一致的新版设计。用户给出的尺寸可引用原始需求或后续用户发言。`;
+export const revisionInstructions=`这是一项连续设计任务。按原始需求和历次讨论理解目标，后来明确的用户意见优先。助手提出的备选项并不代表用户已经选择。若给出 baseDesign，以上一版完整 BOM、实体、运动关系、毫米尺寸和装配位置为起点。对于局部修改，保留无关零件的型号、尺寸、位置、特征和顺序，仅更新相关实体和必要的关联部件；增删零件后校正所有 BOM/body 索引。modelSourceInvalidated=true 代表原有尺寸或型号后来变更，按当前值重新确定该件的 CAD。已有设计一律通过 hardware_design_revision 增量操作修改，不重新输出整份设计；后台应用操作后对完整新版重新验证，索引和关联关系必须一致。用户给出的尺寸可引用原始需求或后续用户发言。`;
 
 export const photoInstructions='用户附上产品或标尺照片。用照片辨认外形、接口位置、安装朝向和相对比例。只有看得清刻度、测量平面且无明显透视误差时才可作粗略尺寸参考，并标为估算。仅将用户明确提供的尺寸作为指定尺寸。隐藏面、深度和公差没有依据时，在必要处询问或标明待核对。';
 export function projectDesignForModel(base){

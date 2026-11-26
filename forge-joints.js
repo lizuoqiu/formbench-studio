@@ -6,10 +6,11 @@ const vector=value=>Array.isArray(value)&&value.length===3&&value.every(Number.i
 
 function jointOperations(plan,interaction){
   const operations=[];
+  for(const j of plan.joints||[])operations.push({label:j.name,turn:true,axis:j.axis,pivot:j.pivotMm,min:j.minDegrees,max:j.maxDegrees,bodies:j.movingBodyIndices});
   // The web preview applies the input transformations successively in world
   // coordinates. Forge composes parent * child, so the last input is outermost.
   for(const control of [...(interaction?.controls||[])].reverse()){
-    if(control.kind==='touch')continue;
+    if(control.kind==='touch'||control.kind==='command')continue;
     const turn=control.kind==='turn';
     if((!turn&&!['press','slide'].includes(control.kind))||
        !vector(control.axis)||!vector(control.pivotMm)||!Number.isFinite(control.step)||control.step<=0||
@@ -49,7 +50,7 @@ export function forgeWiring(plan,wiring){
     const points=route.points.filter((p,i,all)=>i===0||p.some((v,k)=>v!==all[i-1][k]));
     if(points.length<2)continue;
     const label=e=>e.partName+' '+e.pin;
-    const name=availableName('参考线束 · '+label(route.from)+' → '+label(route.to)+
+    const name=availableName('参考线束 · '+label(route.from)+(route.bidirectional?' ↔ ':' → ')+label(route.to)+
       (route.quality==='estimated'?'（端点估计）':''),usedNames);
     wires.push({name,color:route.color,points});
   }
@@ -92,7 +93,7 @@ export function forgeJointAssembly(plan,interaction,wires=[]){
     const frame=availableName('Motion frame '+(frames.size+1),usedParts);
     const joint=availableName((index+1)+'. '+op.label,usedJoints);
     const offset=relative(op.pivot,parent.pivot);
-    const options='{axis:'+quote(op.axis)+', min:'+(op.turn?-op.max:0)+', max:'+op.max+
+    const options='{axis:'+quote(op.axis)+', min:'+(op.min??(op.turn?-op.max:0))+', max:'+op.max+
       ', default:0, unit:'+quote(op.turn?'deg':'mm')+', frame:Transform.identity().translate('+offset.join(', ')+')}';
     lines.push('mechanism.addFrame('+quote(frame)+');',
       'mechanism.'+(op.turn?'addRevolute':'addPrismatic')+'('+[joint,parent.name,frame].map(name=>quote(name)).join(', ')+', '+options+');');

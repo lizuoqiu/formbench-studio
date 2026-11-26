@@ -100,7 +100,7 @@ export function buildAssemblyWiring(design,resolveAnchor=resolveAssemblyPinAncho
   model.connections.forEach((connection,connectionIndex)=>{
     const w=connection;
     const from=endpoint(w.fromPartIndex,w.fromPin),to=endpoint(w.toPartIndex,w.toPin);
-    const row={connectionIndex,kind:w.kind,color:wireColors[w.kind],from,to,points:[]};
+    const row={connectionIndex,kind:w.kind,color:wireColors[w.kind],from,to,points:[],...(w.bidirectional?{bidirectional:true}:{})};
     if (externalMate(design,from,to) || externalMate(design,to,from)) {
       mates.push({...row,quality:'connector',routing:'mate'});
     } else if (!from.worldMm || !to.worldMm || length(minus(from.worldMm,to.worldMm))<.001) {

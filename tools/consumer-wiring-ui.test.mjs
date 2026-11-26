@@ -10,6 +10,38 @@ import {buildAssemblyWiring} from '../assembly-wires.js';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const real=JSON.parse(await readFile(path.join(root,'samples/shared/reading-timer/v5.json'),'utf8')).design;
 const paint=page=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+test('the normal viewer passes joint motion to the wire endpoints',async t=>{
+ const browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||'chrome',headless:true});t.after(()=>browser.close());
+ const page=await browser.newPage({viewport:{width:1440,height:980}}),origin='https://formwork-wiring-joint-test.github.io';
+ const posed=structuredClone(real),model=buildAssemblyWiring(real),signal=model.routes.find(r=>r.from.pin==='D4'&&r.to.pin==='SDA');
+ // A browser-only motion fixture; the saved project and its model files are not edited.
+ posed.cadPlan.joints=[{name:'测试转轴',axis:[0,0,1],pivotMm:real.cadPlan.bodies[signal.to.bodyIndex].positionMm,
+  minDegrees:-90,maxDegrees:90,movingBodyIndices:[signal.to.bodyIndex],fixedBodyIndex:signal.from.bodyIndex,actuatorPartIndex:signal.from.partIndex,parentIndex:null}];
+ const api=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.route('**/*',async route=>{
+  const url=new URL(route.request().url());if(url.origin!==origin)return route.abort();
+  if(/\/api\//.test(url.pathname)||route.request().method()!=='GET'){api.push(url.href);return route.abort();}
+  const filename=path.resolve(root,'.'+url.pathname,...(url.pathname.endsWith('/')?['index.html']:[])),types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.wasm':'application/wasm'};
+  try{
+   let bytes=await readFile(filename);
+   if(path.extname(filename)==='.json'){
+    const data=JSON.parse(bytes);
+    if(JSON.stringify(data.design?.cadPlan)===JSON.stringify(real.cadPlan))data.design=posed;
+    if(JSON.stringify(data.cadPlan)===JSON.stringify(real.cadPlan))data.cadPlan=posed.cadPlan;
+    bytes=Buffer.from(JSON.stringify(data));
+   }
+   return route.fulfill({body:bytes,contentType:types[path.extname(filename)]||'application/octet-stream'});
+  }catch{return route.fulfill({status:404,body:''});}
+ });
+ await page.goto(origin+'/?share=reading-timer&version=5&view=inside');
+ await page.locator('#geometry-state[data-phase=ready][data-approximate=false]').waitFor();await paint(page);
+ const ends=page.locator('[data-cc-wire-index="'+signal.connectionIndex+'"] .cc-wire-end');
+ const coordinates=()=>ends.evaluateAll(nodes=>nodes.map(n=>[Number(n.getAttribute('cx')),Number(n.getAttribute('cy'))]));
+ const before=await coordinates();assert.equal(before.length,2);
+ await page.locator('[data-cc-joint="0"]').evaluate(input=>{input.value='45';input.dispatchEvent(new Event('input',{bubbles:true}));});await paint(page);
+ const after=await coordinates();assert.ok(Math.hypot(...after[1].map((n,k)=>n-before[1][k]))>2,'moving hardware must move its wire terminal');
+ assert.deepEqual(errors,[]);assert.deepEqual(api,[]);
+});
 test('wire projection removes the segments occluded by an opaque part',()=>{
  const camera={yaw:Math.PI,pitch:Math.PI/2,target:[0,0,0],center:[100,100],scale:1};
  const result=projectWireRoute([[-30,0,0],[30,0,0]],camera,(x)=>x>=90&&x<=110?8:-Infinity);
