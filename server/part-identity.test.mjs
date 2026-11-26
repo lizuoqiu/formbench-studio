@@ -107,3 +107,12 @@ test('ordinary resume validates old targeted records once and preserves a confir
  await sourceParts([{...selected,researchQuestion:'Check mounting interface'}],cache,env,null,signal(),undefined,null,deps);
  assert.equal(calls,1);assert.equal(cache[partIdentity(selected)].importedModel.id,'original-native-cad');
 });
+
+test('a blocked product page may be replaced only by an observed page that verifies the same orderable model',async()=>{
+ const url=id=>'https://shop.example/'+id,primary=url('blocked'),family=url('family'),other=url('not-a1'),correct=url('selected'),unseen=url('hallucinated');
+ const response=()=>answer({model:selected.model,productUrl:primary,productCandidates:[unseen,primary,family,other,correct],alternatives:[{model:'Vendor B2',productUrl:other}]},[primary,family,other,correct]);
+ const hits=[],cache={};await sourceParts([selected],cache,env,response,signal(),undefined,null,{fetchSource:async u=>{
+  hits.push(u);if(u===primary)throw Error('HTTP 429');return {url:u,bytes:Buffer.from(u===family?'<title>Vendor A1 series</title>':u===other?'<title>Vendor B2</title>':'<title>Vendor A1</title>')};
+ }});const rec=cache[partIdentity(selected)];assert.deepEqual(hits,[primary,family,other,correct]);assert.deepEqual(rec.productChecks.map(p=>p.status),['unverified','family','unverified','matched']);
+ assert.equal(rec.productUrl,correct);assert.equal(rec.productIdentityCheck.status,'matched');assert.ok(rec.linkProvenance.productUrl);assert.equal(rec.productEvidence,'Vendor A1');
+});

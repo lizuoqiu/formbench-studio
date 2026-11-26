@@ -379,3 +379,13 @@ test('browser worker body events pass through before decoding its final mesh',as
  assert.deepEqual(observedBodies(events,'generate'),expectedBodies(p));
  assert.deepEqual(observedBodies(events,'decode'),expectedBodies(p));
 });
+
+test('a workspace reload uses the saved complete assembly and rejects changed installation evidence',async()=>{
+ const p={version:1,bodies:[body('open bracket',[feature('box',[10,10,2])]),body('sensor',[feature('box',[4,4,2])],{partIndex:1,role:'reference'})],joints:[],motions:[],fitChecks:[{mountType:'open-mount',partIndex:1,instanceIndex:0,housingBodyIndices:[0],lidBodyIndices:[],insertionOffsetMm:[0,0,15]}]};
+ const parts=[part(),part()];const solid=await compileSolid(p),saved={...solid,engine:'ForgeCAD CLI 0.0.0-test',version:'0.0.0-test',units:'mm',cadPlan:p};
+ const options={partCount:2,baseUrl:'http://draft-preview.invalid/',savedCadUrl:'/samples/shared/reload-test/cad.json',fetcher:async()=>Response.json(saved)};
+ const reloaded=await compileCadPlan(currentCadPlan({parts,cadPlan:p}),options);
+ assert.equal(reloaded.bodies.length,2);assert.match(reloaded.notice,/已加载保存的/);
+ const changed=structuredClone(p);changed.fitChecks[0].insertionOffsetMm=[0,0,25];
+ await assert.rejects(compileCadPlan(currentCadPlan({parts,cadPlan:changed}),options),/与设计不符/);
+});

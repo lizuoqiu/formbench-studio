@@ -48,7 +48,7 @@ metadata:
 
 ## 整机装配
 
-BOM 数量是物理件数。对同一行的每个安装件使用独立的零基 instanceIndex；同一件的外壳、输出盘、子网格共用该编号。内置件声明 fitChecks：实际腔壁、可拆盖、装入向量和顺序；合盖方向可以与部件装入不同。固定支撑及已装件不能挡住装入路径。夹爪相对腕部的直线移动必须声明 parentJointIndex，腕部转动后沿当地轴线开合。
+BOM 数量是物理件数。对同一行的每个安装件使用独立的零基 instanceIndex；同一件的外壳、输出盘、子网格共用该编号。逐件声明 fitChecks 的安装形式：closed-housing 用于确需封闭保护的内装件，列实际腔壁和可拆盖；open-mount 用于已经封装、固定在裸露支架或面板的部件，housingBodyIndices 列实际接触的承载面或紧固件，lidBodyIndices 只列装后安装的压件，不凭空补壳。两者都须声明从自由空间装入的向量和顺序，复查干涉、接头进路和固定方式；标称接触不能证明承载强度。合盖方向可以与部件装入不同。固定支撑及已装件不能挡住装入路径。夹爪相对腕部的直线移动必须声明 parentJointIndex，腕部转动后沿当地轴线开合。
 
 - 使用查证后的型号、原生尺寸、安装基准和数量装入每个实际实例。reference box 只允许作为会被真实来源网格或已编译单件模型替换的安装锚点；未替换的包络不能作为完成的硬件展示。
 - 采购总成的固定/运动子件可分别绑定，但不重复放入整件几何。不因需要运动预览而重造本来已有的驱动器、减速器或内部传动。
@@ -79,3 +79,5 @@ BOM 数量是物理件数。对同一行的每个安装件使用独立的零基 
 - 凡需从已关盖的外部插入电源或数据插头，在该安装件的 fitChecks.portAccess 声明 pins、对应 bodyIndex、插到位时插头包络的整机中心 centerMm、轴对齐尺寸 plugSizeMm 和移至壳外的向量 approachMm。设计开孔与连接器时一起复查，不使用不能穿过壁板的接线。没有外接插头则给空数组；实物插拔仍需另验。可拆盖与零件装入方向不同时使用 lidOffsetMm。
 
 For any measurement, distinguish the raw observable, the inferred state, and evidence needed to validate the inference. Do not promote a concept preview or a sensor reading into a proven performance or health claim.
+
+同一订货型号优先找实际单品页，并在资料允许时记录其他供应商的同型号单品页。访问受限或系列页不足以核对选型；换来源不能悄悄换型号，也不能把搜索结果标为已核对。

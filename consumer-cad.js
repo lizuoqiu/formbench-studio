@@ -149,6 +149,8 @@ export async function resolveConsumerGeometry(design,options={}){
 function shiftedMeshes(meshes,offset){return meshes.map(mesh=>({...mesh,triangles:mesh.triangles.map(face=>face.map(point=>point.map((n,k)=>n+offset[k])))}))}
 export function currentCadPlan(design){
  const plan=validateCadPlan(design.cadPlan,design.parts.length);
+ // The saved mesh is keyed to the complete validated plan, including installation evidence.
+ if(!design.parts.some(p=>p.modelSourceInvalidated))return plan;
  const bodies=[],indices=new Map();
  plan.bodies.forEach((body,index)=>{
   if(design.parts[body.partIndex].modelSourceInvalidated)return;

@@ -31,3 +31,12 @@ test('external connector needs an aligned, unobstructed approach with lid closed
  assert.match((await review(d)).issues.join(),/外接引脚/);d.cadPlan.fitChecks[0].portAccess=[{pins:['VIN'],bodyIndex:2,centerMm:[12,0,0],plugSizeMm:[4,6,2],approachMm:[45,0,0]}];
  assert.match((await review(d)).issues.join(),/插头路径受/);d.cadPlan.bodies[0].features.push(box([10,8,4],[28,0,0],'cut'));assert.deepEqual((await review(d)).issues,[]);
 });
+
+test('an open-mounted device needs actual support and a clear route; it cannot stand in for explicit closed protection',async()=>{
+ const d={parts:[part('rail','panel'),part('screen','internal')],cadPlan:{version:1,bodies:[body('rail',0,[box([55,18,4])]),body('screen',1,[box([20,12,6])],[0,0,5])],fitChecks:[{mountType:'open-mount',partIndex:1,instanceIndex:0,housingBodyIndices:[0],lidBodyIndices:[],insertionOffsetMm:[0,0,25]}]}};
+ const inspect=()=>coverage.reviewAssemblyFit(d,[]);
+ assert.deepEqual((await inspect()).issues,[]);assert.match((await review(d)).issues.join(),/封闭/);
+ d.cadPlan.bodies[1].positionMm[2]=6;assert.match((await inspect()).issues.join(),/支撑面/);
+ d.cadPlan.bodies[1].positionMm[2]=4;assert.match((await inspect()).issues.join(),/最终位置.*相交/);
+ d.cadPlan.bodies[1].positionMm[2]=5;d.parts.push(part('guard','panel'));d.cadPlan.bodies.push(body('guard',2,[box([6,6,1])],[0,0,18]));assert.match((await inspect()).issues.join(),/路径受实体/);
+});
