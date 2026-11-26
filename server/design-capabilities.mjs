@@ -13,6 +13,7 @@ const actions = {
   'cad.bitmapTexture': ['platform', '本预览只接收三角形和颜色，尚无位图纹理通道。普通颜色要求仍可由 body.color 满足。'],
   'cad.freeformScript': ['platform', '当前生成端接受结构化 cadPlan。任意原生 ForgeCAD 脚本不是这个数字设计接口的输入。已有复杂几何可作为原厂 STEP/STL 导入。'],
   'cad.subminimumPrimitive': ['platform', `当前图元最小轴向尺寸为 ${MIN_CAD_FEATURE_MM} mm。先确认该局部厚度能否按资料合并到相邻实体，同时保留外部配合基准。仅必须独立表达更薄图元时才有此限制。`],
+  'interaction.recordedSamples':['design','recorder 可绑定显示屏和有来源的反馈事件。工作台模拟记录经过时长、事件时间和回看，不能测量真实环境。'],
   'checks.sameGroupStaticOverlap': ['platform', '整机联动采样没有覆盖全部同运动组静态相交。增量修订会对变更打印件与同组其他打印件做有界的零位实体相交对比；查阅 revisionDependencies 的覆盖量。'],
   'checks.continuousCollision': ['platform', '内置运动检查使用有限的逐轴与联动姿态。连续全路径碰撞证明需要其他检查。'],
   'checks.dynamics': ['platform', '本地几何检查和页面回放均不执行载荷、惯性或制动力学求解。'],

@@ -1,8 +1,8 @@
-import {wire,timerModel} from '../server/test-fixtures/timer-model.mjs';
+import {wire,timerModel,recorderFixture} from '../server/test-fixtures/timer-model.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {validateInteraction,validateInteractionGeometry,initialInteraction,stepInteraction,connectedTerminalPins,advanceMotionPreview,MAX_INTERACTION_CONNECTIONS} from '../interaction-model.js';
+import {validateInteraction,validateInteractionGeometry,initialInteraction,stepInteraction,connectedTerminalPins,advanceMotionPreview,PREVIEW_HISTORY_LIMIT,MAX_INTERACTION_CONNECTIONS} from '../interaction-model.js';
 import {replayInteraction} from '../server/design-review.mjs';
 
 // Real V4 solids: the front-mounted encoder has two separate CAD bodies for its
@@ -161,7 +161,7 @@ test('multi-axis controls can share USB and use more than 120 distinct transitio
   d.initialState='s0';d.transitions=d.states.flatMap((s,i)=>d.controls.map(c=>({from:s.id,event:c.id,to:'s'+((i+1)%8),effect:'none'})));
   assert.equal(validateInteraction(d,board).transitions.length,160);
   const bad=structuredClone(d);bad.controls.push(...Array.from({length:13},(_,i)=>({...bad.controls[0],id:'extra'+i})));
-  assert.throws(()=>validateInteraction(bad,board),/1–32/);
+  assert.throws(()=>validateInteraction(bad,board),/最多 32 个控件/);
   d.controls[0].movingBodyIndices=[11];assert.throws(()=>validateInteraction(d,board),/触摸面应保持固定/);
 });
 
@@ -374,4 +374,18 @@ test('only unique automatic expiry aliases on running-to-held states migrate; am
  for(const t of namedControl.transitions)if(t.event==='push')t.event='timeout';
  assert.equal(normalizeInteractionTimerAliases(namedControl).corrections.length,0);
  assert.equal(validate(namedControl).controls.find(c=>c.kind==='press').id,'timeout');
+});
+
+test('sensor history differentiates two equally long sessions with the same visible review state',()=>{
+ const m=validate(recorderFixture()),fire=(s,systemEventId)=>stepInteraction(m,s,{systemEventId}),start=fire(initialInteraction(m),'begin');
+ const quiet=fire(tick(m,start,28800),'finish'),different=fire(tick(m,fire(tick(m,start,900),'sample'),27900),'finish');
+ assert.equal(quiet.stateId,different.stateId);assert.equal(quiet.recording.elapsedSeconds,28800);assert.equal(different.recording.elapsedSeconds,28800);
+ assert.deepEqual(quiet.recording.entries,[]);assert.deepEqual(different.recording.entries,[{atSeconds:900,eventId:'sample',label:'检测到变化'}]);
+ assert.equal(fire(different,'sample'),different);assert.equal(tick(m,different,900),different);assert.deepEqual(fire(different,'begin').recording,start.recording);
+ let busy=start;for(let i=0;i<PREVIEW_HISTORY_LIMIT+2;i++)busy=fire(tick(m,busy,1),'sample');
+ assert.equal(busy.recording.entries[0].atSeconds,3);assert.equal(busy.recording.entries.length,PREVIEW_HISTORY_LIMIT);assert.equal(busy.recording.dropped,2);
+ const proof=replayInteraction(m);assert.deepEqual(proof.issues,[]);assert.equal(proof.recordedHistory.status,'observed');assert.equal(proof.recordedHistory.withInput,proof.recordedHistory.withoutInput+1);
+});
+test('recorded data requires a wired source, a reachable review and a visible display',()=>{
+ for(const change of [m=>m.systemEvents[1].sourcePins=['not-a-pin'],m=>m.recorder.sampleEvents=['begin'],m=>m.recorder.displayId='missing',m=>m.recorder.reviewStates=['capture'],m=>m.states[2].outputs[0].mode='off',m=>m.transitions=m.transitions.filter(e=>e.to!=='review')]){const m=recorderFixture();change(m);assert.throws(()=>validate(m),/交互设计/);}
 });

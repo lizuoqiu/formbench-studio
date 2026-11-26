@@ -45,7 +45,7 @@ export async function reconstructParts(parts,cache,env,send,signal,progress=asyn
     let error=record.reconstructionError||'';
     const visual=await loadPartVisual(record,signal); 
     for(let attempt=1;attempt<=2;attempt++){
-      signal.throwIfAborted();await progress({stage:'reconstructing',message:'正在按资料建立 '+part.name+' 的独立模型'});
+      signal.throwIfAborted();await progress({stage:'reconstructing',partName:part.name,message:'正在按资料建立 '+part.name+' 的独立模型'});
       try{
         const lengthLimited=/输出已达长度上限/.test(error)||record.reconstructionTokenBudget===65536;
         record.reconstructionTokenBudget=lengthLimited?65536:32768;
@@ -66,8 +66,8 @@ export async function reconstructParts(parts,cache,env,send,signal,progress=asyn
         delete record.reconstructionError;
         delete record.reconstructionDraft;
         delete record.reconstructionPrior;
-        await progress({stage:'reconstructing',message:part.name+' 的独立模型已编译',record});break;
-      }catch(e){signal.throwIfAborted();if(e.actionRequired==='local-codex-unavailable'){actionError=e;return;}error=e.message;record.reconstructionError=error;if(e.partialOutput)record.reconstructionDraft=e.partialOutput;if(e.actionRequired==='api-billing')actionError=e;await progress({stage:'reconstructing',message:actionError?'额度不足，已保存 '+part.name+' 的模型进度':'正在修正 '+part.name+' 的独立模型',record});if(actionError)break;}
+        await progress({stage:'reconstructing',partName:part.name,message:part.name+' 的独立模型已编译',record});break;
+      }catch(e){signal.throwIfAborted();if(e.actionRequired==='local-codex-unavailable'){actionError=e;return;}error=e.message;record.reconstructionError=error;if(e.partialOutput)record.reconstructionDraft=e.partialOutput;if(e.actionRequired==='api-billing')actionError=e;await progress({stage:'reconstructing',partName:part.name,message:actionError?'额度不足，已保存 '+part.name+' 的模型进度':'正在修正 '+part.name+' 的独立模型',record});if(actionError)break;}
     }
   }}
   await Promise.all(Array.from({length:Math.min(hasLocalCodex(env)?1:3,parts.length)},run));

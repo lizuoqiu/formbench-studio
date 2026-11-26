@@ -70,12 +70,13 @@ if(['127.0.0.1','localhost','[::1]'].includes(location.hostname)
 }
 localPrompt();
 function capabilityHint(){if(!$('#entry-progress').hidden)return;const href=localUrl(caps.localUrl);if(caps.ai===false&&href){$('#generate').textContent='在本机生成';notice('#entry-notice','此页面可直接查看示例。生成新方案将在已启动的本机工作室继续。')}else if(caps.ai===false){notice('#entry-notice','此设备还没有接好设计服务，可以先查看示例。');$('#generate').disabled=true}}
-function generationLabel(){
- const who={'local-codex':'本机 Codex','openai-api':'OpenAI API'}[caps.aiProvider]||'设计服务';
+function generationLabel(provider=caps.aiProvider){
+ const who={'local-codex':'本机 Codex','openai-api':'OpenAI API'}[provider]||'设计服务';
+ if(provider!==caps.aiProvider)return who;
  return caps.aiModel?`${who} · 请求模型：${caps.aiModel}`:`${who} · 当前未公开模型名`;
 }
 const capabilitiesReady=serviceCapabilities().then(v=>{caps=v||{};entryPhotos.refresh();revisionPhotos?.refresh();const model=$('#selected-model');model.hidden=!caps.ai;model.textContent=caps.ai?generationLabel():'';if(!entry.hidden)capabilityHint();else if($('#buy')){rows.forEach((_,i)=>refreshRow(i));syncCart()}}).catch(()=>{});
-function showEntry(){stopDraft();entryPhotos.clear();revisionPhotos=null;syncExampleUrl();progress();projectId=null;projectPrompt='';design=null;sharedProject=null;savedCadUrl=null;copyOrigin=null;generation++;cartVersion++;cartBusy=false;cadDispose?.();cadDispose=null;entry.hidden=false;project.hidden=true;project.replaceChildren();$('#back').hidden=true;$('#generate').disabled=false;$('#generate').textContent='生成设计';$('#sample').disabled=false;notice('#entry-notice');capabilityHint();window.scrollTo(0,0);$('#wish').focus()}
+function showEntry(){stopDraft();if(caps.ai)$('#selected-model').textContent=generationLabel();entryPhotos.clear();revisionPhotos=null;syncExampleUrl();progress();projectId=null;projectPrompt='';design=null;sharedProject=null;savedCadUrl=null;copyOrigin=null;generation++;cartVersion++;cartBusy=false;cadDispose?.();cadDispose=null;entry.hidden=false;project.hidden=true;project.replaceChildren();$('#back').hidden=true;$('#generate').disabled=false;$('#generate').textContent='生成设计';$('#sample').disabled=false;notice('#entry-notice');capabilityHint();window.scrollTo(0,0);$('#wish').focus()}
 $('#back').onclick=()=>{showEntry();$('#wish').value=''};
 function progress(phase){
   const node=$('#entry-progress');node.hidden=!phase;$('#intent').setAttribute('aria-busy',String(!!phase));
@@ -103,6 +104,7 @@ function setDraftBusy(state,phase=''){
   if(field)field.readOnly=!!draft;
   if(submit)submit.disabled=!!draft;
   if(initial){
+    if(phase?.provider)$('#selected-model').textContent=generationLabel(phase.provider);
     progress(phase);
     if(phase==='discuss'){
       $('#build-title').textContent='正在读取需求';

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import test from 'node:test';
 import {chromium} from 'playwright';
+import {recorderFixture} from '../server/test-fixtures/timer-model.mjs';
 import {compileCadPlan} from '../cad-plan-compiler.js';
 import {reviewDraftBrowser,checkJoints,checkHold,checkTravel} from '../server/draft-browser.mjs';
 
@@ -243,7 +244,7 @@ test('system scenarios are folded, state-aware, and change outputs without movin
  await mount(page,fixture,await compileCadPlan(fixture.cadPlan));
  const event=page.getByRole('button',{name:'USB 断连',exact:true});
  assert.equal(await event.isVisible(),false);
- await page.getByText('模拟连接与故障',{exact:true}).click();assert.ok(await event.isDisabled());
+ await page.getByText('模拟设备事件',{exact:true}).click();assert.ok(await event.isDisabled());
  await page.getByRole('button',{name:'启停按键',exact:true}).click();await page.waitForTimeout(200);await rendered(page);
  const before=await page.locator('canvas').evaluate(c=>c.toDataURL());assert.equal(await event.isDisabled(),false);
  await event.click();await rendered(page);
@@ -309,4 +310,14 @@ test('timer preview exposes anchored screen, running light, keyboard alternative
  await page.waitForFunction(()=>document.querySelector('[data-ci-output=screen]').textContent!=='03:30');
  await finish.click();assert.match(await page.locator('[data-ci-state]').innerText(),/已完成.*00:00/);assert.equal(await screen.innerText(),'00:00');assert.equal(await page.locator('[data-ci-output=lamp]').getAttribute('data-mode'),'on');
  await page.getByRole('button',{name:'按下旋钮',exact:true}).press('Space');assert.match(await page.locator('[data-ci-state]').innerText(),/待开始/);
+});
+
+test('user can compare empty and sampled histories on the same review screen without physical buttons',async t=>{
+ const fixture=structuredClone(design),m=recorderFixture();m.outputs[0]={...m.outputs[0],partIndex:5,bodyIndices:[8]};fixture.interaction=m;
+ const browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||'chrome',headless:true});t.after(()=>browser.close());
+ const page=await browser.newPage({viewport:{width:980,height:900}});page.setDefaultTimeout(4000);t.after(()=>page.close());
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));await mount(page,fixture,await compileCadPlan(fixture.cadPlan));
+ const click=label=>page.getByRole('button',{name:label,exact:true}).click(),summary=page.locator('[data-ci-session]'),entries=page.locator('[data-ci-log] li');
+ await click('开始记录');await click('模拟经过 15 分钟');await click('查看记录');assert.match(await summary.innerText(),/00:15:\d\d.*尚无记录/);assert.equal(await entries.count(),0);
+ await click('开始记录');await click('模拟经过 15 分钟');await click('检测到变化');await click('查看记录');assert.match(await summary.innerText(),/00:15:\d\d.*已记录 1 条/);assert.match(await entries.innerText(),/00:15:\d\d.*检测到变化/);assert.deepEqual(errors,[]);
 });

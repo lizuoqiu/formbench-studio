@@ -26,3 +26,13 @@ export function timerModel() {
     transitions:[t('set','wheel','set','adjust'),t('set','push','run','restart'),
       t('run','push','pause'),t('pause','push','run'),t('run','timer.expired','done'),t('done','push','set','reset')]};
 }
+
+// A sensor-only display: starting, sampling and finishing are simulated external
+// events. This can use the same documented connections as the encoder fixture.
+export function recorderFixture() {
+  const m=timerModel();m.controls=[];m.timer=null;m.initialState='idle';m.outputs=[m.outputs[0]];
+  m.systemEvents=[['begin','开始记录','connection'],['sample','检测到变化','feedback'],['finish','查看记录','connection']].map(([id,label,kind])=>({id,label,kind,partIndex:4,sourcePins:['D4'],condition:label,delayMs:null}));
+  m.states=[['idle','准备'],['capture','记录中'],['review','回看']].map(([id,label])=>({id,label,clock:'hold',outputs:[{outputId:'screen',mode:'on'}]}));
+  m.transitions=[['idle','begin','capture'],['capture','finish','review'],['review','begin','capture']].map(([from,event,to])=>({from,event,to,effect:'none'}));
+  m.recorder={displayId:'screen',captureStates:['capture'],reviewStates:['review'],sampleEvents:['sample']};return m;
+}

@@ -3,6 +3,7 @@ import {projectWorldPoint} from './mesh-renderer.js';
 
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
+const sessionTime=value=>[Math.floor(value/3600),Math.floor(value/60)%60,Math.floor(value)%60].map(v=>String(v).padStart(2,'0')).join(':');
 const bodyId=id=>Number(/^body-(\d+)-/.exec(id||'')?.[1]??-1);
 const controlBodies=control=>control.kind==='command'?[]:control.kind==='touch'?[control.fixedBodyIndex]:control.movingBodyIndices;
 const clock=value=>Math.floor(Math.max(0,value)/60).toString().padStart(2,'0')+':'+Math.floor(Math.max(0,value)%60).toString().padStart(2,'0');
@@ -75,17 +76,19 @@ export function interactionMesh(mesh,offset,bodyIndex,model,snapshot,gestures={}
 }
 
 export function mountCadInteraction(root,model,{design={},onChange=()=>{},onMotion=()=>{}}={}){
- if(!model?.controls?.length||!model?.states?.length)return null;
+ if(!model?.states?.length||!(model.controls?.length||model.systemEvents?.length))return null;
  const stage=root.querySelector('.cc-stage'),footer=root.querySelector('.cc-footer'),canvas=stage.querySelector('canvas');
  const overlay=document.createElement('div');overlay.className='ci-overlay';overlay.setAttribute('aria-hidden','true');
  const hint=document.createElement('p');hint.className='ci-gesture';hint.textContent=model.controls.some(c=>c.kind!=='command')?'可操作模型上的控件或下方控制台':'使用下方控制台试动作 · 拖动模型转动视角';
  const panel=document.createElement('section');panel.className='ci-panel';panel.setAttribute('aria-label','功能交互预览');
+ const recorder=model.recorder,samples=(model.systemEvents||[]).filter(e=>recorder?.sampleEvents.includes(e.id)),otherEvents=(model.systemEvents||[]).filter(e=>!samples.includes(e));
+ const eventButton=e=>`<button type="button" class="ci-control" data-ci-event="${escape(e.id)}" title="${escape(e.condition)}">${escape(e.label)}${e.kind==='timeout'?' · '+Number(e.delayMs)+' ms':''}</button>`;
  panel.innerHTML=`<div class="ci-heading"><strong>交互控制台</strong><output data-ci-state role="status" aria-live="polite"></output>${model.timer?'<button type="button" data-ci-finish>快进到结束</button>':''}</div><div class="ci-controls">${model.controls.map(control=>{
   const name=escape(control.label),id=escape(control.id);
   if(control.kind==='turn')return `<div class="ci-control"><span>${name}</span><button type="button" data-ci-step="${id}" data-ci-delta="${-Math.sign(control.step)}" aria-label="${name}减少">−</button><output data-ci-value="${id}"></output><button type="button" data-ci-step="${id}" data-ci-delta="${Math.sign(control.step)}" aria-label="${name}增加">＋</button></div>`;
   if(control.kind==='slide')return `<label class="ci-control"><span>${name}</span><input type="range" min="0" max="100" value="0" data-ci-slide="${id}" aria-label="${name}"><small>释放复位</small></label>`;
   return `<button type="button" class="ci-control ci-press" data-ci-press="${id}">${name}</button>`;
- }).join('')}</div>${model.systemEvents?.length?`<details class="ci-events"><summary>模拟连接与故障</summary><p class="ci-note">查看事件发生后的响应，不模拟实际通信时延。</p><div class="ci-controls">${model.systemEvents.map(event=>`<button type="button" class="ci-control" data-ci-event="${escape(event.id)}" title="${escape(event.condition)}">${escape(event.label)}${event.kind==='timeout'?' · '+event.delayMs+' ms':''}</button>`).join('')}</div></details>`:''}<p class="ci-note">功能行为预览 · 尚未实物验证<span data-ci-feedback></span></p>`;
+ }).join('')}</div>${recorder?`<section class="ci-history" aria-label="记录预览"><strong>记录预览</strong><p data-ci-session></p><ol data-ci-log></ol><div class="ci-controls"><button type="button" data-ci-advance>模拟经过 15 分钟</button>${samples.map(eventButton).join('')}</div><small>这里使用模拟输入；没有收到记录的时段，不能推断实际发生了什么。</small></section>`:''}${otherEvents.length?`<details class="ci-events" ${!model.controls.length?'open':''}><summary>模拟设备事件</summary><div class="ci-controls">${otherEvents.map(eventButton).join('')}</div></details>`:''}<p class="ci-note">功能行为预览 · 尚未实物验证<span data-ci-feedback></span></p>`;
  stage.append(overlay,hint);footer.prepend(panel);
  const markers=new Map(),outputs=new Map(),tracks=new Map();
  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),arrow='ci-arrow-'+(++viewerSequence);
@@ -114,13 +117,21 @@ export function mountCadInteraction(root,model,{design={},onChange=()=>{},onMoti
  let snapshot=initialInteraction(model),gestures={},camera=null,scene=[],pick=null,enabled=false,active=null,lastTick=performance.now(),poseRevision=0;
  const transformed=new WeakMap();
  const timers=new Set(),heldControls=new Set();
+ let listedEntries,listedState;
  function renderState(){
   const state=model.states.find(state=>state.id===snapshot.stateId);
-  panel.querySelector('[data-ci-state]').textContent=(state?.label||snapshot.stateId)+(model.timer?' · '+clock(snapshot.remainingSeconds):'');
+  const stateNode=panel.querySelector('[data-ci-state]'),stateText=(state?.label||snapshot.stateId)+(model.timer?' · '+clock(snapshot.remainingSeconds):'');
+  if(stateNode.textContent!==stateText)stateNode.textContent=stateText;
   for(const element of panel.querySelectorAll('[data-ci-value]'))element.textContent=Number((snapshot.controlValues?.[element.dataset.ciValue]||0).toFixed(1))+'°';
   for(const button of panel.querySelectorAll('[data-ci-step]')){const c=model.controls.find(c=>c.id===button.dataset.ciStep),angle=snapshot.controlValues[c.id]||0;button.disabled=Boolean(c.range&&(Number(button.dataset.ciDelta)*c.step>0?angle>=c.range.max:angle<=c.range.min));}
   const finish=panel.querySelector('[data-ci-finish]');if(finish)finish.disabled=state?.clock!=='run'||snapshot.remainingSeconds<=0;
-  for(const button of panel.querySelectorAll('[data-ci-event]'))button.disabled=!model.transitions.some(t=>t.from===snapshot.stateId&&t.event===button.dataset.ciEvent);
+  const capturing=recorder?.captureStates.includes(snapshot.stateId),reviewing=recorder?.reviewStates.includes(snapshot.stateId);
+  for(const button of panel.querySelectorAll('[data-ci-event]'))button.disabled=!(capturing&&recorder.sampleEvents.includes(button.dataset.ciEvent))&&!model.transitions.some(t=>t.from===snapshot.stateId&&t.event===button.dataset.ciEvent);
+  if(recorder){
+   const r=snapshot.recording,list=panel.querySelector('[data-ci-log]');panel.querySelector('[data-ci-advance]').disabled=!capturing;
+   panel.querySelector('[data-ci-session]').textContent=capturing?'正在记录 · '+sessionTime(r.elapsedSeconds)+' · '+(r.entries.length+r.dropped)+' 条':reviewing?'本次时长 '+sessionTime(r.elapsedSeconds)+' · '+(r.entries.length?'已记录 '+(r.entries.length+r.dropped)+' 条':'尚无记录')+(r.dropped?'；仅显示最近 '+r.entries.length+' 条':''):'等待开始记录';
+   if(listedEntries!==r.entries||listedState!==snapshot.stateId){list.replaceChildren();list.hidden=!reviewing||!r.entries.length;if(reviewing)for(const e of r.entries){const li=document.createElement('li');li.textContent=sessionTime(e.atSeconds)+'　'+e.label;list.append(li);}listedState=snapshot.stateId;listedEntries=r.entries;}
+  }
   panel.querySelector('[data-ci-feedback]').textContent=(model.outputs||[]).length?' · '+model.outputs.map(output=>output.label+' '+outputText(output)).join('，'):'';
   for(const {element,output} of outputs.values()){
    const mode=snapshot.outputs?.[output.id]||'off';element.dataset.mode=mode;
@@ -130,6 +141,7 @@ export function mountCadInteraction(root,model,{design={},onChange=()=>{},onMoti
  }
  function outputText(output){
   const mode=snapshot.outputs?.[output.id]||'off';
+  if(mode!=='off'&&recorder?.displayId===output.id&&(recorder.reviewStates.includes(snapshot.stateId)||recorder.captureStates.includes(snapshot.stateId)))return (recorder.reviewStates.includes(snapshot.stateId)?'本次记录 ':'记录中 ')+(snapshot.recording.entries.length+snapshot.recording.dropped)+' 条';
   if(mode==='remaining')return displayValue(output,design,snapshot.remainingSeconds);
   if(mode==='value')return model.timer?displayValue(output,design,snapshot.setSeconds):String(snapshot.setSeconds??0);
   return {off:'关闭',on:'开启',breathe:'呼吸',forward:'正向运动',reverse:'反向运动'}[mode]||mode;
@@ -162,6 +174,7 @@ export function mountCadInteraction(root,model,{design={},onChange=()=>{},onMoti
   if(step){const c=model.controls.find(c=>c.id===step.dataset.ciStep);dispatch(c,Number(step.dataset.ciDelta));}
   if(press){const c=model.controls.find(c=>c.id===press.dataset.ciPress);if(!usesHeldEvents(model,c)){pulse(c);dispatch(c);}}
   if(event.target.closest('[data-ci-finish]')){snapshot=stepInteraction(model,snapshot,{elapsedSeconds:snapshot.remainingSeconds});notify();}
+  if(event.target.closest('[data-ci-advance]')){snapshot=stepInteraction(model,snapshot,{elapsedSeconds:900});notify();}
   const system=event.target.closest('[data-ci-event]');
   if(system&&!system.disabled){snapshot=stepInteraction(model,snapshot,{systemEventId:system.dataset.ciEvent});notify();}
  });
@@ -174,9 +187,9 @@ export function mountCadInteraction(root,model,{design={},onChange=()=>{},onMoti
   const now=performance.now(),elapsed=(now-lastTick)/1000;lastTick=now;
   if(enabled)onMotion(snapshot,Math.min(elapsed,.2));
   const state=model.states.find(state=>state.id===snapshot.stateId);
-  if(state?.clock==='run'&&model.timer){
+  if(state?.clock==='run'&&model.timer||recorder?.captureStates.includes(snapshot.stateId)){
    const previous=snapshot;snapshot=stepInteraction(model,snapshot,{elapsedSeconds:elapsed});
-   if(previous.stateId!==snapshot.stateId||Math.floor(previous.remainingSeconds)!==Math.floor(snapshot.remainingSeconds))notify();
+   if(previous.stateId!==snapshot.stateId||Math.floor(previous.remainingSeconds)!==Math.floor(snapshot.remainingSeconds)||Math.floor(previous.recording?.elapsedSeconds??0)!==Math.floor(snapshot.recording?.elapsedSeconds??0))notify();
   }
  },100);
  function point(event){const box=canvas.getBoundingClientRect();return [event.clientX-box.left,event.clientY-box.top]}

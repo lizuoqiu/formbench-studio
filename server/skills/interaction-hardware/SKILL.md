@@ -1,7 +1,7 @@
 ---
 name: interaction-hardware
 metadata:
-  revision: 2026.11.25.1
+  revision: 2026.11.26.1
 description: 把人与设备之间的物理互动变成有安装位置的零件、可制造的形体和可预览的动作。
 ---
 
@@ -105,9 +105,9 @@ cadPlan.joints 表示设备驱动的转轴，按从基座到末端的顺序定�
 
 每条 transitions 记录写入 from、event、to、effect。用户操作的 event 精确引用一个已定义的控件 id。同一状态遇到同一事件只能有一个结果。各状态指定所有输出在该时刻的模式，例如普通开关让灯从 off 变为 on，只用 effect 为 none，timer 取 null，两个状态的 clock 都取 hold。
 
-连接变化、反馈、通信超时与故障用 `systemEvents`，不要虚构滑动手机或用户按钮。每项给出唯一 id、label、kind（connection/timeout/fault/feedback）、检测器件 partIndex、该器件真实已接线的 sourcePins、明确的检测条件 condition。timeout 填正的 delayMs，其余 delayMs 为 null；最多 24 项。transitions.event 引用该 id，effect 为 none，描述事件发生后的响应。与 controls、outputs 以及 timer.expired 不得重名。没有此类事件时给空数组。后台以显式事件注入回放状态转换，网页折叠显示“模拟连接与故障”；它不模拟 USB 包、真实固件时钟、制动力学或实测停机延迟。时间阈值和检测实现写入设计，不能把事件注入当作已实测满足阈值。
+连接变化、反馈、通信超时与故障用 `systemEvents`，不要虚构滑动手机或用户按钮。每项给出唯一 id、label、kind（connection/timeout/fault/feedback）、检测器件 partIndex、该器件真实已接线的 sourcePins、明确的检测条件 condition。timeout 填正的 delayMs，其余 delayMs 为 null；最多 24 项。transitions.event 引用该 id，effect 为 none，描述事件发生后的响应。与 controls、outputs 以及 timer.expired 不得重名。没有此类事件时给空数组。后台以显式事件注入回放状态转换，网页提供“模拟设备事件”；它不模拟 USB 包、真实固件时钟、制动力学或实测停机延迟。时间阈值和检测实现写入设计，不能把事件注入当作已实测满足阈值。
 
-显示器的 on/off 表示预览中的亮灭；仅有倒计时 timer 时才可用 value/remaining 显示时间。普通遥测屏不用计时模式冒充角度或反馈数据，在接口及状态说明中定义数据内容。
+显示器的 on/off 表示预览中的亮灭；仅有倒计时 timer 时才可用 value/remaining 显示时间。若用户要求先记录、稍后回看，在 interaction.recorder 给出 displayId（真实显示输出）、captureStates、reviewStates（互不重叠，回看时屏幕 on）和 sampleEvents（有真实信号来源的 feedback 事件）。从记录状态应能结束并回看；记录时间随经过时长推进，回看保留此次记录，下一次开始才清空。无实体按钮的自动设备允许 controls=[]；开始、查看等必须有可到达的实际事件。没有反馈不等于观测到某种状态，需要明确的有效传感输入才能给它贴标签。预览只支持事件时间记录，不能用它冒充连续波形、定量遥测或已实现固件。其他设备 recorder 填 null。
 
 当前交互容量：最多 32 个用户控件、16 个输出、64 个状态、24 个系统事件和 512 条状态转换。turn 的 step 是带方向的非零角度增量（绝对值不超过 360°）；press/slide 的行程仍为正毫米数。touch 没有位移，movingBodyIndices 必须为空，通用 step 字段不用于运动，生成时写 0。
 

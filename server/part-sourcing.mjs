@@ -126,7 +126,7 @@ export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},
     while(next<parts.length&&!actionError){
       const index=next++,part={...parts[index],index},key=partIdentity(part),kind=part.kind||cache[key]?.kind||partKind(part,plan);
       signal.throwIfAborted();
-      await onProgress({stage:'sourcing',message:'正在核对 '+part.name,partIndex:index,total:parts.length,completed});
+      await onProgress({stage:'sourcing',message:'正在核对 '+part.name,partIndex:index,partName:part.name,total:parts.length,completed});
       let record=cache[key];
       if(record?.kind!==kind)record=null;
       // Old jobs could retain their first network error after a successful
@@ -192,7 +192,7 @@ export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},
       if(record.cadDimensionConflict){record.cadStatus='dimension-conflict';record.cadError=dimensionConflictMessage(record.cadDimensionConflict);}
       const cadAttempts=record.cadAttempts??(record.cadStatus==='unavailable'?1:0);
       if(record.cadUrl&&record.cadAuthority!=='none'&&!record.importedModel&&!record.cadDimensionConflict&&cadAttempts<2){
-        await onProgress({stage:'importing',message:'正在导入 '+part.name+' 的 CAD',partIndex:index,total:parts.length,completed});
+        await onProgress({stage:'importing',message:'正在导入 '+part.name+' 的 CAD',partIndex:index,partName:part.name,total:parts.length,completed});
         record.cadAttempts=cadAttempts+1;
         try{
           const asset=await importCad(record,env,{signal}),conflict=wholePartExtentConflict(record,asset);
@@ -207,7 +207,7 @@ export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},
         catch(error){signal.throwIfAborted();record.cadInspectionError=error.message;}
       }
       records[index]=record;completed++;
-      await onProgress({stage:'sourcing',message:'已处理 '+part.name,partIndex:index,total:parts.length,completed,record});
+      await onProgress({stage:'sourcing',message:'已处理 '+part.name,partIndex:index,partName:part.name,total:parts.length,completed,record});
     }
   }
   await Promise.all(Array.from({length:Math.min(hasLocalCodex(env)?1:3,parts.length)},run));

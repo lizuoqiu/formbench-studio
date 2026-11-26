@@ -30,6 +30,7 @@ const spec = obj({
   systemEvents:arr(obj({id:str,label:str,kind:choice('connection','timeout','fault','feedback'),partIndex:integer,
     sourcePins:arr(str),condition:str,delayMs:nullable(number)})),
   timer:nullable(obj({initialSeconds:integer,minSeconds:integer,maxSeconds:integer,stepSeconds:integer})),
+  recorder:nullable(obj({displayId:str,captureStates:arr(str),reviewStates:arr(str),sampleEvents:arr(str)})),
   initialState:str,
   states:arr(obj({id:str,label:str,clock:choice('hold','run'),
     outputs:arr(obj({outputId:str,mode:choice('off','on','breathe','remaining','value','forward','reverse')}))})),
@@ -280,8 +281,8 @@ function checkShaft(control, bodies) {
 function checkBindings(model, parts, bodies, cadPlan={}) {
   const active = model.controllerPartIndex!==null;
   const placed = new Set(bodies.map(b=>b.partIndex));
-  check(model.controls.length>=1 && model.controls.length<=32 && model.outputs.length<=16,
-    '需要 1–32 个可操作输入，且输出最多 16 项。');
+  check((model.controls.length>0||active&&model.systemEvents?.length>0) && model.controls.length<=32 && model.outputs.length<=16,
+    '需要可操作的输入或已连接的传感事件；最多 32 个控件、16 个输出。');
   if (active) check(placed.has(model.controllerPartIndex) && model.outputs.length>0,'控制器和至少一个输出须有对应 BOM 与 CAD 实体。');
   else check(!model.outputs.length,'纯机械方案不能声明控制器输出。');
   const ids = [...model.controls,...model.outputs,...(model.systemEvents||[])].map(item=>item.id);
@@ -574,6 +575,16 @@ function checkMachine(model) {
   const byId=new Map(states.map(s=>[s.id,s]));
   const byControl=new Map(controls.map(c=>[c.id,c]));
   const systemEvents=model.systemEvents||[],bySystem=new Map(systemEvents.map(e=>[e.id,e]));
+  const recorder=model.recorder;
+  if(recorder){
+    const {displayId,captureStates,reviewStates,sampleEvents}=recorder;
+    check(model.controllerPartIndex!==null&&outputs.some(o=>o.id===displayId&&o.kind==='display'),'记录要关联控制器和用于回看的显示屏。');
+    check(captureStates.length&&reviewStates.length&&unique([...captureStates,...reviewStates])&&[...captureStates,...reviewStates].every(id=>byId.has(id)),'请指定互不重叠且存在的记录、回看状态。');
+    check(reviewStates.every(id=>byId.get(id).outputs.some(o=>o.outputId===displayId&&o.mode==='on')),'回看时需要打开记录对应的显示屏。');
+    check(sampleEvents.length&&unique(sampleEvents)&&sampleEvents.every(id=>bySystem.get(id)?.kind==='feedback'),'记录来源必须是已接线的传感反馈事件。');
+    const connected=new Set(reviewStates);for(let i=0;i<states.length;i++)for(const t of transitions)if(connected.has(t.to))connected.add(t.from);
+    check(captureStates.every(id=>connected.has(id)),'每个记录状态都需要可到达的回看操作。');
+  }
   check(systemEvents.length<=24 && (!systemEvents.length||model.controllerPartIndex!==null),'系统事件需要控制器，且最多 24 项。');
   for(const event of systemEvents){
     check(event.sourcePins.length>0&&event.sourcePins.length<=8&&unique(event.sourcePins.map(canonicalPin)),event.label+' 须明确检测来源针脚。');
@@ -582,7 +593,7 @@ function checkMachine(model) {
     check(event.sourcePins.every(pin=>model.connections.some(w=>
       w.fromPartIndex===event.partIndex&&canonicalPin(w.fromPin)===canonicalPin(pin)||
       w.toPartIndex===event.partIndex&&canonicalPin(w.toPin)===canonicalPin(pin))),event.label+' 的检测来源未对应真实接线端点。');
-    check(transitions.some(t=>t.event===event.id),event.label+' 未用于任何状态转移。');
+    check(transitions.some(t=>t.event===event.id)||recorder?.sampleEvents.includes(event.id),event.label+' 既不触发状态变化，也未用于记录。');
   }
   if (timer) {
     check(timer.minSeconds>=1 && timer.maxSeconds<=31536000 && timer.initialSeconds>=timer.minSeconds &&
@@ -642,7 +653,7 @@ function checkMachine(model) {
     for (const c of controls) check(used.has(c.id),c.label+' 没有连接到状态或计时行为。');
     for (const o of outputs) check(states.some(s=>s.outputs.some(x=>x.outputId===o.id && x.mode!=='off')),
       o.label+' 在全部可达状态都关闭，无法产生输出。');
-    check(timer || states.some(s=>s.outputs.some(o=>o.mode!==states[0].outputs.find(x=>x.outputId===o.outputId).mode)),
+    check(timer || recorder || states.some(s=>s.outputs.some(o=>o.mode!==states[0].outputs.find(x=>x.outputId===o.outputId).mode)),
       '操作没有改变任何可观察的输出。');
   }
   if (timer) {
@@ -674,7 +685,7 @@ export function validateInteraction(raw,{bom,parts=bom,cadPlan}={}) {
   if (raw==null) return null;
   raw=normalizeInteractionTimerAliases(raw).model;
   const connections=withConnectionDefaults(raw.connections);
-  structure(withMotionDefaults({signalChannels:[],systemEvents:[],...raw,connections,terminals:[]}),spec,'interaction');
+  structure(withMotionDefaults({signalChannels:[],systemEvents:[],recorder:null,...raw,connections,terminals:[]}),spec,'interaction');
   check(Array.isArray(parts) && Array.isArray(cadPlan?.bodies),'需要 BOM 和 CAD 实体表。');
   // These four checks are independent after shape validation. A bad moving
   // body must not conceal a circuit or state-machine defect until the next
@@ -714,21 +725,31 @@ export function initialInteraction(model) {
   const stateId=machineFor(model).initialState.value;
   return {stateId,setSeconds:model.timer?.initialSeconds??null,
     remainingSeconds:model.timer?.initialSeconds??null,outputs:displayedOutputs(model,model.initialState),
-    controlValues:Object.fromEntries(model.controls.map(c=>[c.id,c.range?.initial??0]))};
+    controlValues:Object.fromEntries(model.controls.map(c=>[c.id,c.range?.initial??0])),...(model.recorder?{recording:emptyRecording()}:{})};
 }
+const emptyRecording=()=>({elapsedSeconds:0,entries:[],dropped:0});
+const capture=(model,id)=>model.recorder?.captureStates.includes(id);
+export const PREVIEW_HISTORY_LIMIT=256;
 export function stepInteraction(model,runtime,event) {
   if (!model || !runtime || !event) return runtime;
   let {stateId,setSeconds,remainingSeconds,controlValues}=runtime;
-  let eventId, delta=1;
+  let eventId, delta=1,extraElapsed=0,recording=runtime.recording;
   if (Object.hasOwn(event,'elapsedSeconds')) {
-    if (!Number.isFinite(event.elapsedSeconds) || event.elapsedSeconds<=0 ||
-        model.states.find(s=>s.id===stateId)?.clock!=='run') return runtime;
+    if (!Number.isFinite(event.elapsedSeconds) || event.elapsedSeconds<=0) return runtime;
+    const countdown=model.states.find(s=>s.id===stateId)?.clock==='run'&&model.timer;
+    if(capture(model,stateId))recording={...recording,elapsedSeconds:recording.elapsedSeconds+(countdown?Math.min(event.elapsedSeconds,remainingSeconds):event.elapsedSeconds)};
+    if(!countdown)return recording!==runtime.recording?{...runtime,recording}:runtime;
+    extraElapsed=Math.max(0,event.elapsedSeconds-remainingSeconds);
     remainingSeconds=Math.max(0,remainingSeconds-event.elapsedSeconds);
-    if (remainingSeconds>0) return {...runtime,remainingSeconds};
+    if (remainingSeconds>0) return {...runtime,remainingSeconds,...(recording?{recording}:{})};
     eventId=reservedEvent;
   } else if(Object.hasOwn(event,'systemEventId')) {
     if(!(model.systemEvents||[]).some(e=>e.id===event.systemEventId))return runtime;
     eventId=event.systemEventId;
+    if(capture(model,stateId)&&model.recorder.sampleEvents.includes(eventId)){
+      const label=model.systemEvents.find(e=>e.id===eventId).label,full=recording.entries.length>=PREVIEW_HISTORY_LIMIT;
+      recording={...recording,dropped:recording.dropped+Number(full),entries:[...(full?recording.entries.slice(1):recording.entries),{atSeconds:Math.floor(recording.elapsedSeconds),eventId,label}]};
+    }
   } else {
     const control=model.controls.find(c=>c.id===event.controlId);
     if (!control) return runtime;
@@ -749,14 +770,16 @@ export function stepInteraction(model,runtime,event) {
     }
   }
   const next=machineFor(model).transition(stateId,'control:'+eventId);
-  if (!next.changed && controlValues===runtime.controlValues) return runtime;
+  if (!next.changed && controlValues===runtime.controlValues && recording===runtime.recording) return runtime;
   stateId=next.value;
+  if(capture(model,stateId)&&!capture(model,runtime.stateId))recording=emptyRecording();
+  if(extraElapsed&&capture(model,stateId))recording={...recording,elapsedSeconds:recording.elapsedSeconds+extraElapsed};
   const effect=next.actions[0]?.type;
   if (effect==='adjust') {
     setSeconds=Math.max(model.timer.minSeconds,Math.min(model.timer.maxSeconds,setSeconds+delta*model.timer.stepSeconds));
     remainingSeconds=setSeconds;
   } else if (effect==='reset' || effect==='restart') remainingSeconds=setSeconds;
-  return {stateId,setSeconds,remainingSeconds,controlValues,outputs:displayedOutputs(model,stateId)};
+  return {stateId,setSeconds,remainingSeconds,controlValues,outputs:displayedOutputs(model,stateId),...(recording?{recording}:{})};
 }
 
 // Uses the declared kinematic axes. This is a bounded visual pose update, not dynamics.

@@ -84,15 +84,46 @@ function readReview(value,candidate){
  });
  return {checks,physicalChecks:value.physicalChecks.map(s=>s.trim()),requiresInteraction:value.requiresInteraction};
 }
+function edgeActions(model,before,edge){
+   const parsed=controlEvent(model,edge.event),control=parsed?.control;
+   const systemEvent=model.systemEvents?.find(e=>e.id===edge.event);
+   return edge.event==='timer.expired'?[{elapsedSeconds:before.remainingSeconds}]:
+    systemEvent?[{systemEventId:edge.event}]:parsed?.phase==='increase'||parsed?.phase==='decrease'?
+     [{controlId:control.id,delta:(parsed.phase==='increase'?1:-1)*Math.sign(control.step)}]:parsed?.phase?
+     [{controlId:control.id,phase:parsed.phase}]:control?.kind==='turn'?[{controlId:edge.event,delta:1},{controlId:edge.event,delta:-1}]:[{controlId:edge.event}];
+ }
+// Exercise the delivered graph twice, reaching its review screen with and without an injected reading.
+function replayRecorder(model,captures){
+ const r=model.recorder;
+ function reach(from,target){
+  const queue=[from],visited=new Set();for(let i=0;i<queue.length&&visited.size<64;i++){
+   const v=queue[i];if(visited.has(v.stateId))continue;visited.add(v.stateId);if(v.stateId===target)return v;
+   for(const edge of model.transitions.filter(e=>e.from===v.stateId&&e.to!==v.stateId&&!visited.has(e.to))){
+    if(!r.captureStates.includes(v.stateId)&&r.captureStates.includes(edge.to))continue;
+    for(const act of edgeActions(model,v,edge)){const n=stepInteraction(model,v,act);if(n.stateId===edge.to){queue.push(n);break;}}
+   }
+  }return null;
+ }
+ for(const original of captures){
+  const seconds=Math.min(60,original.remainingSeconds>0?original.remainingSeconds/2:60),before=stepInteraction(model,original,{elapsedSeconds:seconds});
+  if(!r.captureStates.includes(before.stateId))continue;
+  for(const id of r.sampleEvents){const sample=stepInteraction(model,before,{systemEventId:id});
+   for(const screen of r.reviewStates){const quiet=reach(before,screen),withSample=reach(sample,screen);
+    if(quiet&&withSample&&quiet.outputs[r.displayId]!=='off'&&withSample.outputs[r.displayId]!=='off'&&withSample.recording.entries.filter(e=>e.eventId===id).length>quiet.recording.entries.filter(e=>e.eventId===id).length&&withSample.recording.entries.some(e=>e.eventId===id&&e.atSeconds===Math.floor(before.recording.elapsedSeconds)))return {status:'observed',capture:before.stateId,review:screen,display:r.displayId,addedEvent:id,elapsedAtInput:before.recording.elapsedSeconds,withoutInput:quiet.recording.entries.length,withInput:withSample.recording.entries.length,scope:'simulated inputs, one preview session'};
+   }
+  }
+ }
+ return {status:'unverified'};
+}
 // Replay each declared event once from a reachable example of its source state.
 // Distinct timing/knob histories can reach the same state; this is a bounded sample.
 export function replayInteraction(model){
  if(!model)return {status:'not-applicable',initialState:null,visitedStates:[],observations:[],issues:[]};
- const start=initialInteraction(model),pending=[start],visited=new Set(),observations=[],issues=[];
+ const start=initialInteraction(model),pending=[start],visited=new Set(),observations=[],issues=[],captures=[];
  for(let i=0;i<pending.length&&visited.size<64;i++){
   const before=pending[i];
   if(visited.has(before.stateId))continue;
-  visited.add(before.stateId);
+  visited.add(before.stateId);if(model.recorder?.captureStates.includes(before.stateId))captures.push(before);
   const running=model.states.find(s=>s.id===before.stateId)?.clock==='run';
   if(running&&before.remainingSeconds>1){
    const after=stepInteraction(model,before,{elapsedSeconds:1});
@@ -100,12 +131,8 @@ export function replayInteraction(model){
    if(after.remainingSeconds!==before.remainingSeconds-1)issues.push('运行态 '+before.stateId+' 重放一秒没有正确减少剩余时长。');
   }
   for(const edge of model.transitions.filter(t=>t.from===before.stateId)){
-   const parsed=controlEvent(model,edge.event),control=parsed?.control;
-   const systemEvent=model.systemEvents?.find(e=>e.id===edge.event);
-   const actions=edge.event==='timer.expired'?[{elapsedSeconds:before.remainingSeconds}]:
-    systemEvent?[{systemEventId:edge.event}]:parsed?.phase==='increase'||parsed?.phase==='decrease'?
-     [{controlId:control.id,delta:(parsed.phase==='increase'?1:-1)*Math.sign(control.step)}]:parsed?.phase?
-     [{controlId:control.id,phase:parsed.phase}]:control?.kind==='turn'?[{controlId:edge.event,delta:1},{controlId:edge.event,delta:-1}]:[{controlId:edge.event}];
+   const parsed=controlEvent(model,edge.event),control=parsed?.control,systemEvent=model.systemEvents?.find(e=>e.id===edge.event);
+   const actions=edgeActions(model,before,edge);
    for(const action of actions){
     const after=stepInteraction(model,before,action);
     if(!visited.has(after.stateId))pending.push(after);
@@ -119,7 +146,9 @@ export function replayInteraction(model){
   }
  }
  for(const state of model.states)if(!visited.has(state.id))issues.push('从初始状态重放没有抵达 '+state.id+'。');
- return {status:'replayed',initialState:start.stateId,visitedStates:[...visited],observations,issues:[...new Set(issues)]};
+ const recordedHistory=model.recorder?replayRecorder(model,captures):null;
+ if(recordedHistory&&recordedHistory.status!=='observed')issues.push('在同一回看页面未能重放并区分有、无额外反馈的两次记录。');
+ return {status:'replayed',...(recordedHistory?{recordedHistory}:{}),initialState:start.stateId,visitedStates:[...visited],observations,issues:[...new Set(issues)]};
 }
 function reviewMessages(ctx,candidate,geometry,catalogGeometry,behavior,wiring,normalizations,definitionIssues,previousIssues,tracking){
  const cleanParts=(candidate?.parts||[]).map(({mechanicalEvidenceReceipt,...part})=>part);

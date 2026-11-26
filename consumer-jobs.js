@@ -32,7 +32,7 @@ export async function runDesignJob(input,{call,signal,onProgress}){
   signal?.addEventListener('abort',cancel,{once:true});
   try{
     while(job.status==='running'){
-      onProgress?.(job.progress);
+      onProgress?.(job.provider&&job.progress&&typeof job.progress==='object'?{...job.progress,provider:job.provider}:job.progress);
       await wait(1200,signal);
       job=await read(job.id);
     }
