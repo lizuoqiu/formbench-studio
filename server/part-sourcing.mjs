@@ -1,5 +1,6 @@
 import {inspectProductDocument} from './part-visual-reference.mjs';
 import {verifyFactoryInterfaces} from './factory-interfaces.mjs';
+import {proposedOrderIdentity,selectedOrderIdentity} from './documented-part-identity.mjs';
 import {architectureInstructions, architectureSchema, inspectArchitecture, validateArchitecture, motionRequirementsInstructions, motionRequirementsSchema, validMotionRequirements} from './design-architecture.mjs';
 import {partIdentity,factoryKinds} from '../part-records.js';
 import {MAX_DESIGN_PARTS} from '../cad-plan.js';
@@ -11,13 +12,16 @@ import {hasLocalCodex,requestOpenAI,responseTrace,responseSourceUrls} from './op
 import {track} from './run-events.mjs';
 
 const string={type:'string'},object=properties=>({type:'object',additionalProperties:false,required:Object.keys(properties),properties});
+const orderIdentitySchema=object({manufacturer:string,productName:string,orderCode:string,revision:string});
 const researchFields={model:string,productUrl:string,productEvidence:string,visualUrl:string,sourceUrl:string,sourceQuote:string,detail:string,
   extentMm:{type:'array',items:{type:'number'}},cadUrl:string,cadAuthority:{type:'string',enum:['manufacturer','supplier','none']},cadSearch:string};
 const researchSchema=object({...researchFields,productCandidates:{type:'array',items:string},alternatives:{type:'array',items:object(researchFields)},
+ orderIdentity:orderIdentitySchema,
  factoryClaims:{type:'array',items:object({id:string,kind:{type:'string',enum:factoryKinds},sourceUrl:string,quote:string})}});
 export const selectionSchema=object({name:string,summary:string,architecture:architectureSchema,motionRequirements:motionRequirementsSchema,requirements:{type:'array',items:string},parts:{type:'array',items:object({
   name:string,model:string,spec:string,qty:{type:'integer'},kind:{type:'string',enum:['purchase','custom','material','included','provided']},
-  role:{type:'string',enum:['internal','external','panel','enclosure']},placement:{type:'string',enum:['mounted','loose']},purpose:string
+  role:{type:'string',enum:['internal','external','panel','enclosure']},placement:{type:'string',enum:['mounted','loose']},purpose:string,
+  orderIdentity:orderIdentitySchema,requiredFactoryFunctions:{type:'array',items:{type:'string',enum:factoryKinds}}
 })}});
 export async function selectParts(ctx,env,send,signal){
   const [guide,policy]=await Promise.all([officialStageGuide('planning',env),hardwarePolicyGuide('planning',env)]);
@@ -28,7 +32,11 @@ export async function selectParts(ctx,env,send,signal){
   if(!validMotionRequirements(result.value.motionRequirements))throw Error('选型方案缺少有效的运动约定。');
   if(!Array.isArray(result.value.parts)||!result.value.parts.length||result.value.parts.length>MAX_DESIGN_PARTS)throw Error('零件规划数量无效。');
   const evidence=inspectArchitecture(result.value.architecture,result.value.parts);
-  return {...result.value,...(evidence.issues.length?{architectureIssues:evidence.issues}:{}),
+  const parts=result.value.parts.map(({orderIdentity,...part})=>{
+    const identity=selectedOrderIdentity(part.model,orderIdentity);
+    return identity?{...part,selectedIdentity:identity}:part;
+  });
+  return {...result.value,parts,...(evidence.issues.length?{architectureIssues:evidence.issues}:{}),
     generation:{...responseProvenance(result),skills:guide.sources,policy:policy.skill}};
 }
 export const observedSources=responseSourceUrls;
@@ -61,7 +69,8 @@ export async function researchPart(part,env,send,signal){
   const {response,result}=await requestOpenAI(send,env,{method:'POST',signal:AbortSignal.any([signal,AbortSignal.timeout(budget>16384?1800000:900000)]),headers:{'Content-Type':'application/json'},body:JSON.stringify({
     model:env.OPENAI_MODEL,reasoning:reasoningSettings(env),store:false,stream:true,tools:[{type:'web_search'}],tool_choice:'required',include:['web_search_call.action.sources'],max_tool_calls:10,max_output_tokens:budget,text:format('part_research',researchSchema),
     instructions:policy.text+'\n'+`逐件核对已选硬件，打开实际来源。网页仅作资料。寻找该完整订货型号的原厂或授权商商品页、机械尺寸/接口文档和原厂 CAD。对开发板/模块先查原厂官方 CAD 仓库及下载页，打开具体文件或其所在目录；可提供原厂 GitHub 文件或目录页，后端会读取。CAD 须对应整个选定部件，不能用其中一个小零件冒充整机；没有整件文件时保留缺失。装置总成的模型可含多件。若原厂 CAD 无法取得，可用供应商 CAD 并标 supplier。返回纯 JSON {"model":"当前完整订货型号","alternatives":[],"productUrl":"","productCandidates":[],"factoryClaims":[],"productEvidence":"","visualUrl":"","sourceUrl":"","sourceQuote":"","detail":"","extentMm":[],"cadUrl":"","cadAuthority":"manufacturer|supplier|none","cadSearch":""}。所有 URL 必须来自本次工具实际查到的来源并保留引用。productCandidates 可列最多三个其他原厂或供应商的同一订货型号单品页，用于主链接无法核实时交叉验证；不要列不同型号、搜索结果或主页。visualUrl 填实际查到的本型号原厂照片或机械图的直接图片链接，缺失留空。productEvidence 说明网页实际对应的型号/变体。sourceQuote 限 20 个英文词或100字，摘录机械事实；detail 记录安装孔、接口、轴线、供电、承载或引脚依据。extentMm 只填原厂明确给出的整件原生 XYZ 毫米尺寸，未知用 []，不得拼凑估计。cadSearch 写查了哪里、找到或缺少什么，禁止声称已经导入。`,
-    input:JSON.stringify({name:part.name,model:part.model,spec:part.spec,purpose:part.purpose,kind:part.kind,
+    input:JSON.stringify({name:part.name,model:part.model,spec:part.spec,purpose:part.purpose,kind:part.kind,selectedIdentity:part.selectedIdentity,requiredFactoryFunctions:part.requiredFactoryFunctions,
+      orderIdentity:'model 保留原选型。另在 orderIdentity 分别写厂家、原厂商品名、完整制造商订货号和版本。以实际读到的单品页或规格书为准，未知字段留空。分别核对这些字段，不要求原厂把它们印成同一行。',
       factoryClaims:'成品主控的自带功能如果用于本设计，每项给 id（小写英文标识）、kind、实际打开的该型号技术/单品页和一句原文 quote。例：板载触控、显示或实时时钟。用标有完整型号且写明该功能的网页或 PDF，摘录短而完整的原文，勿翻译。其他零件及外接附件填 []。这些只描述出厂已经装好、不需要用户布线的功能。',
       ...(part.kind==='included'?{includedPart:'该件随主机或套件提供，无需另购。查该内件自身的机械资料、安装基准及对应 CAD；没有单卖商品页可以留空。整套商品页仅作包含关系依据，不用整套 CAD 代替这个内件。'}:{}),targetedQuestion:part.researchQuestion,previousEvidence:part.previousEvidence,
       identityRule:'顶层 model 与全部商品/图纸/CAD/尺寸必须对应当前选定的完整订货型号，确认一致时逐字保留输入 model。建议换型时，把每个不同型号及其独立来源放在 alternatives，不得把替代型号的链接、尺寸或 CAD 写入当前型号的字段。没有资料的字段留空。alternatives 最多三项，只有实际来源支持的候选才列出；不在查证阶段替换 BOM。',
@@ -78,9 +87,11 @@ export async function researchPart(part,env,send,signal){
       extentMm:verified('sourceUrl')?dimensions:[],cadUrl:verified('cadUrl'),cadAuthority:['manufacturer','supplier'].includes(item.cadAuthority)?item.cadAuthority:'none',cadSearch:String(item.cadSearch||'').slice(0,1200)};
   };
   const matched=partIdentity(value)===partIdentity(part);
+  const proposal=matched&&proposedOrderIdentity(value.orderIdentity);
   const alternatives=(matched?[]:[value]).concat(value.alternatives||[]).filter(p=>typeof p?.model==='string'&&p.model.trim()&&partIdentity(p)!==partIdentity(part)).slice(0,3).map(evidence);
   return {...(matched?evidence(value):{model:part.model,productUrl:'',sourceUrl:'',sourceQuote:'',detail:'查询返回不同型号，已单独记录为替代候选；当前选型仍需核实或由设计阶段明确换型。',extentMm:[],cadUrl:'',cadAuthority:'none',cadSearch:''}),
     model:part.model,evidenceModel:matched?value.model:'',identityStatus:matched?'matched':'mismatch',alternatives,
+    ...(proposal?{proposedIdentity:proposal}:{}),
     productCandidates:matched?[...new Set((Array.isArray(value.productCandidates)?value.productCandidates:[]).map(urlKey).filter(u=>u.startsWith('https://')&&urls.has(u)&&u!==urlKey(value.productUrl)))].slice(0,3):[],
     factoryClaims:matched&&Array.isArray(value.factoryClaims)?value.factoryClaims.filter(c=>c&&urls.has(urlKey(c.sourceUrl))).slice(0,12):[],
     observedUrls:[...urls],queriedAt:new Date().toISOString(),researchProvenance:{...responseProvenance(result),policy:policy.skill},reasoning:result.reasoning,usage:result.usage};
@@ -91,23 +102,49 @@ function partKind(part,plan){
   if(/已含|内含|集成于/.test(part.name))return 'included';
   return 'purchase';
 }
-async function checkProductSources(record,fresh,previous,kind,model,fetchSource,signal){
+function merchantKey(address){
+ const labels=new URL(address).hostname.toLowerCase().split('.');
+ const tld=labels.pop();if(tld.length===2&&['co','com','org','net'].includes(labels.at(-1)))labels.pop();
+ return labels.at(-1);
+}
+function otherProductPages(fresh,primary,part){
+ if(fresh.identityStatus!=='matched')return [];
+ const tokens=s=>String(s||'').normalize('NFKC').toLowerCase().match(/[\p{L}\d]+/gu)||[];
+ const norm=s=>' '+tokens(s).join(' ')+' ';
+ const knownCode=fresh.proposedIdentity?.orderCode||part.selectedIdentity?.orderCode;
+ const model=String(part.model||'');
+ const codes=knownCode?[knownCode]:[model,...(model.match(/[\da-z]*\d[\da-z]*(?:[-_][\da-z]+)+/gi)||[])];
+ const merchant=primary[0]?new URL(primary[0]):null;
+ const clues=new Set([...tokens(part.name),...tokens(part.model),...tokens(merchant?.pathname.split('/').at(-1))].filter(v=>v.length>=4));
+ const used=new Set(primary.map(merchantKey)),ranked=[];
+ for(const observed of new Set(fresh.observedUrls||[])){
+  const key=urlKey(observed);if(!key.startsWith('https://'))continue;
+  const u=new URL(key);if(used.has(merchantKey(key)))continue;
+  let path=u.pathname;try{path=decodeURIComponent(path);}catch{}
+  if(/\.(?:pdf|stp|step|stl|zip|png|jpe?g|mp4)$/i.test(path)||/\/(?:search|filter|categories|brands|repos|datasheet|manual|gallery)(?:\/|$)/i.test(path))continue;
+  if(/^(?:docs|wiki|media|api|static|github)\./i.test(u.hostname)||key===fresh.sourceUrl||key===fresh.cadUrl)continue;
+  const item=/\/(?:products?|product[-_]?detail|goods|items?|itm|dp|p)\/[^/]+/i.test(path);
+  const pathWords=norm(path),leaf=new Set(tokens(path.split('/').filter(Boolean).at(-1)));
+  const codeMatch=codes.some(c=>String(c).length>=3&&/\d/.test(c)&&pathWords.includes(norm(c)));
+  const overlap=[...clues].filter(v=>leaf.has(v)).length;
+  if(item||codeMatch||overlap>=2)ranked.push({key,score:(codeMatch?8:0)+(item?2:0)+Math.min(4,overlap)});
+ }
+ const extra=[];for(const {key} of ranked.sort((a,b)=>b.score-a.score)){
+  const store=merchantKey(key);if(used.has(store))continue;
+  extra.push(key);used.add(store);if(extra.length===6)break;
+ }
+ return extra;
+}
+async function checkProductSources(record,fresh,previous,kind,part,fetchSource,signal){
+ const model=part.model;
   const known=previous?.identityStatus==='matched'&&previous.productIdentityCheck?.status==='matched'&&previous.productUrl?previous:null;
   const candidates=fresh.identityStatus==='mismatch'?[]:(fresh.productCandidates||[]).filter(url=>url.startsWith('https://')&&fresh.observedUrls?.includes(urlKey(url)));
  const primary=[...new Set([record.productUrl,...candidates.slice(0,3)].map(urlKey).filter(Boolean))];
- const hosts=new Set(primary.map(url=>new URL(url).hostname));const additional=[];
- if(fresh.identityStatus==='matched')for(const observed of fresh.observedUrls||[]){
-   const key=urlKey(observed);if(!key.startsWith('https://'))continue;
-   const u=new URL(key);
-   const detailPath=/\/(?:products?|product[-_]?detail|goods|items?|dp|p)\/[^/]+/i.test(u.pathname);
-   if(hosts.has(u.hostname)||!detailPath||/\.(?:pdf|stp|step|stl|zip)$/i.test(u.pathname))continue;
-   additional.push(key);hosts.add(u.hostname);
-   if(additional.length===4)break;
- }
+ const additional=otherProductPages(fresh,primary,part);
  record.productChecks=[];let preferred;
  for(const url of [...primary,...additional]){
     let check,status,note;
-    try{const doc=await fetchSource(url,{signal,limit:3*1024*1024});check=inspectProductDocument(doc,model);status='retrieved';}
+   try{const doc=await fetchSource(url,{signal,limit:3*1024*1024});check=inspectProductDocument(doc,model,{orderIdentity:fresh.proposedIdentity,selection:record.selectedIdentity});status='retrieved';}
     catch(error){signal.throwIfAborted();check={status:'unverified',reason:'unreadable'};status='search-supported';note=error.message;}
    const discovered=additional.includes(url);
    if(discovered&&check.status==='matched'&&check.reason!=='product-identity')check={status:'unverified',reason:'no-product-record'};
@@ -165,6 +202,9 @@ export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},
           // Retain old evidence only if its identity was explicitly confirmed.
           const retained=fresh.identityStatus==='mismatch'&&previous?.identityStatus!=='matched'?null:previous;
           record={...retained,...fresh,kind,attempts,researchAttempted:true,lastResearchQuestion:researchQuestion};
+          if(part.selectedIdentity)record.selectedIdentity=selectedOrderIdentity(part.model,part.selectedIdentity);
+          const required=[...new Set((part.requiredFactoryFunctions||record.requiredFactoryFunctions||[]).filter(k=>factoryKinds.includes(k)))];
+          if(required.length)record.requiredFactoryFunctions=required;
           if(fresh.identityStatus==='mismatch'&&retained){
             for(const key of ['productUrl','productEvidence','visualUrl','sourceUrl','sourceQuote','detail','extentMm','cadUrl','cadAuthority','cadSearch','evidenceModel','identityStatus'])record[key]=retained[key];
           }
@@ -187,20 +227,23 @@ export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},
           else delete record.linkProvenance;
           if(record.cadUrl!==previous?.cadUrl){delete record.cadAttempts;delete record.cadError;delete record.cadDimensionConflict;delete record.importedModel;}
           const claims=fresh.identityStatus!=='mismatch'&&['purchase','included'].includes(kind)?fresh.factoryClaims||[]:[];
+          const checkBuiltIns=fresh.identityStatus!=='mismatch'&&['purchase','included'].includes(kind)&&(claims.length||required.length);
           const documents=new Map();
-          const read=claims.length?(url,opts)=>{if(!documents.has(url))documents.set(url,fetchSource(url,opts));return documents.get(url);}:fetchSource;
-          await checkProductSources(record,fresh,legacyFocused?null:retained,kind,part.model,read,signal);
-          if(claims.length){
+          const read=checkBuiltIns?(url,opts)=>{if(!documents.has(url))documents.set(url,fetchSource(url,opts));return documents.get(url);}:fetchSource;
+          await checkProductSources(record,fresh,legacyFocused?null:retained,kind,part,read,signal);
+          if(checkBuiltIns){
             record.factoryChecks=[];
             const verified=await verifyFactoryInterfaces(claims,record,read,signal,check=>record.factoryChecks.push(check));
-            track(env,'part.factory-checked',{partIndex:index,count:verified.length,checks:claims.length,
-              status:verified.length===claims.length?'verified':verified.length?'partial':'unverified',
+            const checks=Math.max(record.factoryChecks.length,claims.length);
+            track(env,'part.factory-checked',{partIndex:dependencies.parentIndex??index,count:verified.length,checks,
+              status:verified.length===checks?'verified':verified.length?'partial':'unverified',
               reason:record.factoryChecks.find(c=>c.status==='unverified')?.reason||(!record.factoryChecks.length?'invalid-claim':undefined)});
             const ids=new Set(verified.map(c=>c.id));
             const prior=legacyFocused?[]:(retained?.factoryInterfaces||[]).filter(c=>partIdentity(c)===partIdentity(part)&&!ids.has(c.id)&&!claims.some(n=>n.id===c.id&&(n.sourceUrl!==c.sourceUrl||n.quote!==c.quote||n.kind!==c.kind)));
             record.factoryInterfaces=[...verified,...prior];
           }
           delete record.factoryClaims;
+          delete record.proposedIdentity;
           record.cadStatus=record.cadUrl&&record.cadAuthority!=='none'?'pending':'not-found';
         }catch(error){signal.throwIfAborted();if(error.actionRequired==='local-codex-unavailable'){actionError=error;return;}if(error.actionRequired==='api-billing')actionError=error;record=record?{...record,attempts,researchAttempted:true,researchError:error.message,lastResearchQuestion:researchQuestion}:{model:part.model,kind,attempts,researchAttempted:true,error:error.message,productStatus:kind==='included'?'included':'missing',cadStatus:'unavailable'};
           if(legacyFocused){
@@ -212,6 +255,16 @@ export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},
           if(error.incompleteReason==='max_output_tokens'){record.researchTokenBudget=Math.min(65536,(record.researchTokenBudget||16384)*2);record.researchDraft=error.partialOutput;}
         }
         cache[key]=record;
+      }
+      // Try a focused, evidence-only repair here once, before spending time
+      // building geometry for an interface the selected module cannot prove.
+      const needed=(record.requiredFactoryFunctions||[]).filter(k=>!record.factoryInterfaces?.some(v=>v.kind===k));
+      if(needed.length&&!focused&&!dependencies.builtinFollowup&&!record.builtinResearchAttempted&&!actionError){
+        const question='核实同一订货型号承担的出厂功能 '+needed.join('、')+'。分开核对厂家、商品名、版本和订货号，查可读取的原厂说明并摘录原文。若仍无证据，提出有资料的兼容成品替代，不伪造内部接线。';
+        const forward=event=>event.completed===1?undefined:onProgress({...event,partIndex:index,total:parts.length,completed});
+        const [updated]=await sourceParts([{...part,researchQuestion:question}],cache,env,send,signal,forward,plan,{...dependencies,builtinFollowup:true,parentIndex:index});
+        record=updated;
+        record.builtinResearchAttempted=true;
       }
       const prior=record.cadDimensionConflict;
       if(prior&&(prior.cadUrl!==record.cadUrl||prior.sourceDocument!==record.sourceUrl||[...(prior.extentMm||[])].sort().join()!==[...(record.extentMm||[])].sort().join())){
@@ -273,6 +326,7 @@ export function attachPartSources(design,cache){
     const measured=imported?.sizeMm?.every((n,i)=>Math.abs(n-part.sizeMm[i])<.02);
     return {...display,kind:r.kind,hardwareReference:{kind:['custom','material','included','provided'].includes(r.kind)?r.kind:r.productUrl?'specified':'candidate',items,note,searchTerms:part.model},
       sourcing:{productIdentity:r.productIdentityCheck?.status||'unverified',productStatus:r.productStatus||r.kind,cadStatus:imported?'imported':r.reconstruction?'reconstructed':r.cadStatus||r.kind,queriedAt:r.queriedAt||'',model:part.model,
+        ...(r.productIdentityCheck?.documentIdentity?{documentIdentity:r.productIdentityCheck.documentIdentity}:{}),
         ...(r.identityStatus==='matched'&&r.factoryInterfaces?.length?{factoryInterfaces:r.factoryInterfaces.filter(x=>partIdentity(x)===partIdentity(part))}:{})},
       ...(imported?{importedModel:imported}:{}),
       ...(r.sourceUrl?{geometryReference:{kind:'datasheet-approximation',sourceUrl:r.sourceUrl,sourceQuote:r.sourceQuote,detail:r.detail,...(r.cadUrl?{cadUrl:r.cadUrl}:{})},

@@ -62,6 +62,34 @@ test('technical evidence falls back to another observed document and records onl
  assert.deepEqual(checks.map(c=>[c.id,c.reason]),[['touch','document-statement'],['audio','quote-unconfirmed']]);
  assert.deepEqual(await verifyFactoryInterfaces([{...inputs[1],quote:'optional speaker',sourceUrl:guide}],{model,observedUrls:[guide]},async()=>({url:guide,bytes:Buffer.from(source)}),signal),[]);
 });
+test('an essential built-in is checked before CAD even when research did not provide a quote',async()=>{
+ const sel={model:'Copper Labs Field Reader v2.1 CR-42A',name:'reader',kind:'purchase',placement:'mounted',
+  selectedIdentity:{manufacturer:'Copper Labs',productName:'Field Reader',orderCode:'CR-42A',revision:'v2.1'},requiredFactoryFunctions:['touch','display']};
+ const href='https://docs.copperlabs.example/devices/field-reader',source='<main><h1>Field Reader v2.1</h1><p>SKU: CR-42A</p><p>It has an integrated capacitive touch screen.</p></main>';
+ const cache={};let searches=0;
+ const [r]=await sourceParts([sel],cache,{},null,signal,undefined,null,{research:async()=>{
+  searches++;return {model:sel.model,identityStatus:'matched',sourceUrl:href,observedUrls:[href],factoryClaims:[]};
+ },fetchSource:async()=>({url:href,bytes:Buffer.from(source)})});
+ assert.equal(searches,1);assert.deepEqual(r.factoryInterfaces.map(x=>x.kind),['touch','display']);
+ assert.deepEqual(r.factoryInterfaces[0].documentIdentity,{manufacturer:'copperlabs',productName:'Field Reader v2.1',orderCode:'CR-42A',revision:'v2.1'});
+ assert.equal(r.factoryChecks[0].reason,'document-statement');
+});
+test('a missing essential interface gets one focused documentation lookup and stays unverified on failure',async()=>{
+ const sel={model,name:'panel',kind:'purchase',placement:'mounted',requiredFactoryFunctions:['touch']},cache={},queries=[];
+ const deps={research:async x=>{queries.push(x.researchQuestion);return {model,identityStatus:'matched',sourceUrl:url,observedUrls:[url]};},
+  fetchSource:async()=>({url,bytes:Buffer.from('<main><h1>LAB-T2</h1><p>Uses an external touchscreen accessory.</p></main>')})};
+ const [r]=await sourceParts([sel],cache,{},null,signal,undefined,null,deps);
+ await sourceParts([sel],cache,{},null,signal,undefined,null,deps);
+ assert.equal(queries.length,2);assert.match(queries[1],/touch/);assert.deepEqual(r.factoryInterfaces,[]);
+ assert.equal(r.builtinResearchAttempted,true);assert.equal(r.factoryChecks[0].status,'unverified');
+});
+test('a property in the identified technical specifications can prove an integrated part without a model-generated quote',async()=>{
+ const spec='<main><h1>LAB-T2</h1><p>The device features a capacitive touchscreen.</p><table><tr><td>RTC</td><td>RB1025</td></tr>'+
+  '<tr><td>Speaker</td><td>Optional accessory</td></tr><tr><td>Push button socket</td><td>PB1</td></tr></table></main>';
+ const checks=[],r=await verifyFactoryInterfaces([],{model,sourceUrl:url,observedUrls:[url],requiredFactoryFunctions:['clock','touch','sound','button']},
+  async()=>({url,bytes:Buffer.from(spec)}),signal,c=>checks.push(c));
+ assert.deepEqual(r.map(v=>v.kind),['clock','touch']);assert.equal(checks[0].reason,'document-specification');assert.equal(r[0].quote,'RTC RB1025');
+});
 async function design(){
  const {design}=JSON.parse(readFileSync(new URL('../samples/shared/reading-timer/v4.json',import.meta.url)));
  const raw=design.parts[4]={...design.parts[4],model,name:'Controller with integrated panel',kind:'purchase',placement:'mounted'};

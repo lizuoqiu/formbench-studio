@@ -11,6 +11,18 @@ test('only the selected full product matches; mentions and sibling variants do n
  const good=inspectProductDocument(doc(s,base+'?variant=1'),'Nova A1');assert.equal(good.status,'matched');assert.equal(good.imageUrl,'https://maker.example/img/A1.png');
  assert.equal(inspectProductDocument(doc('<h1>Raspberry Pi Pico</h1>'),'Raspberry Pi Pico').status,'matched');
 });
+test('a sole seller listing may print its manufacturer code in specifications and a separate seller SKU in markup',()=>{
+ const p={'@type':'Product',name:'Nova Track Reader v1.3',sku:'STORE-987',brand:'Nova'},caption='<main><h1>Nova Track Reader v1.3</h1>';
+ const specs='<dl><dt>SKU</dt><dd>NR-81X</dd></dl>';
+ const page=s=>doc(html(p)+caption+s+'</main>');
+ const label='Nova Track Reader v1.3 NR-81X';
+ assert.deepEqual(inspectProductDocument(page(specs),label).documentIdentity,{manufacturer:'Nova',productName:p.name,revision:'v1.3',orderCode:'NR-81X'});
+ for(const s of ['<h2>Related products</h2>'+specs,'<aside>'+specs+'</aside>',specs+'<dl><dt>SKU</dt><dd>NR-81Z</dd></dl>'])
+  assert.equal(inspectProductDocument(page(s),label).status,'unverified');
+ assert.equal(inspectProductDocument(page(specs),label.replace('v1.3','v1.30')).status,'unverified');
+ const otherHeading=html(p)+caption.replace('Nova Track Reader','Other Reader')+specs+'</main>';
+ assert.equal(inspectProductDocument(doc(otherHeading),label).status,'unverified');
+});
 test('visual reconstruction sends real image bytes, missing images leave text only',async()=>{
  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jrXcAAAAASUVORK5CYII=','base64');const visual=await loadPartVisual({visualUrl:base},undefined,async()=>({url:base,bytes:png}));assert.equal(visual.meta.mime,'image/png');assert.equal(withVisualInput('x',visual)[0].content[1].image_url,'data:image/png;base64,'+png.toString('base64'));
  const empty=await loadPartVisual({visualUrl:base},undefined,async()=>doc('<title>not an image</title>'));assert.equal(withVisualInput('x',empty),'x');

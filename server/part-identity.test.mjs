@@ -129,3 +129,14 @@ test('after rejected suppliers, independently observed storefronts require an ex
  assert.deepEqual(r.productChecks.map(v=>v.reason),['unreadable','no-product-record','no-single-variant','product-identity']);
  assert.equal(r.productStatus,'retrieved');
 });
+test('alternative suppliers can use descriptive or local-language paths and different domains of a blocked merchant are skipped',async()=>{
+ const part={...selected,name:'optical reading head',model:'Cobalt AR-902'},primary='https://large-store.com/products/optical-reading-head',
+  regional='https://large-store.co.uk/products/ar-902',listing='https://reading-shop.example/optik/73623-cobalt-ar-902.html';
+ const hits=[],cache={};
+ const send=()=>answer({model:part.model,productUrl:primary},[primary,regional,listing]);
+ await sourceParts([part],cache,env,send,signal(),undefined,null,{fetchSource:async u=>{
+  hits.push(u);if(u===primary)throw Error('HTTP 429');
+  return {url:u,bytes:Buffer.from('<script type="application/ld+json">{"@type":"Product","name":"Optical head","mpn":"AR-902","brand":"Cobalt"}</script>')};
+ }});
+ assert.deepEqual(hits,[primary,listing]);assert.equal(cache[partIdentity(part)].productUrl,listing);
+});
