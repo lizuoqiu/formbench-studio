@@ -51,11 +51,11 @@ function revisionHistory(){
   const turns=iteration.conversation.map(t=>`<li><b>${t.role==='assistant'?'AI':'你'}</b><span>${esc(t.text)}</span></li>`).join('');
   return `<details class="iteration-history"><summary>设计记录</summary><ol>${original}${turns}</ol></details>`;
 }
-function remember(){
+function remember(attachmentsReady){
   if(!design||!projectId||sharedProject)return;
   const snap=structuredClone({id:projectId,prompt:projectPrompt,iteration,exampleAsset,savedCadUrl,copyOrigin,design,selected:rows.map(r=>({included:r.included,candidate:selected(r),holdKey:r.holdKey||'',holdStatus:r.holdStatus||''}))});
   const epoch=accountEpoch,seq=++saveSerial;
-  saveTail=saveTail.then(async()=>{if(epoch!==accountEpoch)return;try{await saveConsumerProject(snap)}catch{if(seq===saveSerial&&snap.id===projectId){const note=$('#save-status');if(note)note.textContent='项目暂未保存。'}}});
+  saveTail=saveTail.then(async()=>{if(attachmentsReady)await attachmentsReady;if(epoch!==accountEpoch)return;try{await saveConsumerProject(snap)}catch{if(seq===saveSerial&&snap.id===projectId){const note=$('#save-status');if(note)note.textContent='项目暂未保存。'}}});
 }
 function notice(id,msg='',href='',label=''){const el=$(id);if(el)el.innerHTML=msg?`<p class="notice">${esc(msg)} ${href?shopLink(href,label):''}</p>`:''}
 const localPrompt=()=>{try{if(!['127.0.0.1','localhost','[::1]'].includes(location.hostname))return;const incoming=new URLSearchParams(location.hash.slice(1)).get('wish');if(incoming){const mode=new URLSearchParams(location.hash.slice(1)).get('provider');if(['auto','openai-api','local-codex'].includes(mode))$('#run-provider').value=mode;$('#wish').value=incoming.slice(0,1800);history.replaceState(null,'',location.pathname+location.search)}}catch{}};
@@ -463,17 +463,18 @@ async function showProject(d,isSample,record={},newImages=null){if(!d||!Array.is
   else if(record.exampleRoute)syncExampleUrl(record.exampleRoute.example,record.exampleRoute.version);
   else syncExampleUrl();
   progress();sample=isSample||d.generation?.provider==='sample';projectId=record.id||crypto.randomUUID();projectPrompt=typeof record.prompt==='string'?record.prompt:'';rows=design.parts.map((p,i)=>{const prev=record.selected?.[i],c=prev?.candidate&&productUrl(prev.candidate.url)?prev.candidate:null;return {candidates:c?[c]:[],choice:c?0:-1,manual:c,searchUrl:defaultSearch(p),searching:!c&&!sharedProject&&!['custom','provided','included'].includes(p.kind),serial:0,holdKey:prev?.holdKey||'',holdStatus:prev?.holdStatus||'',included:!['custom','provided','included'].includes(p.kind)&&(prev?.included??true)}});entry.hidden=true;project.hidden=false;$('#back').hidden=false;project.innerHTML=projectWorkspace();
-  // Capture the new revision before asynchronous rendering or navigation can replace it.
-  if(!sample&&!record.id)remember();
-  selectProjectView(incomingRevision?'details':'model');if(!sharedProject)await capabilitiesReady;if(generation!==run)return;
+  // Capture this version now, but only list it as saved after its private images commit.
   const photoId=projectId;
+  const attachmentsReady=!sample&&newImages?.length?versionImages(photoId,newImages).then(()=>true,()=>false):null;
+  if(!sample&&!record.id)remember(attachmentsReady);
+  selectProjectView(incomingRevision?'details':'model');if(!sharedProject)await capabilitiesReady;if(generation!==run)return;
   const restored=iteration.imageCount&&!sample&&!newImages?versionImages(photoId).catch(()=>[]).then(images=>{
     if(!images.length&&projectId===photoId)revisionPhotos?.message('这版参考照片保存在创建它的浏览器；可在此处重新添加。');
     return images;
   }):[];
   revisionPhotos=photoPicker($('#revision-form'),'revision-design-images',()=>caps,newImages??restored);
-  if(!sample&&newImages?.length)versionImages(photoId,newImages).catch(()=>{
-    if(projectId===photoId)revisionPhotos?.message('照片本次可用，重新打开前请保留原图再添加。');
+  if(attachmentsReady)attachmentsReady.then(saved=>{
+    if(!saved&&projectId===photoId)revisionPhotos?.message('照片本次可用，重新打开前请保留原图再添加。');
   });
   const revisionField=$('#revision-prompt');
   if(incomingRevision){revisionField.value=incomingRevision;incomingRevision='';revisionField.focus({preventScroll:true})}
