@@ -6,6 +6,13 @@ export const partIdentity=part=>text(part?.model,240).normalize('NFKC').toLowerC
   .replace(/(?:^|\s)(?:co\.?\s*,?\s*ltd\.?|s\.r\.l\.?|incorporated|corporation|inc\.?|corp\.?|ltd\.?)(?=\s|$)/g,' ')
   .replace(/\s+/g,' ').trim();
 const https=value=>{try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password?u.href:'';}catch{return '';}};
+export const factoryKinds=Object.freeze(['touch','button','display','clock','light','sound']);
+export function factoryInterfaces(part){
+  const entries=part?.sourcing?.factoryInterfaces;
+  if(!Array.isArray(entries)||part?.modelSourceInvalidated||!partIdentity(part)||!['purchase','included'].includes(part.kind))return [];
+  return entries.filter(e=>e&&partIdentity(e)===partIdentity(part)&&typeof e.id==='string'&&/^[a-z][a-z0-9_-]{0,39}$/.test(e.id)&&factoryKinds.includes(e.kind)&&
+    typeof e.quote==='string'&&e.quote.trim().length>=8&&e.quote.length<=240&&typeof e.sourceUrl==='string'&&e.sourceUrl.length<=4096&&https(e.sourceUrl)&&/^[a-f0-9]{64}$/.test(e.sourceSha256)).slice(0,12);
+}
 export function hardwareReference(value){
   if(!value||!['specified','candidate','custom','material','included','provided'].includes(value.kind)||!Array.isArray(value.items))return null;
   return {kind:value.kind,items:value.items.slice(0,8).map(item=>({name:text(item.name,240),label:text(item.label,120),url:https(item.url)})).filter(item=>item.name),

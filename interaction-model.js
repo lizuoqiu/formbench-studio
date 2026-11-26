@@ -1,6 +1,7 @@
 // Unmodified @xstate/fsm 2.1.0 ESM distribution; its MIT license ships alongside it.
 import {createMachine} from './assets/xstate-fsm/xstate-fsm-2.1.0.js';
 import {resolveAssemblyPinAnchor} from './assembly-pin-anchors.js';
+import {factoryInterfaces} from './part-records.js';
 
 // The same bounded format drives design review and the interactive CAD view.
 // All part/body references are zero-based. Axes and pivots use assembly coordinates.
@@ -418,6 +419,15 @@ function signalChannels(model,parts,wires,gets,sends,addEdge) {
   return internal;
 }
 
+const isFactoryRef=pin=>typeof pin==='string'&&/^builtin:/i.test(pin.trim());
+function usesFactoryInterface(model,parts,item,pins,allowed){
+  if(!pins.some(isFactoryRef))return false;
+  const part=parts[item.partIndex],prefix='builtin:';
+  const feature=pins.length===1&&pins[0].startsWith(prefix)&&factoryInterfaces(part).find(x=>x.id===pins[0].slice(prefix.length));
+  check(feature&&item.partIndex===model.controllerPartIndex&&part.placement==='mounted'&&allowed.includes(feature.kind),
+    item.label+' 的自带功能需要同一已安装主控的型号资料与相符用途；外部信号仍需实际接线。');
+  return true;
+}
 function checkWiring(model,parts,bodies) {
   const controller = model.controllerPartIndex;
   const channels=model.signalChannels || [];
@@ -425,10 +435,13 @@ function checkWiring(model,parts,bodies) {
     '接线最多 '+MAX_INTERACTION_CONNECTIONS+' 项，器件内部通道最多 24 项。');
   if (controller===null) check(!model.connections.length && !channels.length && !model.timer,
     '纯机械方案不能声明电气接线、内部通道或计时。');
-  const assignedPins=new Set();
+  check(!model.connections.some(w=>isFactoryRef(w.fromPin)||isFactoryRef(w.toPin))&&!channels.some(c=>isFactoryRef(c.inputPin)||isFactoryRef(c.outputPin)),
+    '主控自带功能不是接线端子，外部连接须使用实物针脚。');
+  const assignedPins=new Set(),factoryInputs=new Set();
   for (const c of model.controls) {
     check(c.signalPins.length<=8 && unique(c.signalPins.map(canonicalPin)) &&
       (controller!==null ? c.signalPins.length>0 : !c.signalPins.length),c.label+' 的信号脚与控制方式不符。');
+    if(usesFactoryInterface(model,parts,c,c.signalPins,c.kind==='touch'?['touch']:c.kind==='press'?['button']:[])){factoryInputs.add(c.id);continue;}
     if(c.kind==='command')check(c.signalPins.every(pin=>isBusPin(parts[c.partIndex],pin)),c.label+' 的命令须通过真实通信引脚进入控制器。');
     if (c.kind==='turn' && controller!==null && isEncoder(parts[c.partIndex]) &&
         model.controls.some(p=>p.kind==='press' && p.partIndex===c.partIndex) &&
@@ -513,6 +526,7 @@ function checkWiring(model,parts,bodies) {
   const incoming = gets.get(controller) || new Set(), outgoing=sends.get(controller) || new Set();
   const consumed = new Map();
   for (const c of model.controls) {
+    if(factoryInputs.has(c.id))continue;
     const powerPins=new Set(c.signalPins.map(pin=>pinKey(c.partIndex,pin)));
     const directPower=c.partIndex!==controller&&!['touch','command'].includes(c.kind)&&!isEncoder(parts[c.partIndex])&&powerPins.size>=2&&
       [...powerPins].every(pin=>pins.get(pin)==='power')&&
@@ -531,6 +545,7 @@ function checkWiring(model,parts,bodies) {
     }
   }
   for (const o of model.outputs) {
+    if(usesFactoryInterface(model,parts,o,[o.signalPin],['light','sound','display'].includes(o.kind)?[o.kind]:[]))continue;
     const end=pinKey(o.partIndex,o.signalPin);
     check([...outgoing].some(pin=>trace(pin,p=>p===end).size),o.label+' 的 '+o.signalPin+' 需要从控制器输出脚获得信号。');
   }
@@ -568,7 +583,7 @@ function checkWiring(model,parts,bodies) {
 
 const transitionKey = (from,event)=>JSON.stringify([from,event]);
 
-function checkMachine(model) {
+function checkMachine(model,parts) {
   const {states,transitions,timer,controls,outputs}=model;
   check(states.length>=1 && states.length<=64 && transitions.length<=512,'状态需要 1–64 项，状态转换最多 512 项。');
   check(unique(states.map(s=>s.id)) && states.some(s=>s.id===model.initialState),'状态须唯一，且初始状态必须存在。');
@@ -590,7 +605,8 @@ function checkMachine(model) {
     check(event.sourcePins.length>0&&event.sourcePins.length<=8&&unique(event.sourcePins.map(canonicalPin)),event.label+' 须明确检测来源针脚。');
     check(event.kind==='timeout'?Number.isFinite(event.delayMs)&&event.delayMs>0&&event.delayMs<=86400000:event.delayMs===null,
       event.label+' 的超时阈值无效；非超时事件的 delayMs 应为 null。');
-    check(event.sourcePins.every(pin=>model.connections.some(w=>
+    const onboard=usesFactoryInterface(model,parts,event,event.sourcePins,event.kind==='timeout'?['clock']:event.kind==='fault'?['clock','button']:event.kind==='feedback'&&!recorder?.sampleEvents.includes(event.id)?['touch','button','clock']:[]);
+    check(onboard||event.sourcePins.every(pin=>model.connections.some(w=>
       w.fromPartIndex===event.partIndex&&canonicalPin(w.fromPin)===canonicalPin(pin)||
       w.toPartIndex===event.partIndex&&canonicalPin(w.toPin)===canonicalPin(pin))),event.label+' 的检测来源未对应真实接线端点。');
     check(transitions.some(t=>t.event===event.id)||recorder?.sampleEvents.includes(event.id),event.label+' 既不触发状态变化，也未用于记录。');
@@ -693,7 +709,7 @@ export function validateInteraction(raw,{bom,parts=bom,cadPlan}={}) {
   const issues=[],malformedRows=[];
   try{issues.push(...terminalLocationIssues(raw,parts,cadPlan.bodies,malformedRows));}
   catch(error){issues.push(error.message);malformedRows.push(-1);}
-  const checks=[()=>checkMachine(raw)];
+  const checks=[()=>checkMachine(raw,parts)];
   if(malformedRows.length)issues.push('交互设计：端子表格式不完整，依赖端子的装配绑定和线路检查未完成。');
   else checks.unshift(()=>checkBindings(raw,parts,cadPlan.bodies,cadPlan),()=>checkWiring(raw,parts,cadPlan.bodies));
   for(const run of checks) {

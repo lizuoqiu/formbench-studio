@@ -4,6 +4,7 @@ import {pendingDesignJob} from './consumer-jobs.js';
 import {mountConsumerAccount,saveConsumerProject,readConsumerProject} from './consumer-account.js';
 import {currentCadPlan,mountConsumerCad} from './consumer-cad.js';
 import {buildAssemblyWiring} from './assembly-wires.js';
+import {factoryInterfaces} from './part-records.js';
 import {photoPicker,versionImages} from './consumer-design-images.js';
 import {galleryAsset,loadSharedProject,mountGallery,shareLink,sharedProjectBar,showShareDialog} from './consumer-gallery.js';
 const $=s=>document.querySelector(s),entry=$('#entry'),project=$('#project');
@@ -344,13 +345,16 @@ function functionalDetails(d){
     <ul>${reviewList(checked.map(c=>c.note))}</ul>${replayNote}
     ${physical.length?`<p>实物待测</p><ul>${reviewList(physical)}</ul>`:''}</details>`:'';
   if(!interaction)return findings;
-  const path=[...new Set(interaction.controls.map(c=>name(c.partIndex)))].join(' / ')+
-    (Number.isInteger(controller)?' → '+name(controller):'')+
-    (interaction.outputs.length?' → '+[...new Set(interaction.outputs.map(o=>name(o.partIndex)))].join(' / '):'');
+  const group=items=>[...new Set(items.map(x=>name(x.partIndex)))].join(' / ');
+  const path=[group(interaction.controls),Number.isInteger(controller)?name(controller):'',group(interaction.outputs)].filter(Boolean).filter((v,i,a)=>!i||v!==a[i-1]).join(' → ');
+  const refs=new Set([...interaction.controls.flatMap(c=>c.signalPins),...interaction.outputs.map(o=>o.signalPin),...(interaction.systemEvents||[]).flatMap(e=>e.sourcePins)]);
+  const kindName={touch:'触摸面',button:'按键',display:'显示屏',clock:'实时时钟',light:'指示灯',sound:'声音输出'};
+  const builtIn=factoryInterfaces(parts[controller]).filter(x=>refs.has('builtin:'+x.id)).map(x=>`<li><a href="${esc(x.sourceUrl)}" target="_blank" rel="noopener noreferrer">${kindName[x.kind]} · 查看型号资料 ↗</a></li>`).join('');
   const kinds={signal:'信号',power:'供电',ground:'共地'};
   const rows=interaction.connections.map((w,i)=>`<tr><td><button class="connection-link" type="button" data-focus-wiring="${i}" aria-label="查看${name(w.fromPartIndex)} ${esc(w.fromPin)} 到${name(w.toPartIndex)} ${esc(w.toPin)}">${kinds[w.kind]} ↗</button></td><td>${name(w.fromPartIndex)} <code>${esc(w.fromPin)}</code></td><td>${name(w.toPartIndex)} <code>${esc(w.toPin)}</code></td></tr>`).join('');
   return `<section class="functional-details" aria-label="交互原理"><h3>交互原理</h3><p>${path}</p>
     ${Number.isInteger(controller)?`<p>主控型号 · ${esc(parts[controller]?.model||parts[controller]?.name||'待选型')}</p>`:''}
+    ${builtIn?`<details><summary>主控自带的功能</summary><ul>${builtIn}</ul></details>`:''}
     <div class="model-navigation">
       ${rows?'<button class="small-button" type="button" data-focus-wiring>查看内部接线</button>':''}
       ${Number.isInteger(controller)?`<button class="small-button" type="button" data-focus-controller="${controller}">在模型中查看控制板</button>`:''}

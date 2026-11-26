@@ -78,8 +78,9 @@ export function assemblyEvidenceForModel({selectedParts,geometry,repair,review,d
   if(!focus.size)return {selectedParts,geometry:geometryForModel(geometry)};
   const parts=selectedParts.map(({model,research},partIndex)=>{
     if(!research||focus.has(partIndex))return {partIndex,model,research};
-    const {productUrl,sourceUrl,extentMm,detail,importedModel,reconstruction}=research;
+    const {productUrl,sourceUrl,extentMm,detail,importedModel,reconstruction,factoryInterfaces}=research;
     return {partIndex,model,research:{productUrl,sourceUrl,extentMm,detail:detail?.slice(0,180),
+      ...(factoryInterfaces?.length?{factoryInterfaces:factoryInterfaces.map(({id,kind,sourceUrl,quote})=>({id,kind,sourceUrl,quote}))}:{}),
       importedModel:importedModel?{sizeMm:importedModel.sizeMm,sourceUrl:importedModel.sourceUrl}:null,
       reconstruction:reconstruction?{sizeMm:reconstruction.sizeMm,engine:reconstruction.engine}:null}};
   });

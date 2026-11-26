@@ -1,0 +1,7 @@
+# Validate factory-installed controls without inventing external wires
+
+Three independently generated projects selected a controller sold with its own screen. The validator requires a wire from the controller to itself; several touch actions using the same glass can also be mistaken for shorted independent pins. Keep the part sealed and validate the manufacturer's built-in function at the boundary of that product. Splitting the controller into pretend purchases or relaxing all wire checks would invalidate assembly and USB tests.
+
+1. In part research, identify only the built-in controls, display or timekeeping used by the design. Resolve each claim against an observed product or technical document for the exact model; save a short verbatim quotation and document fingerprint. Ignore unverifiable claims.
+2. Make these verified interfaces available in assembly and incremental revisions. A local feature refers to its own controller by a reserved reference. The same touch surface can serve several actions. The external sensor, power, ground, motors and host commands still use the existing physical wiring and geometry checks.
+3. Validate with a different generic board; reject swapped models, invented claims and use of a local interface in place of external wires. Confirm that previously published assemblies still load. Run the tests and build, release, then type a new requirement into the published page. Recorded jobs are diagnostic evidence only.

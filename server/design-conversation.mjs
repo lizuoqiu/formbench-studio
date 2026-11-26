@@ -1,7 +1,7 @@
 import {deviceMotionTypes,validMotionRequirements} from './design-architecture.mjs';
 import {MAX_DESIGN_PARTS,validateCadPlan} from '../cad-plan.js';
 import {validateInteraction} from '../interaction-model.js';
-import {hardwareReference,importedModel} from '../part-records.js';
+import {factoryInterfaces,hardwareReference,importedModel} from '../part-records.js';
 
 export const maxDesignRequestBytes=2*1024*1024;
 export const maxDesignSteps=80;
@@ -67,7 +67,10 @@ function previousDesign(raw){
   catch{throw new DesignInputError('上一版设计的 CAD 方案无效。');}
  }
  if(raw.interaction!=null){
-  try{base.interaction=validateInteraction(raw.interaction,{bom:parts,cadPlan:base.cadPlan});}
+  // Check that the submitted history can be replayed. Client-side receipts
+  // are deliberately kept out of the returned BOM and future sourcing.
+  const previousParts=parts.map((part,i)=>({...part,sourcing:{factoryInterfaces:factoryInterfaces({...part,sourcing:raw.parts[i].sourcing})}}));
+  try{base.interaction=validateInteraction(raw.interaction,{bom:previousParts,cadPlan:base.cadPlan});}
   catch{throw new DesignInputError('上一版交互定义与 BOM 或 CAD 不一致。');}
  }
  return base;

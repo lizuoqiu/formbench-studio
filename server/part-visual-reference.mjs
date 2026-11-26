@@ -13,7 +13,7 @@ function productBlocks(value){if(!value||typeof value!=='object')return [];retur
 function picture(x){return typeof x==='string'?x:Array.isArray(x)?picture(x[0]):x?.contentUrl||x?.url||'';}
 function urlAt(value,base){try{const u=new URL(value,base);return value&&['http:','https:'].includes(u.protocol)?u.href:'';}catch{return '';}}
 // Match the selected product, not a code found in navigation, a related-product list or a variant table.
-export function inspectProductDocument(resource={},model){
+export function inspectProductDocument(resource={},model,{withDescription=false}={}){
  const {bytes,url}=resource;if(!bytes?.length)return {status:'unverified',reason:'empty'};
  const html=Buffer.from(bytes).toString('utf8');const sourceSha256=sha(bytes),meta=[...html.matchAll(/<meta\b[^>]*>/gi)].map(m=>m[0]);
  const tag=key=>attr(meta.find(m=>[attr(m,'property'),attr(m,'name')].includes(key))||'','content');
@@ -34,7 +34,8 @@ export function inspectProductDocument(resource={},model){
  const sole=selected.length===1&&identity(selected[0])?selected[0]:null;
  const heading=!products.length&&!familyPage&&headings.find(h=>has(h,model));
  const matched=Boolean(sole||heading);
- return {status:matched?'matched':familyPage?'family':'unverified',reason:matched?sole?'product-identity':'product-heading':'no-single-variant',sourceSha256,url,evidence:matched?String(sole?.name||sole?.mpn||heading).slice(0,200):'',imageUrl:matched?urlAt(picture(sole?.image)||(!familyPage&&tag('og:image')),url):''};
+ return {status:matched?'matched':familyPage?'family':'unverified',reason:matched?sole?'product-identity':'product-heading':'no-single-variant',sourceSha256,url,evidence:matched?String(sole?.name||sole?.mpn||heading).slice(0,200):'',imageUrl:matched?urlAt(picture(sole?.image)||(!familyPage&&tag('og:image')),url):'',
+  ...(withDescription?{hasProduct:products.length>0||familyPage,description:matched?[sole?.name||heading,sole?.description,(!familyPage&&tag('og:description'))].filter(v=>typeof v==='string').join(' '):''}:{})};
 }
 function imageType(b){if(b.length>=24&&b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))return'image/png';if(b.length>10&&b[0]===255&&b[1]===216&&b[2]===255)return'image/jpeg';if(b.length>16&&b.toString('ascii',0,4)==='RIFF'&&b.toString('ascii',8,12)==='WEBP')return'image/webp';return '';}
 async function pdfCover(bytes,signal){
