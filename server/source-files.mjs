@@ -97,10 +97,23 @@ export async function inspectImportedCad(imported,env){
   const model=JSON.parse(await readFile(join(assetRoot(env),imported.id,'mesh.json'),'utf8'));
   return {...imported,geometrySummary:cadGeometrySummary(model)};
 }
+// Compare physical envelopes, independent of which axis the supplier calls Z.
+// Unknown dimensions are not evidence against the file. Never scale an imported mesh to fit.
+const positive3=v=>Array.isArray(v)&&v.length===3&&v.every(n=>Number.isFinite(n)&&n>0);
+export function wholePartExtentConflict(record,asset){
+  if(!record.sourceUrl||!positive3(record.extentMm)||!positive3(asset?.sizeMm))return null;
+  const sort=v=>[...v].sort((a,b)=>a-b),expected=sort(record.extentMm),actual=sort(asset.sizeMm);
+  if(expected.every((n,i)=>Math.abs(n-actual[i])<=Math.max(1,n*.08)))return null;
+  return {cadUrl:record.cadUrl||'',sourceDocument:record.sourceUrl,extentMm:[...record.extentMm],meshSizeMm:[...asset.sizeMm],filename:asset.filename||'',sourceUrl:asset.sourceUrl||''};
+}
+export function dimensionConflictMessage(c){
+  const fmt=a=>a.map(n=>Number(n.toFixed(2))).join(' × ');
+  return `该 CAD 的整件外廓为 ${fmt(c.meshSizeMm)} mm，与型号资料的 ${fmt(c.extentMm)} mm 不符；不将此文件作为整件，改按资料重建。`;
+}
 export async function importSourceCad(record,env,{signal,fetcher=sourceFetch,parser=parseCad}={}){
   const candidates=await findCadFiles(record.cadUrl,{signal,fetcher});
   candidates.sort((a,b)=>(/\.st(?:ep|p)(?:$|\?)/i.test(b)?1:0)-(/\.st(?:ep|p)(?:$|\?)/i.test(a)?1:0));
-  const errors=[];
+  const errors=[],conflicts=[];
   for(const url of candidates.slice(0,5)){
     try{
       signal?.throwIfAborted();
@@ -118,8 +131,8 @@ export async function importSourceCad(record,env,{signal,fetcher=sourceFetch,par
       }
       const model=await parser(bytes,filename,signal);
       if(model.sizeMm.some(n=>!Number.isFinite(n)||n<=0||n>2000))throw Error('CAD 的毫米尺寸超出工作台范围。');
-      // The selected file may be a drawing part or a different variant. Keep its
-      // measured bounds for the designer rather than stretching it to the BOM.
+      const conflict=wholePartExtentConflict(record,{sizeMm:model.sizeMm,filename,sourceUrl:response.url});
+      if(conflict){conflicts.push(conflict);continue;}
       const id=randomUUID(),folder=join(assetRoot(env),id),extension=extname(filename).toLowerCase();
       const sourceFile='source'+extension;
       await mkdir(folder,{recursive:true});
@@ -134,7 +147,8 @@ export async function importSourceCad(record,env,{signal,fetcher=sourceFetch,par
       return imported;
     }catch(error){signal?.throwIfAborted();errors.push(error.message);}
   }
-  throw Error(errors.join(' ')||'该资料页未提供可直接读取的 STEP 或 STL 文件。');
+  if(conflicts.length&&!errors.length)throw Object.assign(Error(dimensionConflictMessage(conflicts[0])),{cadDimensionConflict:conflicts[0]});
+  throw Error([...errors,...conflicts.map(dimensionConflictMessage)].join(' ')||'该资料页未提供可直接读取的 STEP 或 STL 文件。');
 }
 export async function modelAsset(request,env){
   const match=/^\/api\/model-assets\/([a-f0-9-]{36})\/(mesh\.json|metadata\.json|source\.(?:step|stp|stl))$/.exec(new URL(request.url).pathname);

@@ -208,3 +208,28 @@ test('serial joints carry their descendants and preserve fixed links',()=>{
   assert.deepEqual(jointPoint([0,0,0],0,joints,[90,90]),[0,0,0]);
   assert.throws(()=>validateJoints({bodies,joints:[joints[0],{...joints[1],parentIndex:null}]}),/非父关节/);
 });
+
+test('rejects exploded or partial CAD before persistence, tries another candidate, and permits permuted nominal axes',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'formbench-extent-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+  const record={model:'Counter C8',sourceUrl:'https://vendor.example/counter',extentMm:[41,22,13],cadUrl:'https://vendor.example/downloads',cadAuthority:'manufacturer'};
+  let offerWhole=false;const read=[];
+  const fetcher=async(url)=>({url,bytes:Buffer.from(url===record.cadUrl?'<a href="case.stl">Case</a>'+(offerWhole?'<a href="whole.stl">Complete instrument</a>':''):'model')});
+  const parser=async(b,n)=>{read.push(n);return {sizeMm:n==='case.stl'?[93,44,5]:[22.3,13.1,40.8],meshes:[]};};
+  await assert.rejects(importSourceCad(record,{FORMBENCH_ASSET_DIR:dir},{fetcher,parser}),e=>e.cadDimensionConflict?.filename==='case.stl'&&e.cadDimensionConflict?.meshSizeMm[0]===93);
+  assert.equal((await import('node:fs/promises').then(fs=>fs.readdir(dir))).length,0);
+  offerWhole=true;const asset=await importSourceCad(record,{FORMBENCH_ASSET_DIR:dir},{fetcher,parser});
+  assert.equal(asset.filename,'whole.stl');assert.deepEqual(asset.sizeMm,[22.3,13.1,40.8]);assert.deepEqual(read,['case.stl','case.stl','whole.stl']);
+});
+
+test('quarantines an old conflicting mesh, prevents stale display and permits a new candidate later',async()=>{
+  const part={model:'Counter C8',name:'Counter',kind:'purchase',placement:'mounted',sizeMm:[93,44,5],dimensionSource:'cad',dimensionNote:'previous CAD exterior'},key=partIdentity(part),sourceUrl='https://vendor.example/counter';
+  const last={model:part.model,kind:part.kind,evidenceModel:part.model,extentMm:[41,22,13],sourceUrl,cadUrl:'https://vendor.example/case.stl',cadAuthority:'manufacturer',cadAttempts:1,importedModel:{sizeMm:part.sizeMm,sourceUrl:'https://vendor.example/case.stl',filename:'case.stl',format:'stl',sourceType:'manufacturer'}};
+  const display={...part,importedModel:last.importedModel},cache={[key]:last},signal=new AbortController().signal;let imports=0;
+  const deps={importCad:async r=>{imports++;return {sizeMm:[22,13,41],sourceUrl:r.cadUrl,filename:'counter.stl',format:'stl'};},research:async()=>({model:part.model,extentMm:[41,22,13],sourceUrl,cadUrl:'https://vendor.example/counter.stl',cadAuthority:'manufacturer'} )};
+  for(let n=0;n<2;n++)await sourceParts([part],cache,{},null,signal,undefined,null,deps);
+  assert.equal(imports,0);assert.equal(cache[key].importedModel,undefined);assert.equal(cache[key].cadStatus,'dimension-conflict');
+  const shown=attachPartSources({parts:[display]},cache).parts[0];assert.equal(shown.importedModel,undefined);assert.equal(shown.dimensionSource,'estimated');assert.equal(shown.dimensionNote,undefined);
+  assert.equal(sourcesForModel([display],[last])[0].importedModel,undefined);
+  await sourceParts([{...part,researchQuestion:'Find the assembled CAD'}],cache,{},null,signal,undefined,null,deps);
+  assert.equal(imports,1);assert.equal(cache[key].importedModel.filename,'counter.stl');assert.equal(cache[key].cadDimensionConflict,undefined);
+});

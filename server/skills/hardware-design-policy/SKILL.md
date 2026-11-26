@@ -2,7 +2,7 @@
 name: hardware-design-policy
 description: 为硬件需求到选型、资料查询、建模、评审和增量修订提供共同决策规则；优先联网查证并复用成品，保持真实外形和最小必要的自定义范围。
 metadata:
-  revision: 2026.11.25.1
+  revision: 2026.11.26.1
 ---
 
 # 通用硬件设计规则
@@ -10,6 +10,8 @@ metadata:
 适用于交互硬件、机构、电子装置和它们的组合，不限定为机械臂。后台按阶段加载以下规则；使用调用方已有的数据字段和工具，不虚构新的工具能力或已执行检查。
 
 ## 共同约束
+
+For any measurement, distinguish the raw observable, the inferred state, and evidence needed to validate the inference. Do not promote a concept preview or a sensor reading into a proven performance or health claim.
 
 - 以用户要求的动作、反馈、尺寸及使用方式为目标。区分用户要求、AI 选择的实现方案和可选扩展；旧草稿里的零件或承诺不自动成为需求。由 AI 完成工程选型和修订，不要求普通用户提供孔位、型号或修复方法。
 - 复用顺序：能够满足目标的现成产品或成套机构 → 成熟模块组合 → 标准件与少量定制连接件 → 确有缺口时的自定义机构或电路。优先级基于需求适配与资料依据，不按零件数量机械打分，也不强制每个项目设计新硬件。
@@ -29,6 +31,8 @@ metadata:
 
 ## 部件查证
 
+同一订货型号优先找实际单品页，并在资料允许时记录其他供应商的同型号单品页。访问受限或系列页不足以核对选型；换来源不能悄悄换型号，也不能把搜索结果标为已核对。
+
 商品链接必须能核对选定的完整订货号和变体；能打开、相似名字或系列页面均不代表该 SKU 已确认。保留产品照片或带尺寸机械图的实际来源；未读到图不要声称已参考。
 
 - 锁定完整厂家、型号、版本和数量，再查商品页、原厂资料、原厂 CAD；替代型号单独记录，不能把另一型号的尺寸或文件挂到当前 BOM。商品搜索链接不等于已核对规格的可下单商品。
@@ -37,6 +41,8 @@ metadata:
 - 对成品模块只研究外部集成所需的接口、安装与功能；没有发现具体冲突时，不把内部每个芯片、保险丝和电容拆成新的采购或设计任务。
 
 ## 单件建模
+
+原厂提供的文件也可能是展开的外壳、单独的盖或不同配置。先比较同一型号整件的资料尺寸和 CAD 外廓，允许轴序不同和标称误差；明显冲突时尝试其他整件文件。没有可用整件时保留冲突证据、按型号资料重建，不拉伸文件，也不让装配围绕展开件设计。
 
 只有建模调用收到的图像才算视觉参考。以有出处的毫米尺寸定标，照片用于辨认外形、安装点或接口，不能从照片猜精确尺寸。
 
@@ -77,7 +83,3 @@ BOM 数量是物理件数。对同一行的每个安装件使用独立的零基 
 
 - 读取本轮 issueDelta。若系统给出 replan，改变该子系统的修复方法；若给出 diagnose，保留草稿和具体缺口。在最后交付之前继续区分数字检查与实物验证。
 - 凡需从已关盖的外部插入电源或数据插头，在该安装件的 fitChecks.portAccess 声明 pins、对应 bodyIndex、插到位时插头包络的整机中心 centerMm、轴对齐尺寸 plugSizeMm 和移至壳外的向量 approachMm。设计开孔与连接器时一起复查，不使用不能穿过壁板的接线。没有外接插头则给空数组；实物插拔仍需另验。可拆盖与零件装入方向不同时使用 lidOffsetMm。
-
-For any measurement, distinguish the raw observable, the inferred state, and evidence needed to validate the inference. Do not promote a concept preview or a sensor reading into a proven performance or health claim.
-
-同一订货型号优先找实际单品页，并在资料允许时记录其他供应商的同型号单品页。访问受限或系列页不足以核对选型；换来源不能悄悄换型号，也不能把搜索结果标为已核对。

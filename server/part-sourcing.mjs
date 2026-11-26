@@ -113,7 +113,7 @@ async function checkProductSources(record,fresh,previous,kind,model,fetchSource,
   if(preferred.note)record.productNote=preferred.note;else delete record.productNote;
 }
 export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},plan,dependencies={}){
-  const {importSourceCad,sourceFetch,inspectImportedCad}=await import('./source-files.mjs');
+  const {importSourceCad,sourceFetch,inspectImportedCad,wholePartExtentConflict,dimensionConflictMessage}=await import('./source-files.mjs');
   const research=dependencies.research||researchPart,importCad=dependencies.importCad||importSourceCad,fetchSource=dependencies.fetchSource||sourceFetch;
   // Resume jobs saved before cosmetic manufacturer-name normalization.
   for(const [key,record]of Object.entries(cache)){
@@ -154,7 +154,7 @@ export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},
           }
           if(fresh.identityStatus!=='mismatch'){record.evidenceModel=fresh.evidenceModel||part.model;record.identityStatus='matched';}
           const sameEvidence=fresh.identityStatus!=='mismatch'&&fresh.sourceUrl&&urlKey(fresh.sourceUrl)===urlKey(previous?.sourceUrl);
-          if(legacyFocused&&!sameEvidence){delete record.reconstruction;delete record.importedModel;delete record.cadAttempts;}
+          if(legacyFocused&&!sameEvidence){delete record.reconstruction;delete record.importedModel;delete record.cadAttempts;delete record.cadDimensionConflict;}
           // A cached included-part placeholder may predate mechanical research.
           // Rebuild it using the newly acquired evidence before assembly.
           if(mountedIncluded&&!previous?.sourceUrl&&fresh.sourceUrl)delete record.reconstruction;
@@ -169,7 +169,7 @@ export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},
           }
           if(Object.keys(linkProvenance).length)record.linkProvenance=linkProvenance;
           else delete record.linkProvenance;
-          if(record.cadUrl!==previous?.cadUrl){delete record.cadAttempts;delete record.cadError;}
+          if(record.cadUrl!==previous?.cadUrl){delete record.cadAttempts;delete record.cadError;delete record.cadDimensionConflict;delete record.importedModel;}
           await checkProductSources(record,fresh,legacyFocused?null:retained,kind,part.model,fetchSource,signal);
           record.cadStatus=record.cadUrl&&record.cadAuthority!=='none'?'pending':'not-found';
         }catch(error){signal.throwIfAborted();if(error.actionRequired==='local-codex-unavailable'){actionError=error;return;}if(error.actionRequired==='api-billing')actionError=error;record=record?{...record,attempts,researchAttempted:true,researchError:error.message,lastResearchQuestion:researchQuestion}:{model:part.model,kind,attempts,researchAttempted:true,error:error.message,productStatus:kind==='included'?'included':'missing',cadStatus:'unavailable'};
@@ -183,12 +183,24 @@ export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},
         }
         cache[key]=record;
       }
+      const prior=record.cadDimensionConflict;
+      if(prior&&(prior.cadUrl!==record.cadUrl||prior.sourceDocument!==record.sourceUrl||[...(prior.extentMm||[])].sort().join()!==[...(record.extentMm||[])].sort().join())){
+        delete record.cadDimensionConflict;delete record.cadAttempts;delete record.cadError;
+      }
+      const cachedConflict=wholePartExtentConflict(record,record.importedModel);
+      if(cachedConflict){record.cadDimensionConflict=cachedConflict;delete record.importedModel;}
+      if(record.cadDimensionConflict){record.cadStatus='dimension-conflict';record.cadError=dimensionConflictMessage(record.cadDimensionConflict);}
       const cadAttempts=record.cadAttempts??(record.cadStatus==='unavailable'?1:0);
-      if(record.cadUrl&&record.cadAuthority!=='none'&&!record.importedModel&&cadAttempts<2){
+      if(record.cadUrl&&record.cadAuthority!=='none'&&!record.importedModel&&!record.cadDimensionConflict&&cadAttempts<2){
         await onProgress({stage:'importing',message:'正在导入 '+part.name+' 的 CAD',partIndex:index,total:parts.length,completed});
         record.cadAttempts=cadAttempts+1;
-        try{record.importedModel=await importCad(record,env,{signal});record.cadStatus='imported';delete record.cadError;}
-        catch(error){signal.throwIfAborted();record.cadStatus='unavailable';record.cadError=error.message;}
+        try{
+          const asset=await importCad(record,env,{signal}),conflict=wholePartExtentConflict(record,asset);
+          if(conflict)throw Object.assign(Error(dimensionConflictMessage(conflict)),{cadDimensionConflict:conflict});
+          record.importedModel=asset;record.cadStatus='imported';delete record.cadError;
+        }catch(error){signal.throwIfAborted();record.cadStatus=error.cadDimensionConflict?'dimension-conflict':'unavailable';record.cadError=error.message;
+          if(error.cadDimensionConflict)record.cadDimensionConflict=error.cadDimensionConflict;
+        }
       }
       if(record.importedModel?.meshUrl&&!Array.isArray(record.importedModel.geometrySummary?.meshes)){
         try{record.importedModel=await inspectImportedCad(record.importedModel,env);delete record.cadInspectionError;}
@@ -211,7 +223,7 @@ export function sourcesForModel(parts,records){
     if(r&&part.sourcing?.model&&partIdentity(part)===partIdentity(r)&&partIdentity(part.sourcing)===partIdentity(r)){
       const {hardwareReference,geometryReference,sourcing,importedModel,...designPart}=part;
       inputPart=designPart;
-    }
+    }else if(r?.cadDimensionConflict&&part.importedModel){const {importedModel,...rest}=part;inputPart=rest;}
     return {...inputPart,...(r?{research:{...r,productChecks:undefined,productCandidates:undefined,observedUrls:undefined,researchProvenance:undefined,linkProvenance:undefined,usage:undefined,researchDraft:undefined,unverifiedEvidence:undefined,reconstructionDraft:undefined,reconstructionPrior:undefined,reconstruction:r.reconstruction?{sizeMm:r.reconstruction.sizeMm,description:r.reconstruction.description,datums:r.reconstruction.datums,assumptions:r.reconstruction.assumptions,engine:r.reconstruction.engine,coordinateSystem:'局部毫米坐标，完整模型包络中心为零点；datums 与模型使用同一坐标'}:null,importedModel:r.importedModel?{sizeMm:r.importedModel.sizeMm,sourceUrl:r.importedModel.sourceUrl,filename:r.importedModel.filename,sourceType:r.importedModel.sourceType,geometrySummary:r.importedModel.geometrySummary}:null}}:{})};
   });
 }
@@ -219,6 +231,8 @@ export function attachPartSources(design,cache){
   return {...design,parts:design.parts.map(part=>{
     const r=cache[partIdentity(part)];if(!r)return part;
     const imported=r.importedModel;
+    const {importedModel:priorDisplay,...display}=part;
+    if(!imported&&part.dimensionSource==='cad'&&r.cadDimensionConflict){display.dimensionSource='estimated';delete display.dimensionSourceUrl;delete display.dimensionNote;}
     const items=[];
     if(r.productUrl)items.push({name:part.model,url:r.productUrl,label:r.productIdentityCheck?.status==='matched'?'单品页 · 型号已核对':'商品候选 · 规格待核对'});
     if(r.sourceUrl&&r.sourceUrl!==r.productUrl)items.push({name:part.model+' 尺寸与接口资料',url:r.sourceUrl,label:'型号资料'});
@@ -227,11 +241,11 @@ export function attachPartSources(design,cache){
     const note=[r.detail,r.error,r.cadError,r.cadSearch,r.kind==='included'?'此件包含在主机中。':r.kind==='provided'?'用户已有设备，无需另购；接口与实机型号仍需核对。':''].filter(Boolean).join(' ').slice(0,1800);
     const matched=r.extentMm?.length===3&&r.extentMm.every((n,i)=>Math.abs(n-part.sizeMm[i])<.02);
     const measured=imported?.sizeMm?.every((n,i)=>Math.abs(n-part.sizeMm[i])<.02);
-    return {...part,kind:r.kind,hardwareReference:{kind:['custom','material','included','provided'].includes(r.kind)?r.kind:r.productUrl?'specified':'candidate',items,note,searchTerms:part.model},
+    return {...display,kind:r.kind,hardwareReference:{kind:['custom','material','included','provided'].includes(r.kind)?r.kind:r.productUrl?'specified':'candidate',items,note,searchTerms:part.model},
       sourcing:{productIdentity:r.productIdentityCheck?.status||'unverified',productStatus:r.productStatus||r.kind,cadStatus:imported?'imported':r.reconstruction?'reconstructed':r.cadStatus||r.kind,queriedAt:r.queriedAt||'',model:part.model},
       ...(imported?{importedModel:imported}:{}),
       ...(r.sourceUrl?{geometryReference:{kind:'datasheet-approximation',sourceUrl:r.sourceUrl,sourceQuote:r.sourceQuote,detail:r.detail,...(r.cadUrl?{cadUrl:r.cadUrl}:{})},
-        dimensionSource:matched?'datasheet':part.dimensionSource,dimensionSourceUrl:r.sourceUrl,dimensionNote:matched?'整件外廓采用型号资料。':part.dimensionNote}:{}),
+        dimensionSource:matched?'datasheet':display.dimensionSource,dimensionSourceUrl:r.sourceUrl,dimensionNote:matched?'整件外廓采用型号资料。':display.dimensionNote}:{}),
       ...(measured?{dimensionSource:'cad',dimensionSourceUrl:imported.documentationUrl||r.cadUrl||imported.sourceUrl,dimensionNote:'整件外廓取自已导入的'+(imported.sourceType==='manufacturer'?'原厂':'供应商')+' CAD，保留原生 XYZ 轴向。'}:{})};
   })};
 }
