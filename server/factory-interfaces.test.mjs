@@ -5,6 +5,7 @@ import {verifyFactoryInterfaces} from './factory-interfaces.mjs';
 import {attachPartSources,sourceParts,sourcesForModel} from './part-sourcing.mjs';
 import {assemblyEvidenceForModel} from './model-geometry-input.mjs';
 import {readDesignRequest} from './design-conversation.mjs';
+import {observeRun} from './run-events.mjs';
 import {partIdentity} from '../part-records.js';
 import {validateInteraction,initialInteraction,stepInteraction} from '../interaction-model.js';
 import {recorderFixture} from './test-fixtures/timer-model.mjs';
@@ -28,14 +29,38 @@ test('normal procurement verifies a product document once and keeps the observed
  const send=async()=>Response.json({status:'completed',output:[{type:'web_search_call',action:{sources:[{url}]}},
   {type:'message',content:[{type:'output_text',text:JSON.stringify({model,productUrl:url,sourceUrl:url,
    factoryClaims:[...claims,{...claims[0],id:'spare',sourceUrl:unseen}]})}]}]});
- const records=await sourceParts([selected],cache,{OPENAI_MODEL:'fixture',OPENAI_API_KEY:'fixture'},send,signal,undefined,null,
+ const activity=[];
+ const env=observeRun({OPENAI_MODEL:'fixture',OPENAI_API_KEY:'fixture'},(event,result)=>{if(event==='part.factory-checked')activity.push(result);});
+ const records=await sourceParts([selected],cache,env,send,signal,undefined,null,
   {fetchSource:async u=>{fetched.push(u);return document();}});
  assert.deepEqual(fetched,[url]);
+ assert.deepEqual(activity.map(x=>[x.partIndex,x.count,x.checks,x.status]),[[0,3,3,'verified']]);
  const reviewed=sourcesForModel([selected],records);
  const reduced=assemblyEvidenceForModel({selectedParts:reviewed,review:{checks:[{status:'repair',partIndices:[3]}]},terminalBindings:[]});
  assert.deepEqual(reduced.selectedParts[0].research.factoryInterfaces.map(x=>x.id),['touch','display','clock']);
  const [part]=attachPartSources({parts:[selected]},cache).parts;
  assert.equal(part.sourcing.factoryInterfaces.length,3);assert.ok(!Object.hasOwn(records[0],'factoryClaims'));
+});
+test('an identified technical sheet can print the manufacturer and order code separately',async()=>{
+ const verify=async(selected,content)=>verifyFactoryInterfaces(claims,{model:selected,observedUrls:[url]},async()=>({url,bytes:Buffer.from(content)}),signal);
+ const page='<main><h1>Nova Instruments controller</h1><p>SKU: LAB-T2</p><p>'+Object.values(quote).join(' ')+'</p></main>';
+ assert.equal((await verify('Nova Instruments LAB-T2',page)).length,3);
+ assert.equal((await verify('LAB-T2',page)).length,3);
+ for(const bad of ['WrongMaker LAB-T2','Nova Instruments LAB-T2B','Nova Instruments LAB-T2 revision 3'])assert.deepEqual(await verify(bad,page),[]);
+ assert.deepEqual(await verify('Nova Instruments LAB-T2',page.replace('SKU: LAB-T2','SKU: LAB-T2A and SKU: LAB-T2')),[]);
+});
+test('technical evidence falls back to another observed document and records only its affirmative wording',async()=>{
+ const shop='https://shop.example/products/t2',guide='https://docs.example/guide/model',reads=[],checks=[];
+ const quoted='The front has an integrated capacitive touch screen.';
+ const source='<main><h1>Nova Controls</h1><p>SKU: LAB-T2</p><p>'+quoted+'</p><p>A connector for an optional speaker is provided.</p></main>';
+ const inputs=[{id:'touch',kind:'touch',quote:'Integrated capacitive touchscreen rated for 4K resolution',sourceUrl:shop},
+  {id:'audio',kind:'sound',quote:'Integrated speaker',sourceUrl:shop}];
+ const verified=await verifyFactoryInterfaces(inputs,{model:'Nova Controls LAB-T2',sourceUrl:guide,observedUrls:[shop,guide]},async u=>{
+  reads.push(u);if(u===shop)throw Error('HTTP 429');return {url:u,bytes:Buffer.from(source)};
+ },signal,v=>checks.push(v));
+ assert.deepEqual(reads,[shop,guide]);assert.deepEqual(verified.map(v=>[v.id,v.sourceUrl,v.quote]),[['touch',guide,quoted]]);
+ assert.deepEqual(checks.map(c=>[c.id,c.reason]),[['touch','document-statement'],['audio','quote-unconfirmed']]);
+ assert.deepEqual(await verifyFactoryInterfaces([{...inputs[1],quote:'optional speaker',sourceUrl:guide}],{model,observedUrls:[guide]},async()=>({url:guide,bytes:Buffer.from(source)}),signal),[]);
 });
 async function design(){
  const {design}=JSON.parse(readFileSync(new URL('../samples/shared/reading-timer/v4.json',import.meta.url)));

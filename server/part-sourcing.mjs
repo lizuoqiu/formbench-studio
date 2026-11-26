@@ -8,6 +8,7 @@ import {reasoningSettings} from './model-settings.mjs';
 import {officialStageGuide} from './official-skills.mjs';
 import {hardwarePolicyGuide} from './modeling-guide.mjs';
 import {hasLocalCodex,requestOpenAI,responseTrace,responseSourceUrls} from './openai-response.mjs';
+import {track} from './run-events.mjs';
 
 const string={type:'string'},object=properties=>({type:'object',additionalProperties:false,required:Object.keys(properties),properties});
 const researchFields={model:string,productUrl:string,productEvidence:string,visualUrl:string,sourceUrl:string,sourceQuote:string,detail:string,
@@ -93,14 +94,25 @@ function partKind(part,plan){
 async function checkProductSources(record,fresh,previous,kind,model,fetchSource,signal){
   const known=previous?.identityStatus==='matched'&&previous.productIdentityCheck?.status==='matched'&&previous.productUrl?previous:null;
   const candidates=fresh.identityStatus==='mismatch'?[]:(fresh.productCandidates||[]).filter(url=>url.startsWith('https://')&&fresh.observedUrls?.includes(urlKey(url)));
-  const urls=[...new Set([record.productUrl,...candidates.slice(0,3)].filter(Boolean))];let preferred;
-  record.productChecks=[];
-  for(const url of urls){
+ const primary=[...new Set([record.productUrl,...candidates.slice(0,3)].map(urlKey).filter(Boolean))];
+ const hosts=new Set(primary.map(url=>new URL(url).hostname));const additional=[];
+ if(fresh.identityStatus==='matched')for(const observed of fresh.observedUrls||[]){
+   const key=urlKey(observed);if(!key.startsWith('https://'))continue;
+   const u=new URL(key);
+   const detailPath=/\/(?:products?|product[-_]?detail|goods|items?|dp|p)\/[^/]+/i.test(u.pathname);
+   if(hosts.has(u.hostname)||!detailPath||/\.(?:pdf|stp|step|stl|zip)$/i.test(u.pathname))continue;
+   additional.push(key);hosts.add(u.hostname);
+   if(additional.length===4)break;
+ }
+ record.productChecks=[];let preferred;
+ for(const url of [...primary,...additional]){
     let check,status,note;
     try{const doc=await fetchSource(url,{signal,limit:3*1024*1024});check=inspectProductDocument(doc,model);status='retrieved';}
     catch(error){signal.throwIfAborted();check={status:'unverified',reason:'unreadable'};status='search-supported';note=error.message;}
+   const discovered=additional.includes(url);
+   if(discovered&&check.status==='matched'&&check.reason!=='product-identity')check={status:'unverified',reason:'no-product-record'};
     record.productChecks.push({url,status:check.status,reason:check.reason,...(note?{note}:{})});
-    if(!preferred||check.status==='matched')preferred={url,check,status,note};
+   if((!preferred&&!discovered)||check.status==='matched')preferred={url,check,status,note};
     if(check.status==='matched')break;
   }
   if(known&&preferred?.check.status!=='matched'&&!record.productChecks.some(p=>p.url===known.productUrl&&p.reason!=='unreadable')){
@@ -179,7 +191,11 @@ export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},
           const read=claims.length?(url,opts)=>{if(!documents.has(url))documents.set(url,fetchSource(url,opts));return documents.get(url);}:fetchSource;
           await checkProductSources(record,fresh,legacyFocused?null:retained,kind,part.model,read,signal);
           if(claims.length){
-            const verified=await verifyFactoryInterfaces(claims,record,read,signal);
+            record.factoryChecks=[];
+            const verified=await verifyFactoryInterfaces(claims,record,read,signal,check=>record.factoryChecks.push(check));
+            track(env,'part.factory-checked',{partIndex:index,count:verified.length,checks:claims.length,
+              status:verified.length===claims.length?'verified':verified.length?'partial':'unverified',
+              reason:record.factoryChecks.find(c=>c.status==='unverified')?.reason||(!record.factoryChecks.length?'invalid-claim':undefined)});
             const ids=new Set(verified.map(c=>c.id));
             const prior=legacyFocused?[]:(retained?.factoryInterfaces||[]).filter(c=>partIdentity(c)===partIdentity(part)&&!ids.has(c.id)&&!claims.some(n=>n.id===c.id&&(n.sourceUrl!==c.sourceUrl||n.quote!==c.quote||n.kind!==c.kind)));
             record.factoryInterfaces=[...verified,...prior];
@@ -188,7 +204,7 @@ export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},
           record.cadStatus=record.cadUrl&&record.cadAuthority!=='none'?'pending':'not-found';
         }catch(error){signal.throwIfAborted();if(error.actionRequired==='local-codex-unavailable'){actionError=error;return;}if(error.actionRequired==='api-billing')actionError=error;record=record?{...record,attempts,researchAttempted:true,researchError:error.message,lastResearchQuestion:researchQuestion}:{model:part.model,kind,attempts,researchAttempted:true,error:error.message,productStatus:kind==='included'?'included':'missing',cadStatus:'unavailable'};
           if(legacyFocused){
-            const fields=['productUrl','productEvidence','visualUrl','sourceUrl','sourceQuote','detail','extentMm','cadUrl','cadSearch','linkProvenance','importedModel','reconstruction','reconstructionPrior','factoryInterfaces'];
+            const fields=['productUrl','productEvidence','visualUrl','sourceUrl','sourceQuote','detail','extentMm','cadUrl','cadSearch','linkProvenance','importedModel','reconstruction','reconstructionPrior','factoryInterfaces','factoryChecks'];
             record.unverifiedEvidence=Object.fromEntries(fields.filter(k=>record[k]!==undefined).map(k=>[k,record[k]]));
             for(const key of fields)delete record[key];
             record.identityStatus='mismatch';record.productStatus='missing';record.cadStatus='unavailable';

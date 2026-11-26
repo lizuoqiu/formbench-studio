@@ -9,6 +9,16 @@ const sha=b=>createHash('sha256').update(b).digest('hex');
 const compact=x=>String(x||'').normalize('NFKC').toLowerCase().replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/[^\p{L}\p{N}]+/gu,' ').trim();
 const attr=(tag,key)=>(tag.match(new RegExp('\\b'+key+'=["\\\']([^"\\\']*)["\\\']','i'))||[])[1]||'';
 const has=(text,key)=>!!key&&(' '+compact(text)+' ').includes(' '+compact(key)+' ');
+// An order may include a brand even when the document prints it separately
+// from the complete MPN. Preserve suffixes, revisions and package variants.
+export function matchesListedPartNumber(model,code,issuer=[]){
+ const selected=compact(model),mpn=compact(code);
+ if(!mpn||!selected)return false;
+ if(selected===mpn)return true;
+ const brand=selected.endsWith(' '+mpn)?selected.slice(0,-mpn.length-1):
+  selected.startsWith(mpn+' ')?selected.slice(mpn.length+1):'';
+ return Boolean(brand&&issuer.some(name=>has(name,brand)));
+}
 function productBlocks(value){if(!value||typeof value!=='object')return [];return [...([value['@type']].flat().some(t=>String(t).toLowerCase()==='product')?[value]:[]),...Object.values(value).filter(x=>x&&typeof x==='object').flatMap(productBlocks)];}
 function picture(x){return typeof x==='string'?x:Array.isArray(x)?picture(x[0]):x?.contentUrl||x?.url||'';}
 function urlAt(value,base){try{const u=new URL(value,base);return value&&['http:','https:'].includes(u.protocol)?u.href:'';}catch{return '';}}
@@ -24,7 +34,8 @@ export function inspectProductDocument(resource={},model,{withDescription=false}
   const codes=[p.mpn,p.sku].filter(x=>typeof x==='string'||Number.isInteger(x));
   // A distributor SKU can be different from the manufacturer's number. A complete model name
   // in the product's own title is also evidence; a numeric fragment on its own isn't.
-  return has(p.name,model)||codes.some(c=>compact(model)===compact(c)||has(model,c)&&(/\d/.test(c)&&/[a-z]/i.test(c)||brand&&has(model,brand)));
+  const maker=typeof p.manufacturer==='string'?p.manufacturer:p.manufacturer?.name;
+  return has(p.name,model)||codes.some(c=>matchesListedPartNumber(model,c,[brand,maker,p.name]));
  };
  const family=/\b(?:series|choose (?:a |your )?(?:model|variant)|product family|product group)\b|选择(?:具体)?型号|产品系列/i;
  const familyPage=products.length>1||headings.some(h=>family.test(h))||/"@type"\s*:\s*"ProductGroup"/i.test(html);

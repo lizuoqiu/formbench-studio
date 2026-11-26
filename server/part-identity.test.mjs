@@ -116,3 +116,16 @@ test('a blocked product page may be replaced only by an observed page that verif
  }});const rec=cache[partIdentity(selected)];assert.deepEqual(hits,[primary,family,other,correct]);assert.deepEqual(rec.productChecks.map(p=>p.status),['unverified','family','unverified','matched']);
  assert.equal(rec.productUrl,correct);assert.equal(rec.productIdentityCheck.status,'matched');assert.ok(rec.linkProvenance.productUrl);assert.equal(rec.productEvidence,'Vendor A1');
 });
+test('after rejected suppliers, independently observed storefronts require an exact structured product for the ordered brand and SKU',async()=>{
+ const unavailable='https://shop.example/products/a1',guide='https://docs.example/guide/a1',article='https://other.example/product/article',
+  wrong='https://outlet.example/product/a1',product='https://supplier.example/product-detail/812',hits=[];
+ const response=()=>answer({model:selected.model,productUrl:unavailable},[unavailable,guide,article,wrong,product]);
+ const html=brand=>'<script type="application/ld+json">'+JSON.stringify({'@type':'Product',name:brand+' controller',mpn:'A1',brand})+'</script>';
+ const cache={};await sourceParts([selected],cache,env,response,signal(),undefined,null,{fetchSource:async u=>{
+  hits.push(u);if(u===unavailable)throw Error('HTTP 429');
+  return {url:u,bytes:Buffer.from(u===wrong?html('OtherBrand'):u===product?html('Vendor'):'<h1>Vendor A1</h1>')};
+ }});
+ const r=cache[partIdentity(selected)];assert.deepEqual(hits,[unavailable,article,wrong,product]);assert.equal(r.productUrl,product);
+ assert.deepEqual(r.productChecks.map(v=>v.reason),['unreadable','no-product-record','no-single-variant','product-identity']);
+ assert.equal(r.productStatus,'retrieved');
+});
