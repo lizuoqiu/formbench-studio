@@ -96,6 +96,30 @@ export function featurePlacement(feature,origin=[0,0,0]){
  };
 }
 
+const portFields=['pins','bodyIndex','centerMm','plugSizeMm','approachMm'];
+function portAccessIssues(fit,fitIndex,bodies){
+ const issues=[],path='fitChecks['+fitIndex+'].portAccess';
+ if(fit.portAccess===undefined)return issues;
+ if(!Array.isArray(fit.portAccess)||fit.portAccess.length>64)return [path+' 应为最多 64 个外接接口的数组。'];
+ for(const [i,port] of fit.portAccess.entries()){
+  const at=path+'['+i+']';
+  if(!port||typeof port!=='object'||Array.isArray(port)){issues.push(at+' 需要接口字段。');continue;}
+  const extra=Object.keys(port).filter(key=>!portFields.includes(key));
+  if(extra.length)issues.push(at+' 含不支持的字段 '+extra.join('、')+'。允许字段为 '+portFields.join('、')+'。');
+  if(!Array.isArray(port.pins)||!port.pins.length||port.pins.some(pin=>typeof pin!=='string'||!pin.trim()))issues.push(at+'.pins 需要已接线的引脚名。');
+  const owner=Number.isInteger(port.bodyIndex)?bodies[port.bodyIndex]?.partIndex:undefined;
+  if(owner!==fit.partIndex){
+   const choices=bodies.flatMap((body,index)=>body.partIndex===fit.partIndex?[index]:[]);
+   const actual=owner===undefined?'没有对应实体':'属于 BOM '+owner;
+   issues.push(at+'.bodyIndex '+String(port.bodyIndex)+' '+actual+'。此处引用受检安装件 BOM '+fit.partIndex+' 上的插座实体，可用实体索引 '+JSON.stringify(choices)+'。');
+  }
+  if(!isvec(port.centerMm,-2000,2000))issues.push(at+'.centerMm 需要插到底时插头中心的三轴毫米坐标。');
+  if(!isvec(port.plugSizeMm,.1,500))issues.push(at+'.plugSizeMm 需要三轴插头尺寸，各轴范围 0.1–500 mm。');
+  if(!isvec(port.approachMm,-2000,2000)||Math.hypot(...port.approachMm)<1)issues.push(at+'.approachMm 需要从插合位置向壳外移动的三轴向量，长度至少 1 mm。');
+ }
+ return issues;
+}
+
 export function validateCadPlan(plan,partCount=MAX_DESIGN_PARTS){
  const bad=detail=>{throw Error('Invalid CAD plan'+(detail?'：'+detail:''))};
  if(!plan||!Object.keys(plan).every(k=>['version','bodies','motions','joints','fitChecks'].includes(k))||plan.version!==1||!Array.isArray(plan.bodies)||plan.bodies.length>MAX_CAD_BODIES)bad('version 应为 1，bodies 为不超过 '+MAX_CAD_BODIES+' 件的数组。');
@@ -129,14 +153,15 @@ export function validateCadPlan(plan,partCount=MAX_DESIGN_PARTS){
  }
  if(Object.hasOwn(plan,'fitChecks')){
   if(!Array.isArray(plan.fitChecks)||plan.fitChecks.length>plan.bodies.length)bad('fitChecks 数量无效。');
-  const seen=new Set();for(const f of plan.fitChecks){
+  const seen=new Set(),ports=[];for(const [fitIndex,f] of plan.fitChecks.entries()){
    if(!exact(f,['partIndex','instanceIndex','housingBodyIndices','lidBodyIndices','insertionOffsetMm',...(f&&Object.hasOwn(f,'mountType')?['mountType']:[]),...(f&&Object.hasOwn(f,'lidOffsetMm')?['lidOffsetMm']:[]),...(f&&Object.hasOwn(f,'portAccess')?['portAccess']:[])])||(f.lidOffsetMm!=null&&(!isvec(f.lidOffsetMm,-2000,2000)||Math.hypot(...f.lidOffsetMm)<0.1))||!Number.isInteger(f.partIndex)||f.partIndex<0||f.partIndex>=partCount||!Number.isInteger(f.instanceIndex)||f.instanceIndex<0||!isvec(f.insertionOffsetMm,-2000,2000)||Math.hypot(...f.insertionOffsetMm)<0.1)bad('fitChecks 的目标或直线装入偏移无效。');
    if(Object.hasOwn(f,'mountType')&&!['closed-housing','open-mount'].includes(f.mountType))bad('安装形式无效。');
    if(!Array.isArray(f.housingBodyIndices)||!f.housingBodyIndices.length||!Array.isArray(f.lidBodyIndices))bad('fitChecks 需要壳体和适用的可拆盖。');
-   if(f.portAccess!==undefined&&(!Array.isArray(f.portAccess)||f.portAccess.length>64||f.portAccess.some(p=>!exact(p,['pins','bodyIndex','centerMm','plugSizeMm','approachMm'])||!Array.isArray(p.pins)||!p.pins.length||p.pins.some(v=>typeof v!=='string'||!v.trim())||!Number.isInteger(p.bodyIndex)||plan.bodies[p.bodyIndex]?.partIndex!==f.partIndex||!isvec(p.centerMm,-2000,2000)||!isvec(p.plugSizeMm,.1,500)||!isvec(p.approachMm,-2000,2000)||Math.hypot(...p.approachMm)<1)))bad('fitChecks 的外部插头、尺寸或插入路径无效。');
+   ports.push(...portAccessIssues(f,fitIndex,plan.bodies));
    const indexes=[...f.housingBodyIndices,...f.lidBodyIndices];const id=f.partIndex+':'+f.instanceIndex;
    if(indexes.some(i=>!Number.isInteger(i)||!plan.bodies[i])||new Set(indexes).size!==indexes.length||seen.has(id))bad('fitChecks 的壳、盖或目标重复或不存在。');seen.add(id);
   }
+  if(ports.length)bad(ports.join('\n'));
  }
  if(Object.hasOwn(plan,'motions'))validateMotions(plan);
  if(Object.hasOwn(plan,'joints'))validateJoints(plan);

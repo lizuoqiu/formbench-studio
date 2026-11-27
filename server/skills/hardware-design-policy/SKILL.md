@@ -2,7 +2,7 @@
 name: hardware-design-policy
 description: 为硬件需求到选型、资料查询、建模、评审和增量修订提供共同决策规则；优先联网查证并复用成品，保持真实外形和最小必要的自定义范围。
 metadata:
-  revision: 2026.11.27.2
+  revision: 2026.11.27.3
 ---
 
 # 通用硬件设计规则
@@ -96,4 +96,4 @@ BOM 数量是物理件数。对同一行的每个安装件使用独立的零基 
 - 验收依据应来自实际执行的检查。当前工具做不到的检查要明确指出所缺能力，保留未解决状态；实物性能验证不能通过更多 CAD 修订变成已经完成。遵守任务的停止、预算和暂停设置，不因未通过就越过用户边界继续运行。
 
 - 读取本轮 issueDelta。若系统给出 replan，改变该子系统的修复方法；若给出 diagnose，保留草稿和具体缺口。在最后交付之前继续区分数字检查与实物验证。
-- 凡需从已关盖的外部插入电源或数据插头，在该安装件的 fitChecks.portAccess 声明 pins、对应 bodyIndex、插到位时插头包络的整机中心 centerMm、轴对齐尺寸 plugSizeMm 和移至壳外的向量 approachMm。设计开孔与连接器时一起复查，不使用不能穿过壁板的接线。没有外接插头则给空数组；实物插拔仍需另验。可拆盖与零件装入方向不同时使用 lidOffsetMm。
+- 凡需从已关盖的外部插入电源或数据插头，在受检安装件的 fitChecks.portAccess 填写五个字段。pins 指已接线的引脚。bodyIndex 取安装件上承载插座的实体，先核对 bodies[bodyIndex].partIndex 与本条 fitChecks.partIndex 相等。centerMm、plugSizeMm 和 approachMm 描述配套插头插到底时的中心、轴对齐外形尺寸和退至壳外的向量。设计开孔与连接器时一起复查；没有外接插头则给空数组。可拆盖与零件装入方向不同时使用 lidOffsetMm。实物插拔留待样件验证。

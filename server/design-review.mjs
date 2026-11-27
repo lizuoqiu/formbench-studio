@@ -176,7 +176,9 @@ function explicitlyRequestsProgrammableControls(ctx){
 export async function evaluateDraft({ctx,candidate,geometry,catalogGeometry,behavior,wiring,normalizations,definitionIssues,previousIssues,skill,env,send,signal,visuals=[],workflow=false,tracking}){
  const official=workflow?await officialStageGuide('review',env):{text:'',sources:[]};
  const localCodex=hasLocalCodex(env);
- const machine=tracking?[...machineFindings(definitionIssues,'definition',candidate,wiring?.terminalRevision),
+ const architectureIssues=new Set(ctx.architectureEvidence?.issues||[]);
+ const machine=tracking?[...machineFindings(definitionIssues.filter(issue=>!architectureIssues.has(issue)),'definition',candidate,wiring?.terminalRevision),
+  ...machineFindings([...architectureIssues],'architecture',candidate),
   ...machineFindings(geometry.issues,'geometry',candidate),...machineFindings(behavior?.issues||[],'behavior',candidate)]:[];
  const reportContext=tracking?{...tracking,reportedFindings:machine.map(({check,subject,description})=>({check,subject,description}))}:undefined;
  let input=reviewMessages(ctx,localCodex?candidateForModel(candidate):candidate,localCodex?geometryForModel(geometry):geometry,catalogGeometry,behavior,wiring,normalizations,definitionIssues,previousIssues,reportContext);
@@ -211,7 +213,7 @@ export async function evaluateDraft({ctx,candidate,geometry,catalogGeometry,beha
  const browser=geometry.browserPreview;
  machine.push(...machineFindings(issues.slice(implicitStart),'requirements',candidate));
  const fullDefinition=tracking.physicalValid&&tracking.interactiveValid&&geometry.compilation?.status==='compiled';
- const covered={definition:row=>{
+ const covered={architecture:Boolean(ctx.architectureEvidence),definition:row=>{
    if(!fullDefinition)return false;
    if(row.check==='definition.motion.minimum')return Boolean(ctx.motionEvidence);
    if(!row.check.startsWith('definition.terminal.'))return true;

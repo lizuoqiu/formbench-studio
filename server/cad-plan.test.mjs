@@ -6,6 +6,19 @@ import {cadPlanSchema} from './cad-plan.mjs';
 const feature=(shape,centerMm,sizeMm,op='add')=>({shape,op,centerMm,sizeMm});
 const body={name:'被动轻触拳面',role:'printed',partIndex:1,positionMm:[0,0,20],features:[feature('ellipsoid',[0,0,12],[60,42,24]),...[-18,-6,6,18].map(x=>feature('ellipsoid',[x,13,17],[14,18,16])),feature('ellipsoid',[-24,-4,14],[18,22,16]),feature('cylinder',[0,0,2],[8,8,5],'cut')]};
 const plan={version:1,bodies:[body]};
+test('fit validation identifies every bad connector field and points to bodies owned by the installed component',()=>{
+ const bodies=[{...body,partIndex:0},body];
+ const port={pins:['VIN'],bodyIndex:0,centerMm:[0,0,0],plugSizeMm:[8,5,3],approachMm:[20,0,0]};
+ const fit={partIndex:0,instanceIndex:0,housingBodyIndices:[1],lidBodyIndices:[],insertionOffsetMm:[0,0,15],
+  portAccess:[{...port,name:'USB',bodyIndex:1},{...port,approachMm:[0,0,0]}]};
+ assert.throws(()=>validateCadPlan({version:1,bodies,fitChecks:[fit]},2),error=>{
+  assert.match(error.message,/portAccess\[0\].*name/);
+  assert.match(error.message,/portAccess\[0\]\.bodyIndex.*BOM 1.*BOM 0.*\[0\]/);
+  assert.match(error.message,/portAccess\[1\]\.approachMm/);
+  return true;
+ });
+ assert.doesNotThrow(()=>validateCadPlan({version:1,bodies,fitChecks:[{...fit,portAccess:[port]}]},2));
+});
 test('a passive fist-shaped print has one palm, four knuckles, thumb and registration recess in its own coordinate frame',()=>{assert.equal(validateCadPlan(plan,2),plan);assert.throws(()=>validateCadPlan(plan,1));for(const patch of [{features:[feature('cylinder',[0,0,0],[2,3,4])]},{features:[feature('box',[0,0,0],[2,3,4],'cut')]},{features:[]},{name:'x',code:'not accepted'},{positionMm:[Infinity,0,0]}])assert.throws(()=>validateCadPlan({version:1,bodies:[{...body,...patch}]},2));});
 test('API receives versioned modeling guidance and model identity is never inferred from generated text',async()=>{const g=await modelingGuide({});assert.match(g.skill.sourceUrl,/github\.com/);assert.match(g.text,/\.forge\.js/);let apiInput;const r=await design(new Request('https://unit.invalid/api/design',{method:'POST',body:JSON.stringify({prompt:'碰拳'})}),{OPENAI_API_KEY:'fixture',OPENAI_MODEL:'configured'},async(_,o)=>{apiInput=JSON.parse(o.body);return Response.json({status:'incomplete'});});assert.equal(r.status,502);assert.ok(apiInput.instructions.includes(g.text));assert.ok(apiInput.text.format.schema.required.includes('cadPlan'));assert.deepEqual(generation('openai-api',null,'configured',g.skill),{provider:'openai-api',modelId:null,modelSource:'undisclosed',skill:g.skill});assert.equal(generation('openai-api','actual-version','response',g.skill).modelSource,'response');});
 

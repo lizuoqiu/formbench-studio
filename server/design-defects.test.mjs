@@ -12,6 +12,20 @@ const finding={check:'motor.output',subject:'joint-2',priorId:'',area:'mechanism
   route:'design',capability:'',disposition:'open',partIndices:[0],bodyIndices:[0],basis:'geometry'};
 const run=(args={})=>advanceDefects({previous:[],reviewFindings:[],machine:[],attempt:1,candidate,evidenceAvailable:{geometry:true},covered:{geometry:true,definition:true},preflight:capabilityPreflight,...args});
 
+test('a completed architecture recheck can close a historical sourcing conflict while CAD stays invalid',()=>{
+ const sourcing='原来选定的模块在 BOM 中缺失。',cad='连接口仍引用了错误的实体。';
+ const before=run({machine:machineFindings([sourcing,cad],'definition',candidate)});
+ const history=[{review:{architecture:{issues:[sourcing]}}}];
+ const recheck=(available,issues)=>run({previous:before.ledger,attempt:2,history,covered:{definition:false,architecture:available},
+  machine:machineFindings(issues,'architecture',candidate)});
+ assert.deepEqual(recheck(false,[]).delta.closed,[]);
+ const stillPresent=recheck(true,[sourcing]);
+ assert.equal(stillPresent.ledger.length,2);assert.deepEqual(stillPresent.delta.closed,[]);
+ const fixed=recheck(true,[]);
+ assert.deepEqual(fixed.delta.closed,[before.ledger[0].id]);
+ assert.equal(fixed.ledger[1].status,'open');
+});
+
 test('paraphrased findings persist across rounds; missing or unavailable rechecks cannot close them',()=>{
  const a=run({reviewFindings:[finding]}),id=a.ledger[0].id;
  const revised={...finding,priorId:id,description:'输出盘仍与固定件同动'};

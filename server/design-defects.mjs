@@ -106,7 +106,12 @@ export function machineFindings(messages,group,candidate,terminalRevision){
 }
 export function advanceDefects({previous=[],reviewFindings,machine,attempt,candidate,evidenceAvailable,covered,history=[],preflight}){
   if(!Array.isArray(reviewFindings)||reviewFindings.length>200)throw Error('缺少有效的逐项评审记录。');
-  const ledger=previous.map(r=>({...r})),byId=new Map(ledger.map(r=>[r.id,r])),byKey=new Map(ledger.map(r=>[key(r),r]));
+  // Earlier checkpoints grouped architecture and CAD together. The saved
+  // architecture report identifies those checks without matching prose patterns.
+  const earlierArchitecture=new Set(history.flatMap(round=>round.review?.architecture?.issues||[]));
+  const ledger=previous.map(r=>r.source==='check'&&r.check==='definition'&&earlierArchitecture.has(r.description)
+    ?{...r,check:'architecture'}:{...r});
+  const byId=new Map(ledger.map(r=>[r.id,r])),byKey=new Map(ledger.map(r=>[key(r),r]));
   const delta={opened:[],persisted:[],reopened:[],closed:[],improved:[]};
   const seen=new Set();
   function observe(finding,priorId=''){
