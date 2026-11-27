@@ -1,10 +1,16 @@
 import {runSink,track} from './run-events.mjs';
 import {openAIKeyPool} from './openai-keys.mjs';
+import {mainLocalModel} from './model-settings.mjs';
 const localCodex=Symbol('local Codex relay');
 const workflowTools=Symbol('scoped workflow tools');
 export const withWorkflowTools=(env,run)=>({...env,[workflowTools]:{run,baseEnv:env}});
 export const withLocalCodex=(env,config)=>({...env,[localCodex]:config});
 export const hasLocalCodex=env=>Boolean(env[localCodex]);
+export function routineLookupEnv(env){
+  if(!hasLocalCodex(env))return env;
+  return withLocalCodex(env,{...env[localCodex],model:env.FORMBENCH_LOCAL_CODEX_LOOKUP_MODEL||mainLocalModel,
+    effort:env.FORMBENCH_LOCAL_CODEX_LOOKUP_EFFORT||'medium'});
+}
 // Long reasoning requests send headers and lifecycle events immediately. Only
 // the terminal response is accepted as model output; partial JSON is not a draft.
 export class OpenAIBillingError extends Error{
@@ -65,7 +71,9 @@ export async function readOpenAIResponse(response,signal,onEvent){
 export async function requestOpenAI(send,env,options,onEvent){
   if(!runSink(env)||env[workflowTools])return executeCall(send,env,options,onEvent);
   const parsed=JSON.parse(options.body),stage=parsed.text?.format?.name||'response';
-  const ctx={stage,provider:hasLocalCodex(env)?'local-codex':'openai-api',model:hasLocalCodex(env)?'gpt-6.2-sol':parsed.model};
+  const relay=env[localCodex];
+  const ctx={stage,provider:relay?'local-codex':'openai-api',model:relay?(relay.model||mainLocalModel):parsed.model,
+    effort:relay?relay.effort:parsed.reasoning?.effort};
   const started=Date.now(),elapsed=()=>Date.now()-started;
   track(env,'ai.start',ctx);
   const heartbeat=setInterval(()=>track(env,'ai.wait',{...ctx,durationMs:elapsed()}),30000);heartbeat.unref?.();

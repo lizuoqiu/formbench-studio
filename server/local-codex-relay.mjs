@@ -3,8 +3,8 @@ import {mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {isAbsolute,join} from 'node:path';
 import {createInterface} from 'node:readline';
+import {mainLocalModel,validLocalEffort} from './model-settings.mjs';
 
-const model='gpt-6.2-sol';
 const maxTurnTextCharacters=1<<20;
 const inheritedEnvironment=['HOME','USER','LOGNAME','PATH','TMPDIR','LANG','LC_ALL','CODEX_HOME'];
 
@@ -69,9 +69,9 @@ function cliFailureHints(text){
   }).filter(([,pattern])=>pattern.test(text)).map(([hint])=>hint);
 }
 
-export async function requestLocalCodex({binary,effort},{body:rawBody,signal},onEvent){
+export async function requestLocalCodex({binary,effort,model=mainLocalModel},{body:rawBody,signal},onEvent){
   signal?.throwIfAborted();
-  if(!binary||!isAbsolute(binary)||!['ultra','max'].includes(effort))throw unavailable('接力配置无效');
+  if(!binary||!isAbsolute(binary)||!validLocalEffort(effort)||typeof model!=='string'||!model.trim())throw unavailable('接力配置无效');
   const body=JSON.parse(rawBody),schema=body.text?.format?.schema;
   if(!schema||body.text.format.type!=='json_schema'||!body.text.format.strict)throw unavailable('本阶段缺少严格的输出 schema');
   const directory=await mkdtemp(join(tmpdir(),'formbench-local-codex-'));

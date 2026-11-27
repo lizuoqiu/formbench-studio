@@ -8,7 +8,7 @@ import {structuredCall,format,addModelData,ModelStageError,designObjectScope,res
 import {reasoningSettings} from './model-settings.mjs';
 import {officialStageGuide} from './official-skills.mjs';
 import {hardwarePolicyGuide} from './modeling-guide.mjs';
-import {hasLocalCodex,requestOpenAI,responseTrace,responseSourceUrls} from './openai-response.mjs';
+import {hasLocalCodex,requestOpenAI,responseTrace,responseSourceUrls,routineLookupEnv} from './openai-response.mjs';
 import {track} from './run-events.mjs';
 
 const string={type:'string'},object=properties=>({type:'object',additionalProperties:false,required:Object.keys(properties),properties});
@@ -75,6 +75,7 @@ function sourceOrigin(record,field){
     {...(record.researchProvenance||{provider:'openai-api',modelSource:'undisclosed',reasoning:record.reasoning}),queriedAt:record.queriedAt}:undefined);
 }
 export async function researchPart(part,env,send,signal){
+  if(!part.researchQuestion&&!part.previousEvidence&&!part.researchDraft&&!part.researchTokenBudget)env=routineLookupEnv(env);
   const budget=part.researchTokenBudget||16384;
   const policy=await hardwarePolicyGuide('research',env);
   const {response,result}=await requestOpenAI(send,env,{method:'POST',signal:AbortSignal.any([signal,AbortSignal.timeout(budget>16384?1800000:900000)]),headers:{'Content-Type':'application/json'},body:JSON.stringify({
@@ -202,13 +203,21 @@ export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},
       const mountedIncluded=kind==='included'&&part.placement==='mounted';
       const unresearchedIncluded=mountedIncluded&&!record?.researchAttempted&&!record?.queriedAt;
       const staleIdentity=record?.productUrl&&(!record.productIdentityCheck||record.productIdentityCheck.status!=='matched'&&record.attempts<2);
-      if(!record||focused||unresearchedIncluded||staleIdentity||(record.error||record.researchError||record.productStatus==='missing')&&record.attempts<2){
+      const lookups=dependencies.ordinaryLookups;
+      const inputs=lookups&&JSON.stringify([kind,part.name,part.spec,part.purpose,part.placement,
+        proposedOrderIdentity(part.selectedIdentity),[...new Set(part.requiredFactoryFunctions||[])].sort()]);
+      const reused=Boolean(lookups&&Object.hasOwn(lookups,key)&&lookups[key]===inputs&&record?.researchAttempted);
+      const missing=staleIdentity||(record?.productStatus==='missing'&&record.attempts<2);
+      const failed=(record?.error||record?.researchError)&&record.attempts<2;
+      if(reused&&missing&&!failed&&!focused)track(env,'part.lookup-reused',{partIndex:index});
+      if(!record||focused||unresearchedIncluded||failed||(missing&&!reused)){
         const attempts=(unresearchedIncluded?0:record?.attempts||0)+1;
         if(['custom','provided'].includes(kind)||kind==='included'&&!mountedIncluded)record={model:part.model,kind,attempts,detail:part.spec};
         else try{
           const previous=record;
           const fresh=await research({...part,kind,researchQuestion,researchTokenBudget:previous?.researchTokenBudget||(/零件资料查询未完成/.test(previous?.researchError||'')?32768:undefined),researchDraft:previous?.researchDraft,
-            previousEvidence:previous?{sourceUrl:previous.sourceUrl,detail:previous.detail,cadError:previous.cadError,cadUrl:previous.cadUrl,identityUnconfirmed:legacyFocused}:undefined},env,send,signal);
+            previousEvidence:previous?{sourceUrl:previous.sourceUrl,detail:previous.detail,cadError:previous.cadError,cadUrl:previous.cadUrl,
+              productChecks:previous.productChecks?.map(({url,status,reason})=>({url,status,reason})),identityUnconfirmed:legacyFocused}:undefined},env,send,signal);
           // Alternative-model evidence is never merged into the selected SKU.
           // Retain old evidence only if its identity was explicitly confirmed.
           const retained=fresh.identityStatus==='mismatch'&&previous?.identityStatus!=='matched'?null:previous;
@@ -255,7 +264,8 @@ export async function sourceParts(parts,cache,env,send,signal,onProgress=()=>{},
           }
           delete record.factoryClaims;
           delete record.proposedIdentity;
-          record.cadStatus=record.cadUrl&&record.cadAuthority!=='none'?'pending':'not-found';
+          record.cadStatus=record.importedModel?'imported':record.cadUrl&&record.cadAuthority!=='none'?'pending':'not-found';
+          if(lookups&&!researchQuestion)lookups[key]=inputs;
         }catch(error){signal.throwIfAborted();if(error.actionRequired==='local-codex-unavailable'){actionError=error;return;}if(error.actionRequired==='api-billing')actionError=error;record=record?{...record,attempts,researchAttempted:true,researchError:error.message,lastResearchQuestion:researchQuestion}:{model:part.model,kind,attempts,researchAttempted:true,error:error.message,productStatus:kind==='included'?'included':'missing',cadStatus:'unavailable'};
           if(legacyFocused){
             const fields=['productUrl','productEvidence','visualUrl','sourceUrl','sourceQuote','detail','extentMm','cadUrl','cadSearch','linkProvenance','importedModel','reconstruction','reconstructionPrior','factoryInterfaces','factoryChecks'];

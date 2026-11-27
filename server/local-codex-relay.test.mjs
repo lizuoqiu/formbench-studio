@@ -4,6 +4,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
 import {requestOpenAI,responseSourceUrls,withLocalCodex} from './openai-response.mjs';
+import {researchPart} from './part-sourcing.mjs';
+import {observeRun} from './run-events.mjs';
 
 const schema={type:'object',properties:{url:{type:'string'}},required:['url'],additionalProperties:false};
 const options=(input='research fixture',extra={})=>({body:JSON.stringify({input,
@@ -24,6 +26,26 @@ ${implementation}\n`,{mode:0o700});
 const unexpectedApi=()=>assert.fail('The relay called the API');
 const finish=`fs.writeFileSync(arg('--output-last-message'),JSON.stringify({url:'https://claimed.example/fake'}));
 emit({type:'turn.completed',usage:{input_tokens:3,output_tokens:7}});`;
+
+test('routine part research uses its selected local model and targeted engineering research keeps the main model',async t=>{
+ const relay=await fixture(t,`
+ const model=arg('--model'),effort=args.find(value=>value.startsWith('model_reasoning_effort='));
+ emit({type:'item.completed',item:{type:'web_search',action:{type:'open_page',url:'https://maker.example/connector'}}});
+ fs.writeFileSync(arg('--output-last-message'),JSON.stringify({model:'Vendor A1',detail:[model,effort].join(' ')}));
+ emit({type:'turn.completed',usage:{}});`);
+ const events=[];
+ const env=observeRun({...relay,FORMBENCH_LOCAL_CODEX_LOOKUP_MODEL:'gpt-6-luna'},(event,data)=>events.push({event,...data}));
+ const part={name:'connector',model:'Vendor A1',kind:'purchase'};
+ const first=await researchPart(part,env,unexpectedApi,new AbortController().signal);
+ const focused=await researchPart({...part,researchQuestion:'Verify the pinout'},env,unexpectedApi,new AbortController().signal);
+ const retry=await researchPart({...part,previousEvidence:{detail:'Unverified link'}},env,unexpectedApi,new AbortController().signal);
+ assert.match(first.detail,/gpt-6-luna model_reasoning_effort="medium"/);
+ assert.match(focused.detail,/gpt-6\.2-sol model_reasoning_effort="ultra"/);
+ assert.equal(first.researchProvenance.model,'gpt-6-luna');
+ assert.equal(retry.researchProvenance.model,focused.researchProvenance.model);
+ assert.deepEqual(events.filter(row=>row.event==='ai.start').map(row=>[row.model,row.effort]),[
+  ['gpt-6-luna','medium'],['gpt-6.2-sol','ultra'],['gpt-6.2-sol','ultra']]);
+});
 
 test('local relay uses real native search URLs and keeps credentials, images and execution isolated',async t=>{
   const env=await fixture(t,`

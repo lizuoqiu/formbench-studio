@@ -4,7 +4,7 @@ import {homedir} from 'node:os';
 const swept=new Map();
 export const debugDirectory=env=>env.FORMBENCH_DEBUG_DIR||join(homedir(),'.formbench','debug');
 const numeric=new Set(['statusCode','attempt','partIndex','completed','total','durationMs','inputTokens','outputTokens','open','closed','added','regressed','keySlot','images','characters','retries','assets','checks','count']);
-const labels=new Set(['stage','provider','from','to','status','reason','action','model','decision','kind','phase','caseId']);
+const labels=new Set(['stage','provider','from','to','status','reason','action','model','effort','decision','kind','phase','caseId']);
 export function debugSink(env,id,{now=()=>new Date(),output=line=>console.info(line)}={}){
   if(env.FORMBENCH_DEBUG!=='1')return undefined;
   const dir=debugDirectory(env),context=/^[a-f0-9-]{36}$/i.test(id)?id:'server';

@@ -137,6 +137,12 @@ export function normalizeDesign(raw,...args){
  const design=normalizePhysical(raw,...args),interaction=designInteraction(raw.interaction,design);
  return interaction?{...design,interaction}:design;
 }
+// A resumed draft re-enters sourcing before and after assembly. Both visits
+// share its lookup results, including completed searches with unverified links.
+function sourcingPass(state,attempt){
+  if(state.sourcingPass?.attempt!==attempt)state.sourcingPass={attempt,ordinaryLookups:{}};
+  return state.sourcingPass;
+}
 export async function design(request,env,send=fetch,workflow=null){const reply=(body,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'no-store'}});
  if(request.method!=='POST')return reply({error:'只支持 POST。'},405);
  if(!hasLocalCodex(env)&&(!hasOpenAIKey(env)||!env.OPENAI_MODEL))return reply({error:'设计服务尚未连接。'},503);
@@ -170,7 +176,8 @@ export async function design(request,env,send=fetch,workflow=null){const reply=(
     await progress({stage:'planning',message:'零件方案已确定'});
    }
    const parts=state.draft?.value?.parts||state.candidate?.parts||state.lastDraft?.parts||state.selection.parts;
-   await sourceParts(parts,state.sources,env,send,signal,progress);
+   const sourceAttempt=state.draft?.attempt||state.rounds?.at(-1)?.attempt||startAttempt;
+   await sourceParts(parts,state.sources,env,send,signal,progress,state.draft?.value?.cadPlan||state.lastDraft?.cadPlan,sourcingPass(state,sourceAttempt));
    await reconstructParts(parts,state.sources,env,send,signal,progress,state.draft?.value?.cadPlan||state.lastDraft?.cadPlan);
   }
   const userMessages=[ctx.prompt,...ctx.history.filter(turn=>turn.role==='user').map(turn=>turn.text)];
@@ -256,7 +263,7 @@ export async function design(request,env,send=fetch,workflow=null){const reply=(
    let aliases=normalizeInteractionTimerAliases(draft.value?.interaction);
    let normalizedDraft=aliases.corrections.length?{...draft.value,interaction:aliases.model}:draft.value;
    if(workflow&&Array.isArray(normalizedDraft.parts)){
-    await sourceParts(normalizedDraft.parts,state.sources,env,send,signal,progress,normalizedDraft.cadPlan);
+    await sourceParts(normalizedDraft.parts,state.sources,env,send,signal,progress,normalizedDraft.cadPlan,sourcingPass(state,attempt));
     await reconstructParts(normalizedDraft.parts,state.sources,env,send,signal,progress,normalizedDraft.cadPlan);
     draft=await reconcilePartModels({...draft,value:normalizedDraft,attempt},{state,ctx,instructions:authoring,env,send,signal,progress});
     aliases=normalizeInteractionTimerAliases(draft.value?.interaction);

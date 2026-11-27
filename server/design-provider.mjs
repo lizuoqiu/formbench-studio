@@ -2,12 +2,13 @@ import {accessSync,constants} from 'node:fs';
 import {isAbsolute} from 'node:path';
 import {hasLocalCodex,withLocalCodex} from './openai-response.mjs';
 import {hasOpenAIKey} from './openai-keys.mjs';
+import {mainLocalModel} from './model-settings.mjs';
 const bundled='/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex';
 function binary(env){const path=env.FORMBENCH_LOCAL_CODEX_BIN||bundled;if(!isAbsolute(path))return null;try{accessSync(path,constants.X_OK);return path;}catch{return null;}}
 const problem=(message,status)=>Object.assign(new Error(message),{status});
 export function designProviders(env){const list=[];
  if(!hasLocalCodex(env)&&hasOpenAIKey(env)&&env.OPENAI_MODEL)list.push({id:'openai-api',model:env.OPENAI_MODEL,effort:env.OPENAI_REASONING_EFFORT||'max'});
- if(hasLocalCodex(env)||env.FORMBENCH_ALLOW_LOCAL_CODEX==='1'&&binary(env))list.push({id:'local-codex',model:'gpt-6.2-sol',effort:env.FORMBENCH_LOCAL_CODEX_EFFORT||'max'});
+ if(hasLocalCodex(env)||env.FORMBENCH_ALLOW_LOCAL_CODEX==='1'&&binary(env))list.push({id:'local-codex',model:mainLocalModel,effort:env.FORMBENCH_LOCAL_CODEX_EFFORT||'max'});
  return list;
 }
 export function jobProvider(job,env){return job.provider??((job.id&&env.FORMBENCH_LOCAL_CODEX_JOB_ID===job.id)||hasLocalCodex(env)?'local-codex':'openai-api');}

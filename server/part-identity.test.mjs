@@ -10,6 +10,34 @@ const answer=(value,urls=[])=>Response.json({status:'completed',output:[{type:'w
  {type:'message',content:[{type:'output_text',text:JSON.stringify(value)}]}]});
 const selected={name:'connector',model:'Vendor A1',kind:'purchase',placement:'mounted'};
 
+test('resuming the same lookup pass reuses a completed search without upgrading a missing product link',async()=>{
+ let calls=0;
+ const deps={ordinaryLookups:{},research:async p=>{
+  calls++;
+  return {model:p.model,evidenceModel:p.model,identityStatus:'matched',detail:'No orderable page verified.'};
+ }};
+ const cache={};
+ await sourceParts([selected],cache,env,null,signal(),undefined,null,deps);
+ const savedCache=structuredClone(cache),savedPass=structuredClone(deps.ordinaryLookups);
+ const resumed={...deps,ordinaryLookups:savedPass};
+ await sourceParts([selected],savedCache,env,null,signal(),undefined,null,resumed);
+ assert.equal(calls,1);
+ assert.equal(sourcingIssues({parts:[selected]},savedCache).length,1);
+ await sourceParts([{...selected,researchQuestion:'Find a seller matching this order code.'}],savedCache,env,null,signal(),undefined,null,resumed);
+ assert.equal(calls,2);
+});
+
+test('a revised specification or a new lookup pass still rechecks an unresolved product',async()=>{
+ for(const changed of ['spec','round']){
+  let calls=0;const cache={},ordinaryLookups={};
+  const deps={ordinaryLookups,research:async p=>{calls++;return {model:p.model,identityStatus:'matched'};}};
+  await sourceParts([selected],cache,env,null,signal(),undefined,null,deps);
+  const revised=changed==='spec'?{...selected,spec:'Need the panel mounting dimensions'}:selected;
+  await sourceParts([revised],cache,env,null,signal(),undefined,null,changed==='round'?{...deps,ordinaryLookups:{}}:deps);
+  assert.equal(calls,2,changed);
+ }
+});
+
 test('a researched replacement cannot lend its links or dimensions to the selected SKU',async()=>{
  const url='https://vendor.example/b2',cad='https://vendor.example/b2.step';
  const record=await researchPart(selected,env,async(_url,options)=>{
