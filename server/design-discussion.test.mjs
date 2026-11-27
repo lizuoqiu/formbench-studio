@@ -12,36 +12,67 @@ const sendResult=(value,check=()=>{})=>async(_url,options)=>{
  check(input);
  return Response.json({status:'completed',model:env.OPENAI_MODEL,output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(revisionFixture(input,value))}]}]});
 };
-const decision={decision:'ask',question:'希望装置佩戴在手上，还是放在桌面？',options:['戴在手上','放在桌面']};
+const goal={topic:'outcome',question:'希望它帮你记住什么事？',options:['按时开始一件事','留意刚发生的事'],impact:'定时提醒和事件提醒需要不同的触发条件。'};
+const use={topic:'use',question:'提醒出现时，你一般在哪里？',options:['桌旁','在不同地方走动'],impact:'影响提醒是否需要随人移动。'};
+const open={status:'open',description:'',quote:''};
+const stated=quote=>({status:'stated',description:quote,quote});
+const visible=({topic,question,options})=>({topic,question,options});
+const readyReply={decision:'ready',question:'',options:[]};
 const part={name:'接触面',qty:1,spec:'圆弧表面',model:'定制件',modelId:'',role:'panel',purpose:'用手轻触',sizeMm:[40,30,20],dimensionSource:'estimated',dimensionQuote:'',placement:'mounted'};
 const body={name:'圆弧接触面',partIndex:0,role:'printed',positionMm:[0,0,0],features:[{op:'add',shape:'ellipsoid',sizeMm:[40,30,20],centerMm:[0,0,0],rotationDeg:[0,0,0]}]};
 const base={name:'接触按钮',summary:'使用者触碰圆弧形面板。',steps:['检查触面安装位置。'],parts:[part],cadPlan:{version:1,bodies:[body],motions:[]}};
 const response=(request,model)=>design(req(request),env,model);
 
-test('clarification is a small separate API request with a direct choice or no question at all',async()=>{
- const result=await response({action:'discuss',prompt:'给我设计一个提醒装置。'},sendResult(decision,input=>{
+test('the interview returns independent model-authored choices together, with the unresolved outcome first',async()=>{
+ const result=await response({action:'discuss',prompt:'给我设计一个提醒装置。'},sendResult({outcome:open,questions:[use,goal]},input=>{
   assert.equal(input.model,env.OPENAI_MODEL);assert.equal(input.store,false);
   assert.equal(input.input,'给我设计一个提醒装置。');assert.equal(input.text.format.name,'hardware_clarification');
   assert.equal(input.text.format.schema.properties.cadPlan,undefined);
-  assert.match(input.instructions,/一个普通使用者/);assert.ok(!input.instructions.includes('ForgeCAD'));
+  assert.match(input.instructions,/name: hardware-intake/);assert.ok(!input.instructions.includes('ForgeCAD'));
  }));
- assert.deepEqual(await result.json(),decision);
- const ready=await response({action:'discuss',prompt:'需求明确了，直接生成。'},sendResult({decision:'ready',question:'should clear',options:['clear']}));
- assert.deepEqual(await ready.json(),{decision:'ready',question:'',options:[]});
+ assert.deepEqual(await result.json(),{decision:'ask',question:goal.question,options:goal.options,questions:[visible(goal),visible(use)]});
+ const ready=await response({action:'discuss',prompt:'有人打开信箱时，给我发一条消息。'},sendResult({outcome:stated('有人打开信箱时，给我发一条消息'),questions:[]}));
+ assert.deepEqual(await ready.json(),readyReply);
 });
 
-test('the model can ask a different consequential question after two answers, without repeating an answered question',async()=>{
- const conversation=['需要多大？','手掌大小','放在哪里？','桌面'].map((text,i)=>({role:i%2?'user':'assistant',text}));
+test('answered options are not re-asked; a dependent follow-up survives duplicates and revisions retain context',async()=>{
+ const conversation=[{role:'assistant',text:goal.question+'（'+goal.options.join(' / ')+'）',topic:'outcome'},
+  {role:'user',text:'按时开始一件事'},{role:'assistant',text:use.question,topic:'use'},{role:'user',text:'在不同地方走动'}];
  const request={action:'discuss',prompt:'触觉装置',baseDesign:base,conversation};
- const third=await response(request,sendResult(decision));
- assert.deepEqual(await third.json(),decision);
- const repeated=await response(request,sendResult({decision:'ask',question:'放在哪里？',options:['桌面','墙上']}));
- assert.equal((await repeated.json()).decision,'ready');
- const next=await response({...request,discussionStart:4},sendResult(decision,input=>{
+ const outcome=stated('按时开始一件事');
+ const follow={topic:'use',question:'走开时，提醒要跟着你还是留给桌旁的人？',options:[],impact:'影响提醒接收者。'};
+ const third=await response(request,sendResult({outcome,questions:[goal,use,follow,follow]}));
+ assert.deepEqual((await third.json()).questions,[visible(follow)]);
+ let calls=0;
+ const repeated=await response(request,(...args)=>sendResult(++calls===1?{outcome,questions:[use]}:{outcome,questions:[]})(...args));
+ assert.deepEqual(await repeated.json(),readyReply);assert.equal(calls,2);
+ const next=await response({...request,discussionStart:4},sendResult({outcome:{status:'inherited',description:base.summary,quote:base.summary},questions:[]},input=>{
   const data=JSON.parse(input.input);assert.equal(data.baseDesign.cadPlan,undefined);
   assert.equal(data.baseDesign.name,base.name);assert.deepEqual(data.conversation,conversation);
  }));
- assert.equal((await next.json()).decision,'ask');
+ assert.deepEqual(await next.json(),readyReply);
+});
+
+test('an unclear outcome or a claim grounded only in the interviewer cannot silently trigger generation',async()=>{
+ const request={action:'discuss',prompt:'想要一个植物助手',conversation:[{role:'assistant',text:'要浇水吗？'},{role:'user',text:'放窗边。'}]};
+ for(const invalid of [{outcome:open,questions:[use]},{outcome:stated('浇水'),questions:[]},
+   {outcome:{status:'inherited',description:'自动浇水',quote:'自动浇水'},questions:[]}]){
+  let calls=0;
+  const result=await response(request,(...args)=>{calls++;return sendResult(invalid)(...args)});
+  assert.equal(calls,2);assert.equal(result.status,502);assert.equal((await result.json()).decision,undefined);
+ }
+ let calls=0;
+ const fixed=await response(request,(...args)=>sendResult(++calls===1?{outcome:open,questions:[]}:{outcome:open,questions:[goal]})(...args));
+ assert.equal(calls,2);assert.deepEqual((await fixed.json()).questions,[visible(goal)]);
+});
+
+test('delegation applies to the answered choice, and can settle an explicitly delegated outcome',async()=>{
+ const text='这个选择由 AI 决定。',outcome={status:'delegated',description:'由设计方选择用途',quote:text};
+ for(const [topic,status] of [['use',502],['outcome',200]]){
+  const conversation=[{role:'assistant',topic,text:topic==='use'?use.question:goal.question},{role:'user',text,delegated:true}];
+  const result=await response({action:'discuss',prompt:'设计一个提醒装置',conversation},sendResult({outcome,questions:[]}));
+  assert.equal(result.status,status);
+ }
 });
 
 test('an unanswered AI question never starts a paid design or a background job',async()=>{
@@ -83,7 +114,8 @@ test('invalid history, malformed prior CAD and invalid decisions never publish a
  for(const fields of [{action:'guess'},{conversation:[{role:'system',text:'x'}]},{discussionStart:2},{baseDesign:{...base,cadPlan:{version:1,bodies:[{...body,partIndex:1}]}}}]){
   const r=await response({prompt:'修改',...fields},noCall);assert.equal(r.status,400);
  }
- for(const value of [{decision:'ask',question:'',options:[]},{decision:'ask',question:'选什么？',options:['a','b','c','d']}]){
+ for(const question of [{...goal,question:''},{...goal,options:['a','b','c','d']},{...goal,options:['a','a']}]){
+  const value={outcome:open,questions:[question]};
   const r=await response({action:'discuss',prompt:'修改'},sendResult(value));assert.equal(r.status,502);assert.equal((await r.json()).design,undefined);
  }
  const legacy=await readDesignRequest(req({prompt:'让它更小',baseDesign:{...base,cadPlan:null}}));

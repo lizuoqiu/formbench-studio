@@ -6,7 +6,8 @@ import {interactionSchema,validateInteraction,validateInteractionGeometry,valida
 import {reviewInteractionGeometry} from './interaction-geometry-review.mjs';
 import {revisedMechanicalDependencies} from './revision-dependencies.mjs';
 import {ModelStageError,structuredCall,format,addModelData,evaluateDraft,replayInteraction,designDeliverableScope,responseProvenance} from './design-review.mjs';
-import {DesignInputError,maxDesignSteps,readDesignRequest,modelInput,projectDesignForModel,photoInstructions,ready,readDecision,discussionSchema,discussionInstructions,revisionInstructions,answerBeforeStarting,pendingDesignQuestion} from './design-conversation.mjs';
+import {DesignInputError,maxDesignSteps,readDesignRequest,modelInput,projectDesignForModel,photoInstructions,revisionInstructions,answerBeforeStarting,pendingDesignQuestion} from './design-conversation.mjs';
+import {discussRequirements} from './design-intake.mjs';
 import {referenceIds,catalogInstructions,designReference,alignCatalogAnchors,resolvedCatalogGeometry} from './design-references.mjs';
 import {sourceMechanicalEvidence,retainedMechanicalEvidence,evidenceInstructions,withMechanicalEvidence,attachMechanicalEvidence} from './design-evidence.mjs';
 import {selectParts,sourceParts,sourcesForModel,attachPartSources,sourcingIssues} from './part-sourcing.mjs';
@@ -153,18 +154,7 @@ export async function design(request,env,send=fetch,workflow=null){const reply=(
   }
   const hasImages=ctx.images.length>0;
   const photos=hasImages?'\n'+photoInstructions:'';
-  if(discussing){
-   const call=await structuredCall(send,env,signal,{instructions:discussionInstructions+photos,input:modelInput(ctx),
-    text:format('hardware_clarification',discussionSchema)},'设计讨论',{hasImages});
-   const decision=readDecision(call.value);
-   if(decision.decision==='ask'){
-    const turns=ctx.history.slice(ctx.discussionStart);
-    const answered=turns.some((turn,i)=>turn.role==='assistant'&&turns[i+1]?.role==='user'&&
-      (turn.text===decision.question||turn.text.startsWith(decision.question+'（')));
-    if(answered)return reply(ready());
-   }
-   return reply(decision);
-  }
+  if(discussing)return reply(await discussRequirements(ctx,env,send,signal));
   const [guide,reviewSkill]=await Promise.all([modelingGuide(env),functionalReviewGuide(env)]);
   const state=workflow?.state;
   const progress=async event=>{if(workflow)await workflow.progress(event);};

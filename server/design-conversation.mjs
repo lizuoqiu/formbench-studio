@@ -104,7 +104,9 @@ export async function readDesignRequest(request){
  if(!Array.isArray(conversation)||conversation.length>200||!conversation.every(turn=>
    isObject(turn)&&['user','assistant'].includes(turn.role)&&nonempty(turn.text,10000)))
   throw new DesignInputError('讨论记录须包含有效的用户或设计师发言。');
- const history=conversation.map(({role,text})=>({role,text:text.trim()}));
+ const history=conversation.map(({role,text,topic,delegated})=>({role,text:text.trim(),
+   ...(role==='assistant'&&['outcome','use'].includes(topic)?{topic}:{}),
+   ...(role==='user'&&delegated===true?{delegated:true}:{})}));
  if(history.reduce((total,turn)=>total+turn.text.length,0)>100_000)
   throw new DesignInputError('讨论记录超过本次请求上限。',413);
  if(!Number.isInteger(discussionStart)||discussionStart<0||discussionStart>history.length)
@@ -113,18 +115,11 @@ export async function readDesignRequest(request){
  return {action,prompt:prompt.trim(),history,discussionStart,...(validMotionRequirements(priorMinimum)?{previousMotionRequirements:priorMinimum}:{}),images:readImages(body.images),repairCandidate:readRepairCandidate(body.repairCandidate),baseDesign:body.baseDesign==null?null:previousDesign(body.baseDesign)};
 }
 
-export const ready=()=>({decision:'ready',question:'',options:[]});
 export function pendingDesignQuestion({history,discussionStart}){
  const last=history.slice(discussionStart).at(-1);
  return last?.role==='assistant'?last.text:null;
 }
 export const answerBeforeStarting='请先在追问框回答，或选择由 AI 决定。';
-export const discussionSchema={
- type:'object',additionalProperties:false,required:['decision','question','options'],
- properties:{decision:{type:'string',enum:['ask','ready']},question:{type:'string'},options:{type:'array',items:{type:'string'}}}
-};
-export const discussionInstructions=`你是与用户共同设计可触摸硬件的设计师。读原始需求、之前的提问回答、已有方案以及最新意见。判断现在是否可以着手生成或修改。用户可以随时直接开始，也可以随时改变之前的决定；后来明确的意见优先。
-当两种可行的使用方式会改变人在何处接收结果、由谁操作、利用已有设备还是新增硬件，而用户尚未表达偏好时，返回 ask。针对这次需求写问题和选项；如果其中有能沿用用户已有设备的方式，应当让用户看得到。一次只问一个普通使用者能回答的问题，可以给 0–3 个简短、彼此不同的选项，也允许自由回答。不要让使用者选电机型号、接线、制造流程。不要重问已回答或用户已明确交由你决定的问题。需求已确定、差别只涉及工程做法或用户希望你直接决定时，返回 ready，question 留空，options 为空数组。`;
 export const revisionInstructions=`这是一项连续设计任务。按原始需求和历次讨论理解目标，后来明确的用户意见优先。助手提出的备选项并不代表用户已经选择。若给出 baseDesign，以上一版完整 BOM、实体、运动关系、毫米尺寸和装配位置为起点。对于局部修改，保留无关零件的型号、尺寸、位置、特征和顺序，仅更新相关实体和必要的关联部件；增删零件后校正所有 BOM/body 索引。modelSourceInvalidated=true 代表原有尺寸或型号后来变更，按当前值重新确定该件的 CAD。已有设计一律通过 hardware_design_revision 增量操作修改，不重新输出整份设计；后台应用操作后对完整新版重新验证，索引和关联关系必须一致。用户给出的尺寸可引用原始需求或后续用户发言。`;
 
 export const photoInstructions='用户附上产品或标尺照片。用照片辨认外形、接口位置、安装朝向和相对比例。只有看得清刻度、测量平面且无明显透视误差时才可作粗略尺寸参考，并标为估算。仅将用户明确提供的尺寸作为指定尺寸。隐藏面、深度和公差没有依据时，在必要处询问或标明待核对。';
@@ -146,11 +141,4 @@ export function modelInput({prompt,history,discussionStart,baseDesign,action,ima
  const text=!history.length&&!base?prompt:JSON.stringify({prompt,conversation:history,discussionStart,...(base?{baseDesign:base}:{})});
  if(!images.length)return text;
  return [{role:'user',content:[{type:'input_text',text},...images.map(({dataUrl})=>({type:'input_image',image_url:dataUrl,detail:'high'}))]}];
-}
-
-export function readDecision(value){
- if(value?.decision==='ready')return ready();
- if(value?.decision!=='ask'||!nonempty(value.question,600)||!Array.isArray(value.options)||value.options.length>3||
-    !value.options.every(option=>nonempty(option,160)))throw Error('invalid clarification response');
- return {decision:'ask',question:value.question.trim(),options:[...new Set(value.options.map(option=>option.trim()))]};
 }

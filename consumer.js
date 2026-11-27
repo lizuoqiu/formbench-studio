@@ -1,4 +1,5 @@
 import {userProgress} from './consumer-progress.js';
+import {mountQuestions} from './consumer-intake.js';
 import {discussDesign,generateDesign,loadCompletedDesignJob,findProducts,partSearchTerms,pickProduct,makeCart,serviceCapabilities,sampleDesign} from './consumer-service.js';
 import {pendingDesignJob} from './consumer-jobs.js';
 import {mountConsumerAccount,saveConsumerProject,readConsumerProject} from './consumer-account.js';
@@ -140,25 +141,24 @@ function renderDiscussion(state,error=''){
     panel.querySelector('#cancel-discussion').onclick=stopDraft;
     return;
   }
-  const ask=state.question;
-  panel.innerHTML=`<div class="discussion-card">${error?`<p role="alert" class="discussion-error">${esc(error)}</p>`:''}${ask?`<h3 id="discussion-question">${esc(ask.question)}</h3><div class="answer-options">${ask.options.map((label,i)=>`<button type="button" data-answer-index="${i}" class="small-button">${esc(label)}</button>`).join('')}</div><form class="answer-form"><label for="discussion-answer">其他想法</label><div><input id="discussion-answer" maxlength="1800" autocomplete="off"><button type="submit" id="send-answer" class="small-button">回复</button></div></form>`:''}<div class="discussion-controls">${error?'<button type="button" class="small-button" id="retry-discussion">重试</button>':''}<button type="button" id="skip-discussion" class="discussion-link">${ask?'由 AI 决定':'直接生成'}</button>${cancel}</div></div>`;
-  const answer=value=>{
-    if(!value.trim()||state.busy)return;
-    state.conversation.push({role:'user',text:value.trim()});state.question=null;
-    requestDraft(state,'discuss');
-  };
-  panel.querySelectorAll('[data-answer-index]').forEach(button=>button.onclick=()=>answer(ask.options[Number(button.dataset.answerIndex)]));
-  const form=panel.querySelector('.answer-form');
-  if(form)form.onsubmit=e=>{e.preventDefault();answer($('#discussion-answer').value)};
+  if(state.question){
+    panel.replaceChildren();
+    const card=document.createElement('div');card.className='discussion-card';panel.append(card);
+    mountQuestions(card,state.question.questions,replies=>{
+      if(draft!==state||state.busy)return;
+      for(const {question:q,answer,delegated} of replies){
+        const asked=q.options.length?q.question+'（'+q.options.join(' / ')+'）':q.question;
+        state.conversation.push({role:'assistant',text:asked,...(q.topic?{topic:q.topic}:{})},
+          {role:'user',text:answer,...(delegated?{delegated:true}:{})});
+      }
+      state.question=null;requestDraft(state,'discuss');
+    },stopDraft);
+    return;
+  }
+  panel.innerHTML=`<div class="discussion-card">${error?`<p role="alert" class="discussion-error">${esc(error)}</p>`:''}<div class="discussion-controls"><button type="button" class="small-button" id="retry-discussion">重试</button><button type="button" id="skip-discussion" class="discussion-link">按现有需求开始</button>${cancel}</div></div>`;
   panel.querySelector('#cancel-discussion').onclick=stopDraft;
-  panel.querySelector('#skip-discussion').onclick=()=>{
-    const extra=panel.querySelector('#discussion-answer')?.value.trim();
-    if(extra){answer(extra);return;}
-    if(ask){answer('这个选择由 AI 决定。');return;}
-    state.question=null;requestDraft(state,'generate');
-  };
-  const retry=panel.querySelector('#retry-discussion');if(retry)retry.onclick=()=>requestDraft(state,state.lastAction);
-  if(ask)panel.querySelector('#discussion-question').scrollIntoView({block:'nearest'});
+  panel.querySelector('#skip-discussion').onclick=()=>requestDraft(state,'generate');
+  panel.querySelector('#retry-discussion').onclick=()=>requestDraft(state,state.lastAction);
 }
 async function requestDraft(state,action){
   if(draft!==state||state.busy)return;
@@ -175,8 +175,6 @@ async function requestDraft(state,action){
       if(draft!==state)return;
       if(decision.decision==='ask'){
         state.question=decision;
-        const asked=decision.options.length?decision.question+'（'+decision.options.join(' / ')+'）':decision.question;
-        state.conversation.push({role:'assistant',text:asked});
         state.busy=false;setDraftBusy(state);renderDiscussion(state);return;
       }
       d=decision.design;

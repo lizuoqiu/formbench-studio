@@ -10,10 +10,13 @@ import {chromium} from 'playwright';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const types={'.html':'text/html','.js':'application/javascript','.css':'text/css','.json':'application/json'};
 const fixture={name:'触摸盒',summary:'触摸顶面启动提醒。',steps:['接线'],parts:[{name:'控制板',spec:'接口板',model:'B1',qty:1,sizeMm:[30,20,9],role:'internal',dimensionSource:'estimated'}]};
-test('prompt, immutable regeneration, truthful backend model receipts, old projects and CAD state',async()=>{
+async function serveWorkbench(){
  const server=createServer(async(req,res)=>{try{const name=new URL(req.url,'http://local.test').pathname.slice(1)||'index.html';const full=path.resolve(root,name);if(!full.startsWith(root))throw Error();const body=await readFile(full);res.writeHead(200,{'Content-Type':types[path.extname(full)]||'application/octet-stream'});res.end(body)}catch{res.writeHead(404);res.end()}});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
- const url='http://127.0.0.1:'+server.address().port;
+ return {url:'http://127.0.0.1:'+server.address().port,close:()=>new Promise(r=>server.close(r))};
+}
+test('prompt, immutable regeneration, truthful backend model receipts, old projects and CAD state',async()=>{
+ const {url,close}=await serveWorkbench();
  let b;
  try{
   b=await chromium.launch({channel:process.env.BROWSER_CHANNEL||'chrome',headless:true});
@@ -40,11 +43,13 @@ test('prompt, immutable regeneration, truthful backend model receipts, old proje
   assert.match(await p.locator('#selected-model').innerText(),/请求模型：model-config/);
   await p.locator('#wish').fill(prompt);await p.locator('#generate').click();
   assert(await p.locator('#entry-progress').isVisible());assert.equal(await p.locator('#entry-progress').getAttribute('data-phase'),'discuss');assert(await p.locator('#generate').isDisabled());release();
-  await p.getByRole('heading',{name:question}).waitFor();
+  await p.getByRole('group',{name:question}).waitFor();
   assert.equal(await p.getByRole('button',{name:'直接生成',exact:true}).count(),0);
-  assert.ok(await p.getByRole('button',{name:'由 AI 决定',exact:true}).isVisible());
+  assert.ok(await p.getByRole('radio',{name:'由 AI 决定',exact:true}).isVisible());
   assert.deepEqual(requests.map(r=>r.action),['discuss']);
-  await p.getByRole('button',{name:'光提醒',exact:true}).click();
+  await p.getByRole('radio',{name:'光提醒',exact:true}).check();
+  assert.deepEqual(requests.map(r=>r.action),['discuss']);
+  await p.getByRole('button',{name:'提交回答'}).click();
   await p.locator('#project:not([hidden])').waitFor();
   await p.locator('.project-origin > summary').click();
   assert.match(await p.locator('.model-stamp').innerText(),/本机 Codex.*请求指定模型：model-config.*未披露/);
@@ -195,5 +200,53 @@ test('prompt, immutable regeneration, truthful backend model receipts, old proje
   assert.ok(savedBranch,JSON.stringify(fromGuest.map(record=>({id:record.id,name:record.design.name,iteration:record.iteration}))));
   assert.ok(savedBranch.iteration.previousId&&fromGuest.some(record=>record.id===savedBranch.iteration.previousId));
   await handoff.close();
- }finally{await b?.close();await new Promise(r=>server.close(r))}
+ }finally{await b?.close();await close()}
+});
+
+test('grouped interview supports editable choices, typed answers and scoped delegation before design starts',async()=>{
+ const {url,close}=await serveWorkbench();
+ let browser;
+ try{
+  browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||'chrome',headless:true});
+  const page=await browser.newPage({viewport:{width:390,height:844}});
+  const questions=[
+   {topic:'outcome',question:'你想让装置提醒你哪件事？',options:['赶上出门时间','把要带的物品拿齐']},
+   {topic:'use',question:'你一般在哪里准备出门？',options:['玄关','车库']},
+   {topic:'use',question:'提醒时旁边通常有人吗？',options:['通常有','我一个人']}
+  ];
+  const follow={topic:'use',question:'出发前多久收到提醒比较合适？',options:[]};
+  const requests=[];
+  await page.route('**/api/**',async route=>{
+   const api=new URL(route.request().url()).pathname;
+   if(api!=='/api/design')return route.fulfill({json:api==='/api/capabilities'?{ai:true}:{}});
+   const req=route.request().postDataJSON();requests.push(req);
+   if(req.action==='generate')return route.fulfill({json:{design:fixture}});
+   const groups=[questions,[follow],[]],batch=groups[requests.length-1];
+   return route.fulfill({json:batch.length?{decision:'ask',questions:batch}:{decision:'ready'}});
+  });
+  await page.goto(url);await page.locator('#wish').fill('帮我做个出门提醒');await page.locator('#generate').click();
+  const groups=questions.map(q=>page.getByRole('group',{name:q.question,exact:true}));
+  const submit=page.getByRole('button',{name:'提交回答'});
+  await groups[2].waitFor();
+  await groups[0].getByRole('radio',{name:questions[0].options[1]}).check();
+  await groups[0].getByRole('radio',{name:questions[0].options[0]}).check();
+  await groups[1].getByRole('radio',{name:'自己填写'}).check();
+  const custom=groups[1].getByRole('textbox');
+  assert.ok(await custom.evaluate(el=>el===document.activeElement));
+  await custom.fill('自行车棚');await groups[2].getByRole('radio',{name:'由 AI 决定'}).check();
+  assert.ok(await submit.isEnabled());await custom.fill('  ');assert.ok(await submit.isDisabled());
+  await custom.fill('自行车棚');assert.deepEqual(requests.map(r=>r.action),['discuss']);
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await submit.click();await page.getByRole('group',{name:follow.question}).waitFor();
+  assert.equal(requests.length,2);assert.equal(requests[1].conversation.length,6);
+  assert.deepEqual(requests[1].conversation.filter(t=>t.role==='user'),[
+   {role:'user',text:'赶上出门时间'},{role:'user',text:'自行车棚'},{role:'user',text:'这个选择由 AI 决定。',delegated:true}
+  ]);
+  assert.deepEqual(requests[1].conversation.filter(t=>t.role==='assistant').map(t=>t.topic),['outcome','use','use']);
+  await page.getByRole('radio',{name:'自己填写'}).check();await page.getByRole('textbox',{name:follow.question+' 自己填写'}).fill('提前十分钟');await submit.click();
+  await page.locator('#project:not([hidden])').waitFor();
+  assert.deepEqual(requests.map(r=>r.action),['discuss','discuss','discuss','generate']);
+  assert.equal(requests.at(-1).conversation.length,8);assert.deepEqual(requests[2].conversation,requests[3].conversation);
+  assert.deepEqual(requests.at(-1).conversation.at(-1),{role:'user',text:'提前十分钟'});
+ }finally{await browser?.close();await close()}
 });

@@ -125,8 +125,14 @@ export async function discussDesign(context,signal){
   const data=await call('design',{...context,action:'discuss'},signal);
   if(data.design)return {design:normalizeDesign(data.design)};
   if(data.decision==='ready')return {decision:'ready'};
-  if(data.decision==='ask'&&text(data.question,600)&&Array.isArray(data.options)){
-    return {decision:'ask',question:text(data.question,600),options:data.options.slice(0,3).map(option=>text(option,160)).filter(Boolean)};
+  if(data.decision==='ask'){
+    const list=data.questions===undefined?[data]:data.questions;
+    if(Array.isArray(list)&&list.length>=1&&list.length<=4&&list.every(q=>q&&text(q.question,600)&&
+      Array.isArray(q.options)&&q.options.length<=3&&q.options.every(o=>text(o,160)))){
+      const questions=list.map(q=>({question:text(q.question,600),options:q.options.map(o=>text(o,160)),
+        ...(['outcome','use'].includes(q.topic)?{topic:q.topic}:{})}));
+      return {decision:'ask',...questions[0],questions};
+    }
   }
   throw Error('没有收到有效的设计回复，请重试。');
 }

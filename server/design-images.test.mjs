@@ -21,7 +21,7 @@ test('both design actions send attached photos as actual Responses image inputs,
    assert.equal(role,'user');assert.equal(content[0].type,'input_text');
    assert.match(content[0].text,/接口留在侧面/);assert.ok(!content[0].text.includes('base64'));
    assert.deepEqual(content[1],{type:'input_image',image_url:png,detail:'high'});
-   const result=action==='generate'?frozen:{decision:'ready',question:'',options:[]};
+   const result=action==='generate'?frozen:{outcome:{status:'stated',description:'让旋钮在桌面固定',quote:'给这个旋钮做一个桌面支架'},questions:[]};
    return Response.json({status:'completed',model:'test',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(result)}]}]});
   });
   assert.equal(out.status,200);assert.ok(!(await out.text()).includes('base64'));

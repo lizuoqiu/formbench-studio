@@ -27,6 +27,7 @@ const policySections={
  review:['评审','方案选择','单件建模'],
  repair:['增量修复','方案选择'],
 };
+export const intakeGuide=(env={})=>loadProjectGuide('hardware-intake',env);
 export async function hardwarePolicyGuide(stage,env={}){
  const headings=policySections[stage];
  if(!headings)throw Error('Unknown hardware policy stage: '+stage);
