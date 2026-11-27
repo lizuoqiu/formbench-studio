@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {isolatedLocalServer} from './test-fixtures/local-server.mjs';
 import {once} from 'node:events';
 import {forgePlan} from './forge-plan.mjs';
 const feature=(op,shape,sizeMm,centerMm=[0,0,0])=>({op,shape,sizeMm,centerMm});
@@ -36,16 +36,15 @@ function summary(data){
 test('loopback HTTP compiles one plan into two separate, measured real STL meshes',async()=>{
   // Ask the OS for an unused port, then start the same loopback server as the app.
   const {createServer}=await import('node:net');const probe=createServer().listen(0,'127.0.0.1');await once(probe,'listening');const port=probe.address().port;await new Promise(r=>probe.close(r));
-  const origin='http://127.0.0.1:'+port,child=spawn(process.execPath,['server/local.mjs'],{cwd:new URL('../',import.meta.url),env:{...process.env,PORT:String(port),FORGECAD_RESEARCH_AUTOMATION:'false',FORGECAD_ENTERPRISE_AUTOMATION:'false'},stdio:['ignore','pipe','pipe']});
+  const {origin,close}=await isolatedLocalServer(port,{FORGECAD_RESEARCH_AUTOMATION:'false',FORGECAD_ENTERPRISE_AUTOMATION:'false'});
   try{
-    await Promise.race([once(child.stdout,'data'),once(child,'exit').then(([c])=>{throw Error('server exited: '+c)})]);
     const opts={method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({cadPlan:plan})},endpoint=origin+'/api/forge/plan';
     assert.equal((await fetch(endpoint,{...opts,headers:{...opts.headers,origin:'https://example.invalid'}})).status,403);
     const res=await fetch(endpoint,opts),j=await res.json();assert.equal(res.status,200,JSON.stringify(j));assert.equal(j.engine,'Manifold 3.5.1');assert.equal(j.bodies.length,2);
     let [shell,round]=j.bodies;assert.notEqual(shell.fileName,round.fileName);assert.deepEqual(shell.positionMm,[30,40,50]);
     const a=summary(shell.stlBase64);assert.deepEqual(a.lo,[-6,-5,-4]);assert.deepEqual(a.hi,[6,5,4]);assert.ok(Math.abs(a.volume-(12*10*8-4*4*8))<.001);
     const b=summary(round.stlBase64);assert.deepEqual(b.lo,[-1,-1,1]);assert.deepEqual(b.hi,[7,9,9]);assert.ok(b.n>300);
-  }finally{child.kill()}
+  }finally{await close()}
 });
 test('invalid or empty plans never execute supplied code; impossible solids do not yield partial downloads',async()=>{
   for(const bad of [{cadPlan:{...plan,code:'return anything'}},{cadPlan:{version:1,bodies:[]}},{cadPlan:plan,path:'other'}])assert.equal((await forgePlan(req(bad))).status,400);
@@ -161,7 +160,7 @@ test('loopback streams ForgeCAD work, cancels the exporter on disconnect, and ac
   const dir=await mkdtemp(join(tmpdir(),'formbench-live-forge-')),bin=join(dir,'forgecad.cjs'),gate=join(dir,'allow-export');
   const probe=createServer().listen(0,'127.0.0.1');await once(probe,'listening');
   const port=probe.address().port,origin='http://127.0.0.1:'+port;await new Promise(r=>probe.close(r));
-  let child,reader;
+  let server,reader;
   try{
     await writeFile(bin,`#!${process.execPath}
       const fs=require('node:fs');const args=process.argv.slice(2);
@@ -172,9 +171,7 @@ test('loopback streams ForgeCAD work, cancels the exporter on disconnect, and ac
        if(!fs.existsSync(${JSON.stringify(gate)})){setTimeout(wait,10);return}
        const bytes=Buffer.alloc(134);bytes.writeUInt32LE(1,80);bytes.writeFloatLE(1,108);bytes.writeFloatLE(1,124);
        fs.writeFileSync(args[4],bytes)})();`,{mode:0o700});
-    child=spawn(process.execPath,['server/local.mjs'],{cwd:new URL('../',import.meta.url),
-      env:{...process.env,PORT:String(port),FORGECAD_ENTERPRISE_AUTOMATION:'true',FORGECAD_RESEARCH_AUTOMATION:'false',FORGECAD_BIN:bin},stdio:['ignore','pipe','pipe']});
-    await Promise.race([once(child.stdout,'data'),once(child,'exit').then(()=>{throw Error('server exited')})]);
+    server=await isolatedLocalServer(port,{FORGECAD_ENTERPRISE_AUTOMATION:'true',FORGECAD_RESEARCH_AUTOMATION:'false',FORGECAD_BIN:bin});
     const opts={method:'POST',headers:{origin,accept:'application/x-ndjson','content-type':'application/json'},body:JSON.stringify({cadPlan:plan,engine:'forgecad'}),signal:AbortSignal.timeout(8000)};
     const endpoint=origin+'/api/forge/plan';
     const disconnect=new AbortController();
@@ -205,5 +202,5 @@ test('loopback streams ForgeCAD work, cancels the exporter on disconnect, and ac
     await writeFile(gate,'');const rest=[];for await(const line of iterator)rest.push(JSON.parse(line));
     assert.deepEqual(rest.slice(0,-1).map(v=>[v.phase,v.bodyIndex,v.completed]),[['finish',0,1],['start',1,1],['finish',1,2]]);
     const end=rest.at(-1);assert.equal(end.type,'result');assert.equal(end.result.engine,'ForgeCAD CLI 0.99.0-test');assert.equal(end.result.bodies.length,2);
-  }finally{reader?.close();child?.kill();await rm(dir,{recursive:true,force:true})}
+  }finally{reader?.close();await server?.close();await rm(dir,{recursive:true,force:true})}
 });
