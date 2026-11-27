@@ -90,6 +90,31 @@ test('a property in the identified technical specifications can prove an integra
   async()=>({url,bytes:Buffer.from(spec)}),signal,c=>checks.push(c));
  assert.deepEqual(r.map(v=>v.kind),['clock','touch']);assert.equal(checks[0].reason,'document-specification');assert.equal(r[0].quote,'RTC RB1025');
 });
+test('a shared manufacturer specification binds a common protocol to each explicitly listed model',async()=>{
+ const sourceUrl='https://nova.example/beacon/specs',wifi='Wi-Fi IEEE 802.11 b/g/n 2.4 GHz, Bluetooth 4.2';
+ const page=(fields,extra='')=>'<main><h1>Window Beacon</h1><h2>Technical Specifications</h2>'+fields.map(([label,value])=>
+  '<div><h3>'+label+'</h3></div><div><p>'+value+'</p></div>').join('')+extra+'</main>';
+ const models=['Model','WB-101/WB-102'];
+ const verify=(orderCode,html,maker='Nova')=>verifyFactoryInterfaces([],{model:maker+' '+orderCode,requiredFactoryFunctions:['wifi'],observedUrls:[sourceUrl],
+  sourceUrl,selectedIdentity:{manufacturer:maker,productName:'Window Beacon',orderCode,revision:''}},
+  async()=>({url:sourceUrl,bytes:Buffer.from(html)}),signal);
+ const common=page([models,['Wireless Protocols',wifi],['Box contents','WB-101: two clips. WB-102: one clip.']]);
+ for(const code of ['WB-101','WB-102']){
+  const [feature]=await verify(code,common);
+  assert.equal(feature.documentIdentity.orderCode,code);assert.equal(feature.sourceUrl,sourceUrl);
+  assert.equal(feature.quote,'Wireless Protocols '+wifi);assert.equal(feature.kind,'wifi');
+ }
+ assert.deepEqual(await verify('WB-10',common),[]);
+ assert.deepEqual(await verify('WB-101',common,'OtherMaker'),[]);
+ for(const html of [
+  page([models,['Wireless Protocols','Bluetooth 2.4 GHz']]),
+  page([models,['Wireless Protocols',wifi+' (WB-102 only)']]),
+  page([models,['Wireless Protocols',wifi],['Wireless Protocols','WB-101 without Wi-Fi']]),
+  page([models,['Model','WB-102'],['Wireless Protocols',wifi]]),
+  page([models],'<h2>Optional accessories</h2><p>The optional extender has an integrated Wi-Fi radio.</p>'),
+  page([models],'<h2>WB-102 features</h2><h3>Wireless Protocols</h3><p>'+wifi+'</p>')
+ ])assert.deepEqual(await verify('WB-101',html),[]);
+});
 async function design(){
  const {design}=JSON.parse(readFileSync(new URL('../samples/shared/reading-timer/v4.json',import.meta.url)));
  const raw=design.parts[4]={...design.parts[4],model,name:'Controller with integrated panel',kind:'purchase',placement:'mounted'};

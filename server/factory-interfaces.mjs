@@ -32,18 +32,56 @@ const specLabel={touch:/^(?:(?:capacitive|resistive|integrated)\s+)*(?:touch[\s-
  clock:/^(?:(?:built[- ]in|onboard)\s+)?(?:rtc|real[ -]?time clock|实时时钟)$/i,
  button:/^(?:onboard |built-in |板载)(?:buttons?|按键)$/i,light:/^(?:onboard |built-in |板载)(?:led|indicator|指示灯)$/i,
  sound:/^(?:onboard |built-in |板载)?(?:speaker|buzzer|扬声器|蜂鸣器)$/i,
- wifi:/^(?:wi[\s‐‑–-]?fi(?:\s+(?:standard|protocol|radio))?|WLAN|无线局域网)$/i};
-function technicalSpecifications(html){
+ wifi:/^(?:wi[\s‐‑–-]?fi(?:\s+(?:standard|protocol|radio))?|WLAN|无线局域网|wireless protocols?|无线协议)$/i};
+const specHeading=/^(?:(?:(?:product|technical)\s+)?specifications?|specs|技术规格|规格参数|产品规格)$/i;
+const modelLabel=/^(?:models?|model (?:numbers?|no\.?)|型号|产品型号)$/i;
+// Many manufacturer sheets publish a model list and common properties as successive
+// headings, then describe variant-specific bundle contents further down the page.
+function headingModelSheet(html){
+ const headings=[...html.matchAll(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1\s*>/gi)];
+ const sheets=[];
+ for(let i=0;i<headings.length;i++){
+  const header=headings[i],level=Number(header[1]);
+  if(!specHeading.test(plain(header[2])))continue;
+  const rows=[];
+  for(let j=i+1;j<headings.length&&Number(headings[j][1])>level;j++){
+   const field=headings[j];
+   if(Number(field[1])!==level+1)continue;
+   const value=plain(html.slice(field.index+field[0].length,headings[j+1]?.index??html.length));
+   rows.push([plain(field[2]),value]);
+  }
+  if(rows.some(([label])=>modelLabel.test(label)))sheets.push(rows);
+ }
+ if(!sheets.length)return undefined;
+ if(sheets.length!==1)return null;
+ const rows=sheets[0],models=rows.filter(([k])=>modelLabel.test(k));
+ if(models.length!==1)return null;
+ const codes=models[0][1].split(/\s*[/,，、;；]\s*/u);
+ if(codes.length>24||!codes.every(c=>c.length<=90&&/^(?=[\w.-]*\d)[\w.-]+$/u.test(c)))return null;
+ return {codes,rows};
+}
+function technicalSpecifications(html,headingRows=[],sharedCodes=[]){
  const specs={};
+ const rows=[...headingRows],conflicts=new Set();
  for(const row of html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)){
-  const cells=[...row[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(m=>plain(m[1]));
-  if(cells.length!==2||!cells[1]||cells[1].length>130||peripheral.test(cells[1])||/^(?:0|n\/a|none|否|无|-+)$/i.test(cells[1]))continue;
+  rows.push([...row[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(m=>plain(m[1])));
+ }
+ for(const cells of rows){
+  if(cells.length!==2||!cells[1]||cells[1].length>130)continue;
+  const [label,value]=cells;
   for(const [kind,pattern] of Object.entries(specLabel)){
-   if(specs[kind]||!pattern.test(cells[0]))continue;
-   if(kind==='wifi'&&!/802\.11|[2456](?:[.,]\d)?\s*GHz|built[- ]in|on[- ]?board|内置|板载/i.test(cells[1]))continue;
-   specs[kind]=cells.join(' ');
+   if(!pattern.test(label))continue;
+   if(sharedCodes.length&&(sharedCodes.some(c=>value.toLowerCase().includes(c.toLowerCase()))||
+      /\b(?:only|except|variant|optional|external|without|not|no)\b|仅限|除外|选配|不支持/i.test(value)))conflicts.add(kind);
+   if(peripheral.test(value)||unsupported.test(value)||/^(?:0|n\/a|none|否|无|-+)$/i.test(value))continue;
+   if(kind==='wifi'&&(!/802\.11|[2456](?:[.,]\d)?\s*GHz|built[- ]in|on[- ]?board|内置|板载/i.test(value)||
+     /^(?:wireless|无线协议)/i.test(label)&&!cues.wifi.test(value)))continue;
+   const quote=cells.join(' ');
+   if(specs[kind]&&specs[kind]!==quote)conflicts.add(kind);
+   else specs[kind]=quote;
   }
  }
+ for(const kind of conflicts)delete specs[kind];
  return specs;
 }
 function pdfText(bytes,signal){
@@ -51,7 +89,7 @@ function pdfText(bytes,signal){
 }
 async function documentFor(doc,model,proposal,selection,signal){
  const {bytes}=doc;if(!bytes?.length)return null;
- let body='',primary='',documentIdentity=null,specifications={};
+ let body='',primary='',documentIdentity=null,specifications={},sheet;
  const makers=[],names=[];
  try{makers.push(...new URL(doc.url).hostname.split('.').filter(s=>s.length>2&&!['www','docs','shop','com','net','org','cdn'].includes(s)));}catch{}
  if(bytes.subarray(0,5).toString()==='%PDF-'){
@@ -70,7 +108,10 @@ async function documentFor(doc,model,proposal,selection,signal){
    if(heading)names.push(plain(heading[1]));
    if(title)names.push(plain(title[1]));
    primary=plain(heading?body.slice(heading.index):body).slice(0,1900);
-   specifications=technicalSpecifications(body);
+   sheet=headingModelSheet(body);
+   if(sheet===null)return null;
+   const shared=sheet?.codes.length>1;
+   specifications=technicalSpecifications(shared?'':body,sheet?.rows,shared?sheet.codes:[]);
   }
  }
  if(!documentIdentity){
@@ -78,10 +119,12 @@ async function documentFor(doc,model,proposal,selection,signal){
   if(codes.length>1)return null;
   const byline=/(?:manufacturer|brand|制造商|品牌)\s*[:：]\s*([^<\n.;。]{1,90}?)(?=\s+(?:SKU|MPN|Model|Product|型号|订货号)\b|[<\n.;。]|$)/gi;
   makers.push(...[...primary.matchAll(byline)].map(m=>plain(m[1])));
-  documentIdentity=documentedPartIdentity(model,{codes,names,manufacturers:makers,requireCode:codes.length>0},proposal,selection);
+  if(sheet&&codes.length&&!sheet.codes.includes(codes[0]))return null;
+  const printedCodes=codes.length?codes:sheet?.codes||[];
+  documentIdentity=documentedPartIdentity(model,{codes:printedCodes,names,manufacturers:makers,requireCode:printedCodes.length>0},proposal,selection);
   if(!documentIdentity)return null;
  }
- const passages=body.replace(/<\/(?:p|li|tr|h[1-6])>|<br\s*\/?>/gi,'\n').split(/\n/).flatMap(p=>plain(p).split(/(?<=[。！？!?])|(?<=\.)\s+(?=[A-Z])/u)).filter(Boolean);
+ const passages=sheet?.codes.length>1?[]:body.replace(/<\/(?:p|li|tr|h[1-6])>|<br\s*\/?>/gi,'\n').split(/\n/).flatMap(p=>plain(p).split(/(?<=[。！？!?])|(?<=\.)\s+(?=[A-Z])/u)).filter(Boolean);
  return {passages,specifications,documentIdentity,sha:createHash('sha256').update(bytes).digest('hex')};
 }
 // A search hit is a candidate. The exact model and quoted feature must appear
