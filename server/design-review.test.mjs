@@ -121,6 +121,16 @@ test('direct delivery rejects an accessory around an existing terminal doing all
  assert.equal(result.status,502);assert.equal(result.result.design,undefined);
  assert.ok(result.result.review.issues.some(issue=>issue.includes(evidence)));
 });
+test('a dedicated recorder that requires its viewing terminal to begin recording goes back for repair',async()=>{
+ const recorder=draft('ellipsoid');
+ recorder.parts[0]={...recorder.parts[0],name:'到货记录器',purpose:'独立记录包裹放入的时刻'};
+ recorder.steps=['接通电源。每次启动后必须用手机确认，记录器才开始工作。'];
+ const evidence='记录器自身能够感测包裹，但使用者离开手机就无法启动记录。';
+ const out=await run({requirements:{prompt:'放一个独立装置记录到货时间，我回家用手机查看即可。'},generate:()=>recorder,
+  review:()=>({...report(),productDelivery:{status:'viewer-required-to-operate',partIndices:[0],evidence}})});
+ assert.equal(out.result.design,undefined);
+ assert.ok(out.result.review?.issues.some(issue=>issue.includes(evidence)));
+});
 test('bounded runtime evidence dispatches both encoder directions, button events, one second and timer expiry',async()=>{
  const {replayInteraction}=await import('./design-review.mjs');
  const state=(id,clock,mode)=>({id,clock,outputs:[{outputId:'led',mode}]});
