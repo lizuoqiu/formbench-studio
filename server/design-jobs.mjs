@@ -5,7 +5,7 @@ import {randomUUID} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 import {design} from './design.mjs';
 import {reviewDraftBrowser} from './draft-browser.mjs';
-import {readDesignRequest} from './design-conversation.mjs';
+import {answerBeforeStarting,pendingDesignQuestion,readDesignRequest} from './design-conversation.mjs';
 import {clearBillingFailure} from './openai-response.mjs';
 import {resetOpenAIKeyPool} from './openai-keys.mjs';
 import {bindJobForgeTools} from './forge-workflow-tools.mjs';
@@ -126,7 +126,8 @@ export async function designJobs(request,env,{run=design}={}){
     const input=await request.json();
     try{checkChoice(input.provider,env);}catch(e){return response({error:e.message},e.status);}
     // Validate before persisting or starting a paid background operation.
-    await readDesignRequest(new Request(request.url,{method:'POST',body:JSON.stringify({...input,action:'generate'})}));
+    const ctx=await readDesignRequest(new Request(request.url,{method:'POST',body:JSON.stringify({...input,action:'generate'})}));
+    if(pendingDesignQuestion(ctx))return response({error:answerBeforeStarting},409);
     if(input.forgeProject===undefined && env.FORMBENCH_FORGE_MCP_DEFAULT_PROJECT && !env.FORMBENCH_FORGE_MCP_JOB_ID) {
       input.forgeProject=env.FORMBENCH_FORGE_MCP_DEFAULT_PROJECT;
     }

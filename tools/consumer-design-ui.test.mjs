@@ -40,7 +40,11 @@ test('prompt, immutable regeneration, truthful backend model receipts, old proje
   assert.match(await p.locator('#selected-model').innerText(),/请求模型：model-config/);
   await p.locator('#wish').fill(prompt);await p.locator('#generate').click();
   assert(await p.locator('#entry-progress').isVisible());assert.equal(await p.locator('#entry-progress').getAttribute('data-phase'),'discuss');assert(await p.locator('#generate').isDisabled());release();
-  await p.getByRole('heading',{name:question}).waitFor();await p.getByRole('button',{name:'光提醒',exact:true}).click();
+  await p.getByRole('heading',{name:question}).waitFor();
+  assert.equal(await p.getByRole('button',{name:'直接生成',exact:true}).count(),0);
+  assert.ok(await p.getByRole('button',{name:'由 AI 决定',exact:true}).isVisible());
+  assert.deepEqual(requests.map(r=>r.action),['discuss']);
+  await p.getByRole('button',{name:'光提醒',exact:true}).click();
   await p.locator('#project:not([hidden])').waitFor();
   await p.locator('.project-origin > summary').click();
   assert.match(await p.locator('.model-stamp').innerText(),/本机 Codex.*请求指定模型：model-config.*未披露/);

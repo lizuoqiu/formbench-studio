@@ -21,7 +21,7 @@ const spec = obj({
   controls:arr(obj({id:str,label:str,kind:choice('turn','press','slide','touch','command'),partIndex:integer,
     fixedBodyIndex:nullable(integer),movingBodyIndices:arr(integer),axis:arr(number),pivotMm:arr(number),
     step:number,range:nullable(obj({min:number,max:number,initial:number})),signalPins:arr(str)})),
-  outputs:arr(obj({id:str,label:str,kind:choice('display','light','motion','sound'),partIndex:integer,
+  outputs:arr(obj({id:str,label:str,kind:choice('display','web','light','motion','sound'),partIndex:integer,
     bodyIndices:arr(integer),signalPin:str,motion:nullable(obj({type:choice('joint','linear'),index:integer,speed:number}))})),
   connections:arr(obj({kind:choice('signal','power','ground'),fromPartIndex:integer,fromPin:str,
     toPartIndex:integer,toPin:str,bidirectional:{type:'boolean'}})),
@@ -296,7 +296,8 @@ function checkBindings(model, parts, bodies, cadPlan={}) {
   for (const c of model.controls) {
     if(c.kind==='command'){
       const host=parts[c.partIndex];
-      check(active&&host?.role==='external'&&host.placement==='loose',c.label+' 的页面/Agent 命令需要外部通信端和实际控制器。');
+      const onboard=active&&c.partIndex===model.controllerPartIndex&&host?.placement==='mounted';
+      check(active&&(onboard||host?.role==='external'&&host.placement==='loose'),c.label+' 的页面/Agent 命令需要控制器的无线通信或外部有线通信端。');
       check(c.fixedBodyIndex===null&&!c.movingBodyIndices.length&&!c.axis.length&&!c.pivotMm.length&&c.step===0&&!c.range,
         c.label+' 是页面/Agent 命令，不绑定 CAD 实体、轴线或机械行程。');
       continue;
@@ -332,6 +333,11 @@ function checkBindings(model, parts, bodies, cadPlan={}) {
   }
   check(unique(model.outputs.filter(o=>o.motion).map(o=>o.motion.type+':'+o.motion.index)),'同一运动轴只能绑定一个输出；用该输出的正反模式表示方向。');
   for (const out of model.outputs) {
+    if(out.kind==='web'){
+      check(active&&out.partIndex===model.controllerPartIndex&&parts[out.partIndex]?.placement==='mounted'&&
+        !out.bodyIndices.length&&!out.motion,out.label+' 是控制器提供的网页，不应绑定实体屏幕或运动部件。');
+      continue;
+    }
     const terminal=model.terminals?.find(t=>t.partIndex===out.partIndex&&canonicalPin(t.pin)===canonicalPin(out.signalPin||''));
     if(out.motion){
       const target=out.motion.type==='joint'?cadPlan.joints?.[out.motion.index]:cadPlan.motions?.[out.motion.index];
@@ -441,8 +447,8 @@ function checkWiring(model,parts,bodies) {
   for (const c of model.controls) {
     check(c.signalPins.length<=8 && unique(c.signalPins.map(canonicalPin)) &&
       (controller!==null ? c.signalPins.length>0 : !c.signalPins.length),c.label+' 的信号脚与控制方式不符。');
-    if(usesFactoryInterface(model,parts,c,c.signalPins,c.kind==='touch'?['touch']:c.kind==='press'?['button']:[])){factoryInputs.add(c.id);continue;}
-    if(c.kind==='command')check(c.signalPins.every(pin=>isBusPin(parts[c.partIndex],pin)),c.label+' 的命令须通过真实通信引脚进入控制器。');
+    if(usesFactoryInterface(model,parts,c,c.signalPins,c.kind==='touch'?['touch']:c.kind==='press'?['button']:c.kind==='command'?['wifi']:[])){factoryInputs.add(c.id);continue;}
+    if(c.kind==='command')check(c.partIndex!==controller&&c.signalPins.every(pin=>isBusPin(parts[c.partIndex],pin)),c.label+' 的命令须通过外部通信引脚或经型号资料核实的无线接口进入控制器。');
     if (c.kind==='turn' && controller!==null && isEncoder(parts[c.partIndex]) &&
         model.controls.some(p=>p.kind==='press' && p.partIndex===c.partIndex) &&
         !c.signalPins.some(pin=>isBusPin(parts[c.partIndex],pin))) {
@@ -545,6 +551,10 @@ function checkWiring(model,parts,bodies) {
     }
   }
   for (const o of model.outputs) {
+    if(o.kind==='web'){
+      check(usesFactoryInterface(model,parts,o,[o.signalPin],['wifi']),o.label+' 需要主控型号资料已经证实的无线接口。');
+      continue;
+    }
     if(usesFactoryInterface(model,parts,o,[o.signalPin],['light','sound','display'].includes(o.kind)?[o.kind]:[]))continue;
     const end=pinKey(o.partIndex,o.signalPin);
     check([...outgoing].some(pin=>trace(pin,p=>p===end).size),o.label+' 的 '+o.signalPin+' 需要从控制器输出脚获得信号。');
@@ -593,9 +603,9 @@ function checkMachine(model,parts) {
   const recorder=model.recorder;
   if(recorder){
     const {displayId,captureStates,reviewStates,sampleEvents}=recorder;
-    check(model.controllerPartIndex!==null&&outputs.some(o=>o.id===displayId&&o.kind==='display'),'记录要关联控制器和用于回看的显示屏。');
+    check(model.controllerPartIndex!==null&&outputs.some(o=>o.id===displayId&&['display','web'].includes(o.kind)),'记录要关联控制器和用于回看的网页或显示屏。');
     check(captureStates.length&&reviewStates.length&&unique([...captureStates,...reviewStates])&&[...captureStates,...reviewStates].every(id=>byId.has(id)),'请指定互不重叠且存在的记录、回看状态。');
-    check(reviewStates.every(id=>byId.get(id).outputs.some(o=>o.outputId===displayId&&o.mode==='on')),'回看时需要打开记录对应的显示屏。');
+    check(reviewStates.every(id=>byId.get(id).outputs.some(o=>o.outputId===displayId&&o.mode==='on')),'回看时对应的网页或显示屏需要能显示记录。');
     check(sampleEvents.length&&unique(sampleEvents)&&sampleEvents.every(id=>bySystem.get(id)?.kind==='feedback'),'记录来源必须是已接线的传感反馈事件。');
     const connected=new Set(reviewStates);for(let i=0;i<states.length;i++)for(const t of transitions)if(connected.has(t.to))connected.add(t.from);
     check(captureStates.every(id=>connected.has(id)),'每个记录状态都需要可到达的回看操作。');
@@ -605,7 +615,7 @@ function checkMachine(model,parts) {
     check(event.sourcePins.length>0&&event.sourcePins.length<=8&&unique(event.sourcePins.map(canonicalPin)),event.label+' 须明确检测来源针脚。');
     check(event.kind==='timeout'?Number.isFinite(event.delayMs)&&event.delayMs>0&&event.delayMs<=86400000:event.delayMs===null,
       event.label+' 的超时阈值无效；非超时事件的 delayMs 应为 null。');
-    const onboard=usesFactoryInterface(model,parts,event,event.sourcePins,event.kind==='timeout'?['clock']:event.kind==='fault'?['clock','button']:event.kind==='feedback'&&!recorder?.sampleEvents.includes(event.id)?['touch','button','clock']:[]);
+    const onboard=usesFactoryInterface(model,parts,event,event.sourcePins,event.kind==='timeout'?['clock']:event.kind==='connection'?['wifi']:event.kind==='fault'?['clock','button']:event.kind==='feedback'&&!recorder?.sampleEvents.includes(event.id)?['touch','button','clock']:[]);
     check(onboard||event.sourcePins.every(pin=>model.connections.some(w=>
       w.fromPartIndex===event.partIndex&&canonicalPin(w.fromPin)===canonicalPin(pin)||
       w.toPartIndex===event.partIndex&&canonicalPin(w.toPin)===canonicalPin(pin))),event.label+' 的检测来源未对应真实接线端点。');
@@ -624,7 +634,7 @@ function checkMachine(model,parts) {
       const def=outputs.find(x=>x.id===o.outputId);
       check(def && (o.mode!=='breathe' || def.kind==='light') &&
         (!['forward','reverse'].includes(o.mode)||(def.kind==='motion'&&def.motion))&&
-        (!['remaining','value'].includes(o.mode) || (def.kind==='display' && timer)),
+        (!['remaining','value'].includes(o.mode) || (['display','web'].includes(def.kind) && timer)),
         s.label+' 的输出模式与实际输出器件不匹配。');
     }
   }

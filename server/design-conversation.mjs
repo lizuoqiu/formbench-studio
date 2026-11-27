@@ -114,12 +114,17 @@ export async function readDesignRequest(request){
 }
 
 export const ready=()=>({decision:'ready',question:'',options:[]});
+export function pendingDesignQuestion({history,discussionStart}){
+ const last=history.slice(discussionStart).at(-1);
+ return last?.role==='assistant'?last.text:null;
+}
+export const answerBeforeStarting='请先在追问框回答，或选择由 AI 决定。';
 export const discussionSchema={
  type:'object',additionalProperties:false,required:['decision','question','options'],
  properties:{decision:{type:'string',enum:['ask','ready']},question:{type:'string'},options:{type:'array',items:{type:'string'}}}
 };
 export const discussionInstructions=`你是与用户共同设计可触摸硬件的设计师。读原始需求、之前的提问回答、已有方案以及最新意见。判断现在是否可以着手生成或修改。用户可以随时直接开始，也可以随时改变之前的决定；后来明确的意见优先。
-只有两种都合理、但会明显改变用户如何使用或体验成品的方向尚未确定时，才返回 ask。用自然中文只问一个普通使用者能回答的问题，可以给 0–3 个简短、彼此不同的具体选项，也允许自由回答。不要让使用者选电机型号、接线、制造流程。不要重问已回答或用户已交由你决定的问题。用户已经说清动作、交互方式或修改目标，或者希望先按目前设想试做时，返回 ready，question 留空，options 为空数组。这个阶段只讨论影响体验的选择。`;
+当两种可行的使用方式会改变人在何处接收结果、由谁操作、利用已有设备还是新增硬件，而用户尚未表达偏好时，返回 ask。针对这次需求写问题和选项；如果其中有能沿用用户已有设备的方式，应当让用户看得到。一次只问一个普通使用者能回答的问题，可以给 0–3 个简短、彼此不同的选项，也允许自由回答。不要让使用者选电机型号、接线、制造流程。不要重问已回答或用户已明确交由你决定的问题。需求已确定、差别只涉及工程做法或用户希望你直接决定时，返回 ready，question 留空，options 为空数组。`;
 export const revisionInstructions=`这是一项连续设计任务。按原始需求和历次讨论理解目标，后来明确的用户意见优先。助手提出的备选项并不代表用户已经选择。若给出 baseDesign，以上一版完整 BOM、实体、运动关系、毫米尺寸和装配位置为起点。对于局部修改，保留无关零件的型号、尺寸、位置、特征和顺序，仅更新相关实体和必要的关联部件；增删零件后校正所有 BOM/body 索引。modelSourceInvalidated=true 代表原有尺寸或型号后来变更，按当前值重新确定该件的 CAD。已有设计一律通过 hardware_design_revision 增量操作修改，不重新输出整份设计；后台应用操作后对完整新版重新验证，索引和关联关系必须一致。用户给出的尺寸可引用原始需求或后续用户发言。`;
 
 export const photoInstructions='用户附上产品或标尺照片。用照片辨认外形、接口位置、安装朝向和相对比例。只有看得清刻度、测量平面且无明显透视误差时才可作粗略尺寸参考，并标为估算。仅将用户明确提供的尺寸作为指定尺寸。隐藏面、深度和公差没有依据时，在必要处询问或标明待核对。';

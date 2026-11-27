@@ -6,7 +6,7 @@ export const partIdentity=part=>text(part?.model,240).normalize('NFKC').toLowerC
   .replace(/(?:^|\s)(?:co\.?\s*,?\s*ltd\.?|s\.r\.l\.?|incorporated|corporation|inc\.?|corp\.?|ltd\.?)(?=\s|$)/g,' ')
   .replace(/\s+/g,' ').trim();
 const https=value=>{try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password?u.href:'';}catch{return '';}};
-export const factoryKinds=Object.freeze(['touch','button','display','clock','light','sound']);
+export const factoryKinds=Object.freeze(['touch','button','display','clock','light','sound','wifi']);
 export function factoryInterfaces(part){
   const entries=part?.sourcing?.factoryInterfaces;
   if(!Array.isArray(entries)||part?.modelSourceInvalidated||!partIdentity(part)||!['purchase','included'].includes(part.kind))return [];

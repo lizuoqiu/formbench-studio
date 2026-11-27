@@ -82,13 +82,15 @@ export function mountCadInteraction(root,model,{design={},onChange=()=>{},onMoti
  const hint=document.createElement('p');hint.className='ci-gesture';hint.textContent=model.controls.some(c=>c.kind!=='command')?'可操作模型上的控件或下方控制台':'使用下方控制台试动作 · 拖动模型转动视角';
  const panel=document.createElement('section');panel.className='ci-panel';panel.setAttribute('aria-label','功能交互预览');
  const recorder=model.recorder,samples=(model.systemEvents||[]).filter(e=>recorder?.sampleEvents.includes(e.id)),otherEvents=(model.systemEvents||[]).filter(e=>!samples.includes(e));
+ const webOutputs=model.outputs.filter(output=>output.kind==='web');
+ const historyTitle=webOutputs.some(output=>output.id===recorder?.displayId)?'手机网页 · 记录预览':'记录预览';
  const eventButton=e=>`<button type="button" class="ci-control" data-ci-event="${escape(e.id)}" title="${escape(e.condition)}">${escape(e.label)}${e.kind==='timeout'?' · '+Number(e.delayMs)+' ms':''}</button>`;
  panel.innerHTML=`<div class="ci-heading"><strong>交互控制台</strong><output data-ci-state role="status" aria-live="polite"></output>${model.timer?'<button type="button" data-ci-finish>快进到结束</button>':''}</div><div class="ci-controls">${model.controls.map(control=>{
   const name=escape(control.label),id=escape(control.id);
   if(control.kind==='turn')return `<div class="ci-control"><span>${name}</span><button type="button" data-ci-step="${id}" data-ci-delta="${-Math.sign(control.step)}" aria-label="${name}减少">−</button><output data-ci-value="${id}"></output><button type="button" data-ci-step="${id}" data-ci-delta="${Math.sign(control.step)}" aria-label="${name}增加">＋</button></div>`;
   if(control.kind==='slide')return `<label class="ci-control"><span>${name}</span><input type="range" min="0" max="100" value="0" data-ci-slide="${id}" aria-label="${name}"><small>释放复位</small></label>`;
   return `<button type="button" class="ci-control ci-press" data-ci-press="${id}">${name}</button>`;
- }).join('')}</div>${recorder?`<section class="ci-history" aria-label="记录预览"><strong>记录预览</strong><p data-ci-session></p><ol data-ci-log></ol><div class="ci-controls"><button type="button" data-ci-advance>模拟经过 15 分钟</button>${samples.map(eventButton).join('')}</div><small>这里使用模拟输入；没有收到记录的时段，不能推断实际发生了什么。</small></section>`:''}${otherEvents.length?`<details class="ci-events" ${!model.controls.length?'open':''}><summary>模拟设备事件</summary><div class="ci-controls">${otherEvents.map(eventButton).join('')}</div></details>`:''}<p class="ci-note">功能行为预览 · 尚未实物验证<span data-ci-feedback></span></p>`;
+ }).join('')}</div>${webOutputs.map(o=>`<p class="ci-web-readout">${escape(o.label)} <output data-ci-web="${escape(o.id)}" data-ci-output="${escape(o.id)}"></output></p>`).join('')}${recorder?`<section class="ci-history" aria-label="${historyTitle}"><strong>${historyTitle}</strong><p data-ci-session></p><ol data-ci-log></ol><div class="ci-controls"><button type="button" data-ci-advance>模拟经过 15 分钟</button>${samples.map(eventButton).join('')}</div><small>这里使用模拟输入；没有收到记录的时段，不能推断实际发生了什么。</small></section>`:''}${otherEvents.length?`<details class="ci-events" ${!model.controls.length?'open':''}><summary>模拟设备事件</summary><div class="ci-controls">${otherEvents.map(eventButton).join('')}</div></details>`:''}<p class="ci-note">功能行为预览 · 尚未实物验证<span data-ci-feedback></span></p>`;
  stage.append(overlay,hint);footer.prepend(panel);
  const markers=new Map(),outputs=new Map(),tracks=new Map();
  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),arrow='ci-arrow-'+(++viewerSequence);
@@ -106,6 +108,10 @@ export function mountCadInteraction(root,model,{design={},onChange=()=>{},onMoti
   }
  }
  for(const output of model.outputs||[]){
+  if(output.kind==='web'){
+   const element=[...panel.querySelectorAll('[data-ci-web]')].find(node=>node.dataset.ciWeb===output.id);
+   element.title=output.label;outputs.set(output.id,{element,output});continue;
+  }
   const element=document.createElement('span');element.className='ci-output ci-output-'+output.kind;element.dataset.ciOutput=output.id;
   if(output.kind==='light'){
    const appearance=lightPresentation(output,{...design,interaction:model});
@@ -229,7 +235,7 @@ export function mountCadInteraction(root,model,{design={},onChange=()=>{},onMoti
    camera=nextCamera;scene=nextScene;pick=nextPick;enabled=Boolean(camera)&&(mode==='closed'||mode==='inside');
    overlay.hidden=hint.hidden=!enabled;if(!enabled){cancelHeld();return;}
    for(const {element,indices} of markers.values())position(element,anchor(indices),true);
-   for(const {element,output} of outputs.values())position(element,anchor(output.bodyIndices));
+   for(const {element,output} of outputs.values())if(output.kind!=='web')position(element,anchor(output.bodyIndices));
    for(const {element,control} of tracks.values()){
     const at=anchor(controlBodies(control));element.style.display=enabled&&at?.visible?'':'none';
     const start=projectWorldPoint(control.pivotMm,camera),end=projectWorldPoint(control.pivotMm.map((v,k)=>v+control.axis[k]*control.step),camera);

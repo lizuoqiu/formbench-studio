@@ -106,6 +106,29 @@ test('an unopened module shares its verified touch surface between actions and d
  let a=stepInteraction(verified,initialInteraction(verified),{controlId:'begin'});a=stepInteraction(verified,a,{elapsedSeconds:37});a=stepInteraction(verified,a,{systemEventId:'sample'});a=stepInteraction(verified,a,{systemEventId:'deadline'});assert.equal(a.stateId,'review');assert.equal(a.recording.entries[0].atSeconds,37);
  assert.ok(!verified.connections.some(w=>w.fromPin.startsWith('builtin:')||w.toPin.startsWith('builtin:')));
 });
+test('a headless logger can record physical samples and serve them to a phone over its documented radio',async()=>{
+ const {board,m}=await design();
+ const claim={id:'network',kind:'wifi',quote:'The board includes an integrated Wi-Fi radio.',sourceUrl:url};
+ const radioDocument=text=>({url,type,bytes:Buffer.from('<main><h1>'+model+' controller</h1><p>'+text+'</p></main>')});
+ const radio=await evidence([claim],async()=>radioDocument(claim.quote));
+ assert.equal(radio[0]?.kind,'wifi');
+ board.parts[4].sourcing.factoryInterfaces.push(...radio);
+ m.controls=m.controls.map(c=>({...c,kind:'command',fixedBodyIndex:null,axis:[],pivotMm:[],signalPins:['builtin:network']}));
+ m.outputs[0]={...m.outputs[0],kind:'web',bodyIndices:[],signalPin:'builtin:network'};
+ const verified=validateInteraction(m,board);
+ let state=stepInteraction(verified,initialInteraction(verified),{controlId:'begin'});
+ state=stepInteraction(verified,state,{elapsedSeconds:36});state=stepInteraction(verified,state,{systemEventId:'sample'});
+ state=stepInteraction(verified,state,{controlId:'finish'});
+ assert.equal(state.stateId,'review');assert.equal(state.recording.entries[0].atSeconds,36);
+ const bad=structuredClone(m);bad.systemEvents.find(e=>e.id==='sample').sourcePins=['builtin:network'];
+ assert.throws(()=>validateInteraction(bad,board),/相符用途|实际接线/);
+ const phantom=structuredClone(m);phantom.outputs[0].signalPin='WEB_TX';
+ assert.throws(()=>validateInteraction(phantom,board),/核实|证实/);
+ board.parts[4].sourcing.factoryInterfaces=board.parts[4].sourcing.factoryInterfaces.filter(x=>x.kind!=='wifi');
+ assert.throws(()=>validateInteraction(m,board),/相符用途/);
+ const accessory={...claim,quote:'Use the optional Wi-Fi module for wireless access.'};
+ assert.deepEqual(await evidence([accessory],async()=>radioDocument(accessory.quote)),[]);
+});
 test('a built-in function cannot replace an external lead, motor, host command, or another variant',async()=>{
  for(const change of [
   (m,b)=>{b.parts[4].model='LAB-T2B'},

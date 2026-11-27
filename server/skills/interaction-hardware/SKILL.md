@@ -1,7 +1,7 @@
 ---
 name: interaction-hardware
 metadata:
-  revision: 2026.11.26.2
+  revision: 2026.11.26.3
 description: 把人与设备之间的物理互动变成有安装位置的零件、可制造的形体和可预览的动作。
 ---
 
@@ -103,13 +103,15 @@ cadPlan.joints 表示设备驱动的转轴，按从基座到末端的顺序定�
 
 ## 让操作触发可观察的状态变化
 
-来自网页操作台、外部手机或 Agent 的按钮指令用 controls.kind="command"，不虚构实体触屏或机械按钮。partIndex 指清单中的外部命令主机（role=external、placement=loose）；fixedBodyIndex=null、movingBodyIndices=[]、axis=[]、pivotMm=[]、step=0、range=null。signalPins 列真实通信总线端子并连接到实际控制器输入，各命令可共享 USB 数据对，由唯一 id/协议消息区分。网页在模型下方显示这些按钮，通过同一交互模型驱动 CAD；纯连续关节预览已有逐轴滑杆、±5°点动、停止当前按住操作和回到初始姿态。不要为这些网页操作额外制造实体按钮。预览复位不是实机回零轨迹，网页控制也不代表已经实现手机固件链路。
+当用户从已有手机或电脑通过本地网络使用设备，设备提供的网页使用 outputs.kind="web"，partIndex 为安装在装置内的主控，signalPin 引用该型号查证过的 builtin:<wifi 功能 id>，bodyIndices=[]、motion=null。网页按键用 kind="command"，partIndex 为该主控，signalPins 使用同一个无线接口引用，其余机械字段为空或零。网页连接/断开事件可用该无线接口，真实传感样本仍须来自传感器。说明网页如何建立连接、记录如何保存及再次访问；不为浏览器另买显示屏，不给无线通路画导线。
+
+来自有线网页操作台、外部手机或 Agent 的按钮指令用 controls.kind="command"，不虚构实体触屏或机械按钮。partIndex 指清单中的外部命令主机（role=external、placement=loose）；fixedBodyIndex=null、movingBodyIndices=[]、axis=[]、pivotMm=[]、step=0、range=null。signalPins 列真实通信总线端子并连接到实际控制器输入，各命令可共享 USB 数据对，由唯一 id/协议消息区分。网页在模型下方显示这些按钮，通过同一交互模型驱动 CAD；纯连续关节预览已有逐轴滑杆、±5°点动、停止当前按住操作和回到初始姿态。不要为这些网页操作额外制造实体按钮。预览复位不是实机回零轨迹，网页控制也不代表已经实现手机固件链路。
 
 每条 transitions 记录写入 from、event、to、effect。用户操作的 event 精确引用一个已定义的控件 id。同一状态遇到同一事件只能有一个结果。各状态指定所有输出在该时刻的模式，例如普通开关让灯从 off 变为 on，只用 effect 为 none，timer 取 null，两个状态的 clock 都取 hold。
 
 连接变化、反馈、通信超时与故障用 `systemEvents`，不要虚构滑动手机或用户按钮。每项给出唯一 id、label、kind（connection/timeout/fault/feedback）、检测器件 partIndex、该器件真实已接线的 sourcePins、明确的检测条件 condition。timeout 填正的 delayMs，其余 delayMs 为 null；最多 24 项。transitions.event 引用该 id，effect 为 none，描述事件发生后的响应。与 controls、outputs 以及 timer.expired 不得重名。没有此类事件时给空数组。后台以显式事件注入回放状态转换，网页提供“模拟设备事件”；它不模拟 USB 包、真实固件时钟、制动力学或实测停机延迟。时间阈值和检测实现写入设计，不能把事件注入当作已实测满足阈值。
 
-显示器的 on/off 表示预览中的亮灭；仅有倒计时 timer 时才可用 value/remaining 显示时间。若用户要求先记录、稍后回看，在 interaction.recorder 给出 displayId（真实显示输出）、captureStates、reviewStates（互不重叠，回看时屏幕 on）和 sampleEvents（有真实信号来源的 feedback 事件）。从记录状态应能结束并回看；记录时间随经过时长推进，回看保留此次记录，下一次开始才清空。无实体按钮的自动设备允许 controls=[]；开始、查看等必须有可到达的实际事件。没有反馈不等于观测到某种状态，需要明确的有效传感输入才能给它贴标签。预览只支持事件时间记录，不能用它冒充连续波形、定量遥测或已实现固件。其他设备 recorder 填 null。
+显示器的 on/off 表示预览中的亮灭；仅有倒计时 timer 时才可用 value/remaining 显示时间。若用户要求先记录、稍后回看，在 interaction.recorder 给出 displayId（实体显示或通过主控无线接口提供的 web 输出）、captureStates、reviewStates（互不重叠，回看时该输出 on）和 sampleEvents（有真实信号来源的 feedback 事件）。从记录状态应能结束并回看；记录时间随经过时长推进，回看保留此次记录，下一次开始才清空。无实体按钮的自动设备允许 controls=[]；开始、查看等必须有可到达的实际事件。没有反馈不等于观测到某种状态，需要明确的有效传感输入才能给它贴标签。预览只支持事件时间记录，不能用它冒充连续波形、定量遥测或已实现固件。其他设备 recorder 填 null。
 
 当前交互容量：最多 32 个用户控件、16 个输出、64 个状态、24 个系统事件和 512 条状态转换。turn 的 step 是带方向的非零角度增量（绝对值不超过 360°）；press/slide 的行程仍为正毫米数。touch 没有位移，movingBodyIndices 必须为空，通用 step 字段不用于运动，生成时写 0。
 

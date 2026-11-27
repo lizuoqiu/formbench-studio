@@ -3,6 +3,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {design} from './design.mjs';
 import {readDesignRequest} from './design-conversation.mjs';
+import {designJobs} from './design-jobs.mjs';
 const env={OPENAI_MODEL:'test-model',OPENAI_API_KEY:'test'};
 const req=body=>new Request('https://unit.test/api/design',{method:'POST',body:JSON.stringify(body)});
 const sendResult=(value,check=()=>{})=>async(_url,options)=>{
@@ -29,16 +30,28 @@ test('clarification is a small separate API request with a direct choice or no q
  assert.deepEqual(await ready.json(),{decision:'ready',question:'',options:[]});
 });
 
-test('two answered questions end the current discussion without another model call; a later revision has its own round',async()=>{
+test('the model can ask a different consequential question after two answers, without repeating an answered question',async()=>{
  const conversation=['需要多大？','手掌大小','放在哪里？','桌面'].map((text,i)=>({role:i%2?'user':'assistant',text}));
  const request={action:'discuss',prompt:'触觉装置',baseDesign:base,conversation};
- const capped=await response(request,()=>{throw Error('unnecessary model call')});
- assert.equal(capped.status,200);assert.equal((await capped.json()).decision,'ready');
+ const third=await response(request,sendResult(decision));
+ assert.deepEqual(await third.json(),decision);
+ const repeated=await response(request,sendResult({decision:'ask',question:'放在哪里？',options:['桌面','墙上']}));
+ assert.equal((await repeated.json()).decision,'ready');
  const next=await response({...request,discussionStart:4},sendResult(decision,input=>{
   const data=JSON.parse(input.input);assert.equal(data.baseDesign.cadPlan,undefined);
   assert.equal(data.baseDesign.name,base.name);assert.deepEqual(data.conversation,conversation);
  }));
  assert.equal((await next.json()).decision,'ask');
+});
+
+test('an unanswered AI question never starts a paid design or a background job',async()=>{
+ const input={action:'generate',prompt:'设计一个提醒装置',conversation:[{role:'assistant',text:'你希望在哪里收到提醒？'}]};
+ let calls=0;
+ const counted=()=>{calls++;throw Error('Generation must wait for the answer');};
+ const direct=await response(input,counted);
+ const queued=await designJobs(new Request('http://local.test/api/design-jobs',{method:'POST',body:JSON.stringify(input)}),env,{run:counted});
+ for(const result of [direct,queued]){assert.equal(result.status,409);assert.match((await result.json()).error,/追问框/);}
+ assert.equal(calls,0);
 });
 
 test('direct revision includes validated prior CAD and BOM, dimensions from user replies, and the latest motion intent',async()=>{

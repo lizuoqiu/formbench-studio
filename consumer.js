@@ -111,7 +111,7 @@ function setDraftBusy(state,phase=''){
       $('#build-title').textContent='正在读取需求';
       $('#build-hint').textContent='';
     }
-    if(submit)submit.textContent=phase?'处理中…':'生成设计';
+    if(submit)submit.textContent=phase?'处理中…':state?.question?'等你回复':'生成设计';
   }else if($('#revision-status')){
     $('#revision-status').textContent=typeof phase==='object'?userProgress(phase).title:{discuss:'正在阅读你的修改意见…',request:'正在更新零件与 CAD 方案…',response:'已收到新版方案。'}[phase]||'';
   }
@@ -141,7 +141,7 @@ function renderDiscussion(state,error=''){
     return;
   }
   const ask=state.question;
-  panel.innerHTML=`<div class="discussion-card">${error?`<p role="alert" class="discussion-error">${esc(error)}</p>`:''}${ask?`<h3 id="discussion-question">${esc(ask.question)}</h3><div class="answer-options">${ask.options.map((label,i)=>`<button type="button" data-answer-index="${i}" class="small-button">${esc(label)}</button>`).join('')}</div><form class="answer-form"><label for="discussion-answer">其他想法</label><div><input id="discussion-answer" maxlength="1800" autocomplete="off"><button type="submit" id="send-answer" class="small-button">回复</button></div></form>`:''}<div class="discussion-controls">${error?'<button type="button" class="small-button" id="retry-discussion">重试</button>':''}<button type="button" id="skip-discussion" class="discussion-link">直接生成</button>${cancel}</div></div>`;
+  panel.innerHTML=`<div class="discussion-card">${error?`<p role="alert" class="discussion-error">${esc(error)}</p>`:''}${ask?`<h3 id="discussion-question">${esc(ask.question)}</h3><div class="answer-options">${ask.options.map((label,i)=>`<button type="button" data-answer-index="${i}" class="small-button">${esc(label)}</button>`).join('')}</div><form class="answer-form"><label for="discussion-answer">其他想法</label><div><input id="discussion-answer" maxlength="1800" autocomplete="off"><button type="submit" id="send-answer" class="small-button">回复</button></div></form>`:''}<div class="discussion-controls">${error?'<button type="button" class="small-button" id="retry-discussion">重试</button>':''}<button type="button" id="skip-discussion" class="discussion-link">${ask?'由 AI 决定':'直接生成'}</button>${cancel}</div></div>`;
   const answer=value=>{
     if(!value.trim()||state.busy)return;
     state.conversation.push({role:'user',text:value.trim()});state.question=null;
@@ -153,7 +153,8 @@ function renderDiscussion(state,error=''){
   panel.querySelector('#cancel-discussion').onclick=stopDraft;
   panel.querySelector('#skip-discussion').onclick=()=>{
     const extra=panel.querySelector('#discussion-answer')?.value.trim();
-    if(extra)state.conversation.push({role:'user',text:extra});
+    if(extra){answer(extra);return;}
+    if(ask){answer('这个选择由 AI 决定。');return;}
     state.question=null;requestDraft(state,'generate');
   };
   const retry=panel.querySelector('#retry-discussion');if(retry)retry.onclick=()=>requestDraft(state,state.lastAction);

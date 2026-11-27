@@ -7,7 +7,8 @@ import {documentedPartIdentity} from './documented-part-identity.mjs';
 const urlKey=v=>{try{const u=new URL(v);u.hash='';return u.protocol==='https:'&&!u.username&&!u.password?u.href:'';}catch{return '';}};
 const plain=x=>String(x||'').normalize('NFKC').replace(/<[^>]*>/g,' ').replace(/&(?:nbsp|#160);/gi,' ').replace(/&amp;/gi,'&').replace(/&quot;|&#34;/gi,'"').replace(/&apos;|&#39;/gi,"'").replace(/\s+/g,' ').trim();
 const cues={touch:/touch|触摸|触控|タッチ/i,button:/button|push.?switch|按键|按钮|ボタン/i,display:/screen|display|lcd|oled|tft|e.ink|屏|显示|ディスプレイ/i,
-clock:/real[ -]?time clock|\brtc\b|实时时钟|リアルタイムクロック/i,light:/\bled\b|indicator|指示灯|发光二极管/i,sound:/speaker|buzzer|扬声器|蜂鸣器|喇叭|スピーカー/i};
+clock:/real[ -]?time clock|\brtc\b|实时时钟|リアルタイムクロック/i,light:/\bled\b|indicator|指示灯|发光二极管/i,sound:/speaker|buzzer|扬声器|蜂鸣器|喇叭|スピーカー/i,
+wifi:/\bwi[\s‐‑–-]?fi\b|\bWLAN\b|802\.11[a-z0-9]|无线局域网/i};
 const unsupported=/\b(?:not included|not equipped|optional|sold separately|external accessory|without|no (?:built.in |onboard )?(?:touch|button|lcd|display|screen|rtc|speaker|buzzer|light))\b|选配|另购|未配备|不含|不带|无触控|不支持/i;
 const listedCode=/(?:\b(?:SKU|MPN|manufacturer(?:['’]s)? part (?:number|no\.?)|order(?:ing)? (?:code|no\.?))\b|订货号|货号|品番|型番)\s*[:：#]?\s*([a-z0-9][a-z0-9._/+–-]*\d[a-z0-9._/+–-]*|\d+)/gi;
 const installed=/(?:\bbuilt[- ]in\b|\bon[- ]?board\b|\bintegrated\b|\bequipped with\b|\b(?:device|unit|board|controller|instrument|module)\s+(?:features|includes|is fitted with)\b|内置|板载|搭载|標準搭載)/i;
@@ -30,13 +31,18 @@ const specLabel={touch:/^(?:(?:capacitive|resistive|integrated)\s+)*(?:touch[\s-
  display:/^(?:(?:color|ips|tft|lcd|oled|integrated)\s+)*(?:screen|display|液晶屏|显示屏)$/i,
  clock:/^(?:(?:built[- ]in|onboard)\s+)?(?:rtc|real[ -]?time clock|实时时钟)$/i,
  button:/^(?:onboard |built-in |板载)(?:buttons?|按键)$/i,light:/^(?:onboard |built-in |板载)(?:led|indicator|指示灯)$/i,
- sound:/^(?:onboard |built-in |板载)?(?:speaker|buzzer|扬声器|蜂鸣器)$/i};
+ sound:/^(?:onboard |built-in |板载)?(?:speaker|buzzer|扬声器|蜂鸣器)$/i,
+ wifi:/^(?:wi[\s‐‑–-]?fi(?:\s+(?:standard|protocol|radio))?|WLAN|无线局域网)$/i};
 function technicalSpecifications(html){
  const specs={};
  for(const row of html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)){
   const cells=[...row[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(m=>plain(m[1]));
   if(cells.length!==2||!cells[1]||cells[1].length>130||peripheral.test(cells[1])||/^(?:0|n\/a|none|否|无|-+)$/i.test(cells[1]))continue;
-  for(const [kind,pattern] of Object.entries(specLabel))if(!specs[kind]&&pattern.test(cells[0]))specs[kind]=cells.join(' ');
+  for(const [kind,pattern] of Object.entries(specLabel)){
+   if(specs[kind]||!pattern.test(cells[0]))continue;
+   if(kind==='wifi'&&!/802\.11|[2456](?:[.,]\d)?\s*GHz|built[- ]in|on[- ]?board|内置|板载/i.test(cells[1]))continue;
+   specs[kind]=cells.join(' ');
+  }
  }
  return specs;
 }
@@ -106,7 +112,8 @@ export async function verifyFactoryInterfaces(claims,record,fetchSource,signal,o
   for(const p of pending){
    if(p.result)continue;
    if(!doc){if(p.reason==='unreadable')p.reason='model-unconfirmed';continue;}
-   const literal=p.quote&&containsFeatureQuote(doc,p.quote);
+   const literal=p.quote&&containsFeatureQuote(doc,p.quote)&&
+     (p.kind!=='wifi'||doc.specifications.wifi?.includes(p.quote)||installedQuote([p.quote],'wifi'));
    const statement=literal?p.quote:installedQuote(doc.passages,p.kind);
    const quote=statement||doc.specifications[p.kind];
    if(!quote){p.reason='quote-unconfirmed';continue;}
