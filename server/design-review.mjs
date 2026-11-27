@@ -14,7 +14,9 @@ const object=properties=>({type:'object',properties,required:Object.keys(propert
 export const designDeliverableScope='本轮交付范围是可追踪的数字硬件设计：BOM 与来源、完整装配 CAD、必要的电气连接，以及本系统可表达的交互预览。必须把使功能成立的供电、数据链、机构和控制规则设计完整。固件/手机端的接口、状态、时序和实现要求属于设计依据；不能仅因尚无编译固件、签名 APK、刷机或实物测试记录而拒绝数字设计，也不能声称这些已经执行。未实现的软件和实物试验列入后续制作与验证，不能在摘要或完成说明中冒充已交付。对先前草稿自行增加的范围，保留用户要求的功能与设计条件，纠正超出本阶段的交付承诺；不能借此略去已知干涉、错接线、缺部件或缺少必要控制逻辑。';
 export const designObjectScope='设计范围以用户点名的产品主体为准。主体的内部驱动、控制、传动、支承、走线和外壳必须完整；不能把使用该产品所需的整个环境扩成制造任务。外置成品电源、数据线等配套可列采购和连接说明，需展示时直接按所选成品的原厂 CAD 或尺寸建模放在主体外，不为它们新增专用托盘、护盒、停车架或收纳器；用户已有手机等列 provided 与接口条件，不必建立手机实体。用户要 demo、轻量原型或能用即可时，以最少复杂度完成核心能力，优先成熟模块和简明控制，暂不增加可选手势、收纳或复杂授权操作。requirements 是 AI 推导的验收要求，必须服从用户原始目标与最新反馈；已有草稿包含某种配套或承诺不等于用户要求它。修订过时实现假设时记录原因，不降低明确的功能要求，不略去必要承载、供电、停止与限位。优先把必要功能集成在主体内，移除冗余结构时同步检查其功能和连接，不能把主体内部必要件误删为附属品。';
 export const productDesignScope=designObjectScope+'先判断整机是否仍满足用户要使用的产品，再处理局部工程问题。以实际 CAD 多视角、BOM 用途和使用过程为据，核对主体、外接附件、用户已有设备的边界、整体占地、臂展或行程、接口可达性和日常操作步骤。不能只因每个新增支架、护罩、线仓分别有理由，就接受它们累计占据主体空间或让普通用户难以使用。对这种问题在 intent/form 写出具体部件、尺寸或操作证据，并要求简化相应子系统；零件数本身不是失败判据。先比较集成、合并功能或替换失败结构的办法，再增加新的补偿机构。保留原需求和安全、承载、供电、走线所必需的功能；不能靠隐藏模型、删除必要件、减少自由度、缩短所需行程或取消检查来让外观过关。保留正确选型、资料和模型，仅增量修改受影响的子系统及其装配/控制引用。';
-export const reviewSchema=object({requiresInteraction:{type:'boolean'},checks:{type:'array',items:object({
+const deliveryStatuses=['independent-hardware','personal-device-core','unidentified'];
+export const reviewSchema=object({productDelivery:object({status:{type:'string',enum:deliveryStatuses},partIndices:indices,evidence:str}),
+ requiresInteraction:{type:'boolean'},checks:{type:'array',items:object({
  area:{type:'string',enum:areas},status:{type:'string',enum:['pass','repair','not-applicable']},note:str,partIndices:indices,bodyIndices:indices
 })},physicalChecks:{type:'array',items:str}});
 
@@ -74,6 +76,9 @@ function readReview(value,candidate){
  if(typeof value?.requiresInteraction!=='boolean'||!Array.isArray(value.checks)||value.checks.length!==areas.length||
   !Array.isArray(value.physicalChecks)||value.physicalChecks.length>12||!value.physicalChecks.every(s=>clean(s,600)))bad();
  const parts=candidate?.parts?.length||0,bodies=candidate?.cadPlan?.bodies?.length||0;
+ const delivery=value.productDelivery;
+ if(!delivery||!deliveryStatuses.includes(delivery.status)||!clean(delivery.evidence,900)||
+    !validIndices(delivery.partIndices,parts)||(delivery.status==='independent-hardware'&&!delivery.partIndices.length))bad();
  const checks=areas.map(area=>{
   const item=value.checks.find(r=>r?.area===area);
   if(!item||!['pass','repair','not-applicable'].includes(item.status)||!clean(item.note,900)||
@@ -82,7 +87,8 @@ function readReview(value,candidate){
   if(item.status==='pass'&&parts&&!item.partIndices.length&&!item.bodyIndices.length)bad();
   return {area,status:item.status,note:item.note.trim(),...(item.reportedIssueIndices?{reportedIssueIndices:item.reportedIssueIndices}:{}),partIndices:[...new Set(item.partIndices)],bodyIndices:[...new Set(item.bodyIndices)]};
  });
- return {checks,physicalChecks:value.physicalChecks.map(s=>s.trim()),requiresInteraction:value.requiresInteraction};
+ return {checks,physicalChecks:value.physicalChecks.map(s=>s.trim()),requiresInteraction:value.requiresInteraction,
+  productDelivery:{status:delivery.status,partIndices:[...new Set(delivery.partIndices)],evidence:delivery.evidence.trim()}};
 }
 function edgeActions(model,before,edge){
    const parsed=controlEvent(model,edge.event),control=parsed?.control;
@@ -184,6 +190,7 @@ export async function evaluateDraft({ctx,candidate,geometry,catalogGeometry,beha
  }
  const issues=[...definitionIssues,...geometry.issues,...(behavior?.issues||[]),...(tracking?[]:review.checks.filter(c=>c.status==='repair').map(c=>labels[c.area]+'：'+c.note))];
  const implicitStart=issues.length;
+ if(review.productDelivery.status!=='independent-hardware')issues.push('交付范围缺少承担所需功能的独立硬件。'+review.productDelivery.evidence);
  if(workflow&&geometry.status==='unavailable')issues.push('已声明的运动几何检查未完成，不能发布为已完成设计。'+geometry.checks.filter(c=>/未完成|未测|未配置|不完整/.test(c)).join(' '));
  const explicit=explicitlyRequestsProgrammableControls(ctx);
  if((review.requiresInteraction||explicit)&&!candidate?.interaction)

@@ -1,5 +1,5 @@
-import {modelInput,photoInstructions} from './design-conversation.mjs';
-import {format,ModelStageError,structuredCall} from './design-review.mjs';
+import {modelInput} from './design-conversation.mjs';
+import {addModelData,format,ModelStageError,structuredCall} from './design-review.mjs';
 import {intakeGuide} from './modeling-guide.mjs';
 import {track} from './run-events.mjs';
 
@@ -11,6 +11,7 @@ const schema=record({
   questions:{type:'array',items:record({topic:enumOf('outcome','use'),question:string,
     options:{type:'array',items:string},impact:string})}
 });
+const reviewSchema=record({verdict:enumOf('pass','rewrite'),feedback:string});
 const nonempty=(value,limit)=>typeof value==='string'&&value.trim().length>0&&value.length<=limit;
 const questionKey=text=>text.normalize('NFKC').toLowerCase().replace(/[\p{P}\p{Z}\s]/gu,'');
 
@@ -48,7 +49,7 @@ function readIntake(value,ctx){
     if(options.length===1||new Set(options.map(questionKey)).size!==options.length)
       return {retry:'给这道题提供至少两个不同的答案；如有意义的选项不够，请保留自由输入。'};
     used.add(key);
-    fresh.push({topic:q.topic,question:q.question.trim(),options});
+    fresh.push({topic:q.topic,question:q.question.trim(),options,impact:q.impact.trim()});
   }
   if(outcome.status==='open'){
     const primary=fresh.findIndex(q=>q.topic==='outcome');
@@ -57,26 +58,39 @@ function readIntake(value,ctx){
   }
   if(!fresh.length&&questions.length)
     return {retry:'提议的问题已回答。阅读这些答案，给出其他真正影响选型或体验的问题；如已足够，给出有用户原话依据的用途并清空 questions。'};
-  const batch=fresh.slice(0,4);
+  const proposal={outcome,questions:fresh.slice(0,4)};
+  const batch=proposal.questions.map(({topic,question,options})=>({topic,question,options}));
   // Keep the first question readable by clients cached before grouped intake.
-  return {reason:outcome.status,reply:batch.length?{decision:'ask',question:batch[0].question,options:batch[0].options,questions:batch}:{decision:'ready',question:'',options:[]}};
+  return {reason:outcome.status,proposal,reply:batch.length?{decision:'ask',question:batch[0].question,options:batch[0].options,questions:batch}:{decision:'ready',question:'',options:[]}};
 }
 
 export async function discussRequirements(ctx,env,send,signal){
   const guide=await intakeGuide(env),input=modelInput(ctx),hasImages=ctx.images.length>0;
-  const instructions=guide.text+(hasImages?'\n'+photoInstructions:'');
-  let correction='';
+  const instructions=guide.text+(hasImages?'\n现场或标尺照片可帮助了解摆放、遮挡和使用习惯。只问照片无法说明但会改变使用效果的生活情况。':'');
+  let revision;
   for(let attempt=0;attempt<2;attempt++){
     const result=await structuredCall(send,env,signal,{
-      instructions:correction?instructions+'\n'+correction:instructions,input,text:format('hardware_clarification',schema)
+      instructions:instructions+'\n本次负责拟题。若附有上一稿和复核意见，修订对应内容，保留已经成立的用途与问题。',
+      input:revision?addModelData(input,revision):input,text:format('hardware_clarification',schema)
     },'设计讨论',{hasImages});
     const assessment=readIntake(result.value,ctx);
-    if(assessment.reply){
-      track(env,'discussion.decision',{decision:assessment.reply.decision,count:assessment.reply.questions?.length??0,reason:assessment.reason});
+    if(assessment.retry){
+      revision={feedback:assessment.retry};
+      track(env,'discussion.recheck',{attempt:attempt+1,reason:'structure'});
+      continue;
+    }
+    const review=await structuredCall(send,env,signal,{
+      instructions:instructions+'\n本次只做展示前复核。独立对照原始需求、已答内容和 proposal，复核每个可见题干、全部选项及结束访谈的决定。符合用户访谈规则时 verdict=pass、feedback 为空；需修改时 verdict=rewrite，在 feedback 指明具体题目或漏掉的生活事实以及修改理由。',
+      input:addModelData(input,{proposal:assessment.proposal}),text:format('hardware_clarification_review',reviewSchema)
+    },'追问复核',{hasImages});
+    const {verdict,feedback}=review.value??{};
+    if(verdict==='pass'&&typeof feedback==='string'){
+      track(env,'discussion.decision',{decision:assessment.reply.decision,count:assessment.proposal.questions.length,reason:assessment.reason,reviewed:true});
       return assessment.reply;
     }
-    correction=assessment.retry;
-    track(env,'discussion.recheck',{attempt:attempt+1});
+    if(verdict!=='rewrite'||!nonempty(feedback,1000))throw new ModelStageError('这组问题未能完成复核，可以重试这次讨论。');
+    revision={previousProposal:assessment.proposal,feedback};
+    track(env,'discussion.recheck',{attempt:attempt+1,reason:'question-review'});
   }
   throw new ModelStageError('暂时没能厘清需求，可以重试这次讨论。');
 }

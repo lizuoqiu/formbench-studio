@@ -353,7 +353,8 @@ export async function design(request,env,send=fetch,workflow=null){const reply=(
    }
    delete ctx.architectureEvidence;
    if(workflow&&state.selection.architecture&&Array.isArray(normalizedDraft?.parts)){
-    ctx.architectureEvidence=inspectArchitecture(state.selection.architecture,physicalValid?candidate.parts:normalizedDraft.parts);
+    ctx.architectureEvidence=inspectArchitecture(state.selection.architecture,physicalValid?candidate.parts:normalizedDraft.parts,
+      {interaction:interactiveValid?candidate.interaction:null,cadPlan:physicalValid?candidate.cadPlan:null});
     definitionIssues.push(...ctx.architectureEvidence.issues);
    }
    await progress({stage:'reviewing',attempt,message:'第 '+attempt+' 轮 · 正在检查装配与功能'});
@@ -418,6 +419,7 @@ export async function design(request,env,send=fetch,workflow=null){const reply=(
   if(error.actionRequired==='local-codex-unavailable'&&error.retryable)return reply({error:error.message,reason:error.reason,retryable:true},504);
   if(error.actionRequired==='local-codex-unavailable')return reply({error:error.message,actionRequired:error.actionRequired,quotaExhausted:error.quotaExhausted===true,retryable:false},424);
   if(error.actionRequired==='api-billing'){if(workflow)workflow.state.billingRequired=true;return reply({error:error.message,actionRequired:error.actionRequired,retryable:false},402);}
+  if(error.actionRequired==='independent-hardware')return reply({error:error.message,actionRequired:error.actionRequired,retryable:false},422);
   if(error instanceof DesignInputError)return reply({error:error.message},error.status);
   if(timeout.aborted||error.name==='TimeoutError')return reply({retryable:true,error:'本次执行时段已结束，已保存进度。'},504);
   if(request.signal.aborted)return reply({error:'生成请求已取消。'},499);

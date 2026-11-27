@@ -1,7 +1,7 @@
 ---
 name: interaction-hardware
 metadata:
-  revision: 2026.11.26.3
+  revision: 2026.11.27.1
 description: 把人与设备之间的物理互动变成有安装位置的零件、可制造的形体和可预览的动作。
 ---
 
@@ -83,7 +83,7 @@ research.productUrl 是搜索实际找到的商品路径，productStatus 说明�
 
 cadPlan.joints 表示设备驱动的转轴，按从基座到末端的顺序定义，最多 12 轴。每项填写 name、axis（归一化）、pivotMm（零位的装配世界坐标）、minDegrees、maxDegrees（包含零位）、movingBodyIndices（本轴带动的全部下游实体）、fixedBodyIndex（本轴定件）、actuatorPartIndex（驱动件 BOM 索引）、parentIndex（上级关节在 joints 中的索引，根关节 null）。父轴带动子轴的固定件以及全部下游动件。轴线必须对应执行器输出及实际连接，固定壳体与旋转输出结构分别表达。
 
-查看器提供逐轴角度操作，ForgeCAD 导出同样的串联关节。直接由外部手机/计算机下发关节指令时，通过 joints 表示机械运动，具体数据接口、驱动电压、共同参考地、协议和固件要求写入部件资料与 steps。用户操作有明确的输入、状态转换及反馈时，再使用 interaction 状态模型。上电常亮的无状态电路可将 interaction 设为 null，并完整说明电源和限流路径。手机 Type-C 需要核实主从角色、协议和电机供电预算，不能从接口外形推断手机可为所有执行器供电。
+查看器提供逐轴角度操作，ForgeCAD 导出同样的串联关节。专用装置上的控制器负责驱动关节，通过 joints 表示机械运动。在部件资料与 steps 中写明设备侧的数据接口、驱动电压、共同参考地、协议和固件要求。用户操作有明确的输入、状态转换及反馈时，再使用 interaction 状态模型。上电常亮的无状态电路可将 interaction 设为 null，并完整说明电源和限流路径。使用 Type-C 接口时，核实设备角色、实际协议和电机供电预算。
 
 当前 joints 支持父子刚体变换及每轴 minDegrees/maxDegrees，不支持仅在文字中声明的多轴禁入域、碰撞规划器或非线性柔性件驱动。必须消除已声明可操作范围内检测到的实际结构穿透；不能写“未来固件会拒绝这个姿态”就把仍可拖动到碰撞处的预览当作通过。反复碰撞时重新规划失败结构，保持用户要求的轴数、功能与有效运动。软线和耗材可以按其实际证据表达，不能声称静态卷带已实现联动变形；软件状态事件也不能代替未实现的几何约束。
 
@@ -105,7 +105,7 @@ cadPlan.joints 表示设备驱动的转轴，按从基座到末端的顺序定�
 
 当用户从已有手机或电脑通过本地网络使用设备，设备提供的网页使用 outputs.kind="web"，partIndex 为安装在装置内的主控，signalPin 引用该型号查证过的 builtin:<wifi 功能 id>，bodyIndices=[]、motion=null。网页按键用 kind="command"，partIndex 为该主控，signalPins 使用同一个无线接口引用，其余机械字段为空或零。网页连接/断开事件可用该无线接口，真实传感样本仍须来自传感器。说明网页如何建立连接、记录如何保存及再次访问；不为浏览器另买显示屏，不给无线通路画导线。
 
-来自有线网页操作台、外部手机或 Agent 的按钮指令用 controls.kind="command"，不虚构实体触屏或机械按钮。partIndex 指清单中的外部命令主机（role=external、placement=loose）；fixedBodyIndex=null、movingBodyIndices=[]、axis=[]、pivotMm=[]、step=0、range=null。signalPins 列真实通信总线端子并连接到实际控制器输入，各命令可共享 USB 数据对，由唯一 id/协议消息区分。网页在模型下方显示这些按钮，通过同一交互模型驱动 CAD；纯连续关节预览已有逐轴滑杆、±5°点动、停止当前按住操作和回到初始姿态。不要为这些网页操作额外制造实体按钮。预览复位不是实机回零轨迹，网页控制也不代表已经实现手机固件链路。
+有线调试台对专用装置发出的按钮指令用 controls.kind="command"，不虚构实体触屏或机械按钮。partIndex 指清单中的外部命令主机（role=external、placement=loose）；fixedBodyIndex=null、movingBodyIndices=[]、axis=[]、pivotMm=[]、step=0、range=null。signalPins 列真实通信总线端子并连接到实际控制器输入，各命令可共享 USB 数据对，由唯一 id/协议消息区分。网页在模型下方显示这些按钮，通过同一交互模型驱动 CAD；纯连续关节预览已有逐轴滑杆、±5°点动、停止当前按住操作和回到初始姿态。不要为这些网页操作额外制造实体按钮。实机回零轨迹和硬件通信需要分别验证。
 
 每条 transitions 记录写入 from、event、to、effect。用户操作的 event 精确引用一个已定义的控件 id。同一状态遇到同一事件只能有一个结果。各状态指定所有输出在该时刻的模式，例如普通开关让灯从 off 变为 on，只用 effect 为 none，timer 取 null，两个状态的 clock 都取 hold。
 

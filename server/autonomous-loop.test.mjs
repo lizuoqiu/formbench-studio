@@ -86,7 +86,7 @@ test('initial planning can consult current sources and records returned evidence
     request=JSON.parse(options.body);
     return Response.json({status:'completed',model:'fixture',reasoning:{effort:'max'},output:[
       {type:'web_search_call',action:{sources:[{url:'https://vendor.example/architecture'}]}},
-      {type:'message',content:[{type:'output_text',text:JSON.stringify({name:'fixture',summary:'test',requirements:['test'],motionRequirements:{minRotaryAxes:0,minLinearAxes:0,minSerialRotaryDepth:0},architecture:[{subsystem:'Sensing',rationale:'Reuse a matched board.',interfaces:'USB data and power',motion:null,members:[{model:'Candidate M1',kind:'purchase',role:'internal',placement:'mounted'}]}],parts:[{name:'module',model:'Candidate M1',kind:'purchase',role:'internal',placement:'mounted'}]})}]}]});
+      {type:'message',content:[{type:'output_text',text:JSON.stringify({name:'fixture',summary:'test',requirements:['test'],motionRequirements:{minRotaryAxes:0,minLinearAxes:0,minSerialRotaryDepth:0},architecture:[{subsystem:'Sensing',rationale:'Reuse a matched board.',interfaces:'USB data and power',motion:null,members:[{model:'Candidate M1',kind:'purchase',role:'internal',placement:'mounted',deviceUse:'product-core'}]}],parts:[{name:'module',model:'Candidate M1',kind:'purchase',role:'internal',placement:'mounted'}]})}]}]});
   },new AbortController().signal);
   assert.equal(request.tools[0].type,'web_search');assert.equal(request.tool_choice,'required');assert.equal(request.text.format.strict,true);
   const policy=await hardwarePolicyGuide('planning');

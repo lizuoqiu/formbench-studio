@@ -23,6 +23,66 @@ const body={name:'圆弧接触面',partIndex:0,role:'printed',positionMm:[0,0,0]
 const base={name:'接触按钮',summary:'使用者触碰圆弧形面板。',steps:['检查触面安装位置。'],parts:[part],cadPlan:{version:1,bodies:[body],motions:[]}};
 const response=(request,model)=>design(req(request),env,model);
 
+function scriptedInterview(...turns){
+ const seen=[];
+ const send=async(_url,options)=>{
+  const body=JSON.parse(options.body),stage=body.text.format.name;
+  const expected=turns[seen.length];seen.push(stage);
+  assert.ok(expected,'unexpected interview request: '+stage);
+  assert.equal(stage,expected.stage);
+  expected.inspect?.(body);
+  return Response.json({status:'completed',model:env.OPENAI_MODEL,output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(expected.value)}]}]});
+ };
+ return {send,seen};
+}
+const author=value=>({stage:'hardware_clarification',value});
+const audit=(verdict,feedback='',inspect)=>({stage:'hardware_clarification_review',value:{verdict,feedback},inspect});
+
+test('a review can reject solution menus and specialist options, exposing only rewritten everyday choices',async()=>{
+ const prompt='想让阳台上的花在我出门时有人照看。',outcome=stated('在我出门时有人照看');
+ const technical={topic:'use',question:'照看阳台的花，你喜欢哪种方式？',options:['蠕动泵方案','毛细供水方案'],impact:'比较两条供水路线。'};
+ const rewritten={topic:'use',question:'你通常会连续几天不在家？',options:['两三天','一个星期左右','经常更久'],impact:'离家时长决定两次补水之间要撑多久。'};
+ const model=scriptedInterview(author({outcome,questions:[technical]}),audit('rewrite','选项把供水方案交给用户；改问会改变补水需求的日常情况。',body=>{
+  const proposal=JSON.parse(body.input.at(-1).content).proposal;
+  assert.deepEqual(proposal.questions[0].options,technical.options);
+  assert.equal(proposal.questions[0].impact,technical.impact);
+  assert.match(body.input[0].content,/阳台/);
+ }),{...author({outcome,questions:[rewritten]}),inspect:body=>{
+  assert.match(body.input.at(-1).content,/补水需求/);
+ }},audit('pass'));
+ const res=await response({action:'discuss',prompt},model.send);
+ assert.equal(res.status,200);
+ const reply=await res.json();
+ assert.deepEqual(reply.questions,[visible(rewritten)]);
+ assert.doesNotMatch(JSON.stringify(reply),/蠕动泵|毛细供水|impact|feedback|proposal/);
+ assert.equal(model.seen.length,4);
+});
+
+test('an early ready decision can be reopened for a material everyday condition; delegation settles it',async()=>{
+ const prompt='搬东西的时候，让我的工具跟着我走。',outcome=stated('让我的工具跟着我走');
+ const question={topic:'use',question:'你推着工具走的那段路，平时会遇到什么？',options:['一路平地','要过门槛','还要上下楼'],impact:'沿途能否推行决定可用的搬运方式。'};
+ const model=scriptedInterview(author({outcome,questions:[]}),audit('rewrite','路线能否推行会改变产品，先问用户沿途通常遇到什么。'),
+  author({outcome,questions:[question]}),audit('pass'));
+ const reply=await (await response({action:'discuss',prompt},model.send)).json();
+ assert.deepEqual(reply.questions,[visible(question)]);
+ const conversation=[{role:'assistant',text:question.question,topic:'use'},{role:'user',text:'这个选择由 AI 决定。',delegated:true}];
+ const delegated=scriptedInterview(author({outcome,questions:[]}),audit('pass','',body=>{
+  assert.match(body.input[0].content,/delegated/);
+ }));
+ assert.deepEqual(await (await response({action:'discuss',prompt,conversation},delegated.send)).json(),readyReply);
+});
+
+test('questions that repeatedly fail the ordinary-user review are never displayed or treated as ready',async()=>{
+ const prompt='提醒我出门带钥匙。';
+ const categoryMenu={topic:'use',question:'你更喜欢哪款提醒器？',options:['贴在门上的款式','挂在包上的款式'],impact:'选择交付的产品形态。'};
+ const candidate={outcome:stated('提醒我出门带钥匙'),questions:[categoryMenu]},model=scriptedInterview(author(candidate),audit('rewrite','两个备选只是实现路线的名称。'),
+  author(candidate),audit('rewrite','仍让用户替设计方选方案。'));
+ const result=await response({action:'discuss',prompt},model.send);
+ assert.equal(result.status,502);
+ const body=await result.json();assert.equal(body.questions,undefined);assert.equal(body.decision,undefined);
+ assert.equal(model.seen.length,4);
+});
+
 test('the interview returns independent model-authored choices together, with the unresolved outcome first',async()=>{
  const result=await response({action:'discuss',prompt:'给我设计一个提醒装置。'},sendResult({outcome:open,questions:[use,goal]},input=>{
   assert.equal(input.model,env.OPENAI_MODEL);assert.equal(input.store,false);
@@ -45,7 +105,7 @@ test('answered options are not re-asked; a dependent follow-up survives duplicat
  assert.deepEqual((await third.json()).questions,[visible(follow)]);
  let calls=0;
  const repeated=await response(request,(...args)=>sendResult(++calls===1?{outcome,questions:[use]}:{outcome,questions:[]})(...args));
- assert.deepEqual(await repeated.json(),readyReply);assert.equal(calls,2);
+ assert.deepEqual(await repeated.json(),readyReply);assert.equal(calls,3);
  const next=await response({...request,discussionStart:4},sendResult({outcome:{status:'inherited',description:base.summary,quote:base.summary},questions:[]},input=>{
   const data=JSON.parse(input.input);assert.equal(data.baseDesign.cadPlan,undefined);
   assert.equal(data.baseDesign.name,base.name);assert.deepEqual(data.conversation,conversation);
@@ -63,7 +123,7 @@ test('an unclear outcome or a claim grounded only in the interviewer cannot sile
  }
  let calls=0;
  const fixed=await response(request,(...args)=>sendResult(++calls===1?{outcome:open,questions:[]}:{outcome:open,questions:[goal]})(...args));
- assert.equal(calls,2);assert.deepEqual((await fixed.json()).questions,[visible(goal)]);
+ assert.equal(calls,3);assert.deepEqual((await fixed.json()).questions,[visible(goal)]);
 });
 
 test('delegation applies to the answered choice, and can settle an explicitly delegated outcome',async()=>{

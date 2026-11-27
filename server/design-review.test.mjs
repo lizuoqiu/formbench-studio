@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {design} from './design.mjs';
 import {candidateForModel,geometryForModel} from './model-geometry-input.mjs';
-import {revisionFixture} from './test-fixtures/design-review.mjs';
+import {fixtureProductDelivery,revisionFixture} from './test-fixtures/design-review.mjs';
 
 const env={OPENAI_API_KEY:'fixture',OPENAI_MODEL:'fixture'};
 const part={name:'针织顶针',model:'自制触面',spec:'柔性材料',sizeMm:[18,18,20],qty:1,dimensionSource:'estimated',dimensionQuote:'',
@@ -14,7 +14,7 @@ function draft(shape){
 }
 const physical='实际打印后核对表面柔度与贴合程度。';
 function report(repair=false){
- return {motionRequirements:{minRotaryAxes:0,minLinearAxes:0,minSerialRotaryDepth:0},requiresInteraction:false,checks:['intent','form','mechanism','control'].map(area=>({
+ return {motionRequirements:{minRotaryAxes:0,minLinearAxes:0,minSerialRotaryDepth:0},productDelivery:fixtureProductDelivery,requiresInteraction:false,checks:['intent','form','mechanism','control'].map(area=>({
   area,status:area==='form'&&repair?'repair':['mechanism','control'].includes(area)?'not-applicable':'pass',
   note:area==='form'&&repair?'接触面是棱角方块，应改为所需圆弧。':'主体与需求中的被动支托一致。',
   partIndices:[0],bodyIndices:[0]})),physicalChecks:[physical]};
@@ -101,10 +101,25 @@ test('invalid non-null control model cannot override deterministic validation wi
  assert.equal(out.status,502);assert.equal(out.result.design,undefined);assert.match(out.result.error,/交互/);
 });
 test('missing independent review, bad reference indices and failed service do not publish a candidate',async()=>{
- for(const broken of [new Response('',{status:503}),{...report(),checks:[]},{...report(),checks:report().checks.map(row=>({...row,bodyIndices:[55]}))}]){
+ for(const broken of [new Response('',{status:503}),{...report(),checks:[]},{...report(),checks:report().checks.map(row=>({...row,bodyIndices:[55]}))},
+   {...report(),productDelivery:{...fixtureProductDelivery,partIndices:[]}},
+   {...report(),productDelivery:{...fixtureProductDelivery,partIndices:[45]}}]){
   const out=await run({generate:()=>draft('ellipsoid'),review:()=>broken});
   assert.equal(out.status,502);assert.equal(out.result.design,undefined);assert.match(out.result.error,/评审/);
  }
+});
+test('direct delivery rejects an accessory around an existing terminal doing all the sensing even when the other review checks pass',async()=>{
+ const accessory=draft('ellipsoid');
+ accessory.parts[0]={...accessory.parts[0],name:'外置托架',purpose:'摆放用户的手表'};
+ accessory.parts.push({...part,name:'用户原有手表',model:'家中现有终端',kind:'provided',placement:'loose',purpose:'采集与分析全部读数'});
+ const evidence='实际测量和判读全部在原有手表中执行，另外交付的托架只负责摆放。';
+ const result=await run({requirements:{prompt:'做一件独立硬件，帮我记录活动。'},generate:()=>accessory,
+  review:(_n,input)=>{
+   assert.ok(input.text.format.schema.required.includes('productDelivery'));
+   return {...report(),productDelivery:{status:'personal-device-core',partIndices:[1],evidence}};
+  }});
+ assert.equal(result.status,502);assert.equal(result.result.design,undefined);
+ assert.ok(result.result.review.issues.some(issue=>issue.includes(evidence)));
 });
 test('bounded runtime evidence dispatches both encoder directions, button events, one second and timer expiry',async()=>{
  const {replayInteraction}=await import('./design-review.mjs');

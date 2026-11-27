@@ -132,7 +132,7 @@ function renderDiscussion(state,error=''){
     panel.querySelector('#cancel-discussion').onclick=stopDraft;
     return;
   }
-  if(['providers-exhausted','codex-quota','api-billing'].includes(state.stopReason)){
+  if(['providers-exhausted','codex-quota','api-billing','independent-hardware'].includes(state.stopReason)){
     panel.innerHTML=`<div class="discussion-card"><b>生成已停止</b><p role="alert">${esc(error)}</p><div class="discussion-controls">${reviewLink}<button type="button" class="discussion-link" id="close-stopped">返回编辑</button></div></div>`;panel.querySelector('#close-stopped').onclick=stopDraft;return;
   }
   if(state.repairCandidate){

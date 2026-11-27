@@ -1,11 +1,57 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {applyArchitectureRevision,inspectArchitecture,inspectMotionRequirements,validMotionRequirements,validateArchitecture} from './design-architecture.mjs';
+import {selectParts} from './part-sourcing.mjs';
 import {design} from './design.mjs';
-import {reviewedFixture,revisionFixture} from './test-fixtures/design-review.mjs';
+import {fixtureProductDelivery,reviewedFixture,revisionFixture} from './test-fixtures/design-review.mjs';
 
 const supply={model:'Acme Supply A',kind:'purchase',role:'external',placement:'loose'};
 const decisions=[{subsystem:'Power',rationale:'Use a compatible external adapter',interfaces:'Barrel jack on rear panel',motion:null,members:[supply]}];
+
+test('a dedicated product can be turnkey or provided, while an existing viewer cannot perform its core tasks',()=>{
+  const device={model:'Shelf counter X4',kind:'provided',role:'enclosure',placement:'loose',deviceUse:'product-core'};
+  const viewer={model:'Personal screen Z',kind:'provided',role:'external',placement:'loose',deviceUse:'result-viewer'};
+  const architecture=[{...decisions[0],members:[device,viewer]}],parts=[viewer,device];
+  assert.deepEqual(inspectArchitecture(architecture,parts,{interaction:{controllerPartIndex:1}}).issues,[]);
+  const measurement={controllerPartIndex:1,recorder:{sampleEvents:['change']},systemEvents:[{id:'change',partIndex:0}]};
+  assert.match(inspectArchitecture(architecture,parts,{interaction:measurement}).issues.join(' '),/Personal screen Z/);
+  assert.match(inspectArchitecture(architecture,parts,{interaction:{controllerPartIndex:0}}).issues.join(' '),/Personal screen Z/);
+  assert.match(inspectArchitecture(architecture,parts,{cadPlan:{joints:[{actuatorPartIndex:0}]}}).issues.join(' '),/Personal screen Z/);
+  assert.deepEqual(inspectArchitecture(architecture,parts,{interaction:{controllerPartIndex:1,systemEvents:[{id:'report_open',partIndex:0}]}}).issues,[]);
+  const previous={selection:{architecture}};
+  const revision=members=>({architectureRevision:{reason:'Change the product.',decisions:[{...decisions[0],members}]}});
+  assert.throws(()=>applyArchitectureRevision(previous,revision([viewer,supply])),/部件承担/);
+  assert.throws(()=>applyArchitectureRevision(previous,revision([{...viewer,deviceUse:'personal-device-core'}])),/独立硬件/);
+  assert.deepEqual(previous.selection.architecture,architecture);
+});
+
+test('planning corrects a personal-device design before sourcing and still accepts zero custom parts',async()=>{
+  const personal={...supply,model:'Personal device W',kind:'provided',deviceUse:'personal-device-core'};
+  const bought={...supply,model:'Dedicated indicator D',deviceUse:'product-core'};
+  const plan=members=>({name:'Quiet door indicator',summary:'Show when the door opens.',requirements:['Visible indication'],
+    motionRequirements:{minRotaryAxes:0,minLinearAxes:0,minSerialRotaryDepth:0},
+    architecture:[{...decisions[0],members}],parts:members.map(({deviceUse,...part})=>({...part,name:part.model,qty:1}))});
+  const env={OPENAI_API_KEY:'fixture',OPENAI_MODEL:'fixture'};
+  function respond(values,calls){
+    return async(_url,options)=>{
+      const request=JSON.parse(options.body);calls.push(request);
+      assert.equal(request.text.format.name,'part_selection');
+      return Response.json({status:'completed',model:'fixture',output:[{type:'web_search_call',status:'completed',action:{sources:[]}},
+        {type:'message',content:[{type:'output_text',text:JSON.stringify(values[calls.length-1])}]}]});
+    };
+  }
+  const bad=plan([personal]),good=plan([bought,{...personal,deviceUse:'result-viewer'}]),calls=[];
+  const selected=await selectParts({prompt:'Show me whether the door has opened.',history:[]},env,respond([bad,good],calls),new AbortController().signal);
+  assert.equal(calls.length,2);
+  assert.match(calls[1].input.at(-1).content,/承担了核心功能/);
+  assert.equal(selected.parts.length,2);assert.ok(selected.parts.every(p=>p.kind!=='custom'));
+  const failedCalls=[],state={};
+  const res=await design(new Request('http://localhost/api/design',{method:'POST',body:JSON.stringify({prompt:'提醒我门什么时候打开。'})}),
+    env,respond([bad,bad],failedCalls),{id:'fixture',state,progress:async()=>{}});
+  const failure=await res.json();
+  assert.equal(res.status,422);assert.equal(failure.actionRequired,'independent-hardware');assert.equal(failure.retryable,false);
+  assert.equal(failedCalls.length,2);assert.equal(state.selection,undefined);
+});
 
 test('contract uses component identity rather than row index and reports changed sourcing and placement',()=>{
   validateArchitecture(decisions);
@@ -42,7 +88,7 @@ test('a reviewed round retains its assembly decisions and a positive review cann
     cadPlan:{version:1,bodies:[body],motions:[]},deviceMotion:'stationary',interaction:null};
   const motionRequirements={minRotaryAxes:2,minLinearAxes:0,minSerialRotaryDepth:2};
   const state={selection:{architecture:decisions,motionRequirements,requirements:['Round pad'],parts:[part]},draft:{attempt:1,value}};
-  const report={requiresInteraction:false,findings:[],checks:['intent','form','mechanism','control'].map(area=>({
+  const report={productDelivery:fixtureProductDelivery,requiresInteraction:false,findings:[],checks:['intent','form','mechanism','control'].map(area=>({
     area,status:'pass',note:'The provided fixture meets this criterion.',partIndices:[0],bodyIndices:[0]
   })),physicalChecks:[]};
   let evidence;

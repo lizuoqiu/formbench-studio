@@ -1,3 +1,4 @@
+import {fixtureProductDelivery} from './test-fixtures/design-review.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {applyDesignRevision,needsIncrementalRevision,reviseAssembly} from './design-revision.mjs';
@@ -80,7 +81,7 @@ test('a large saved workflow applies API edits, compiles all bodies and sends th
   const input=JSON.parse(typeof first==='string'?first:first.find(c=>c.type==='input_text').text);
   assert.equal(input.candidate.cadPlan.bodies.length,220);assert.deepEqual(input.candidate.cadPlan.bodies[1].positionMm,[16,0,0]);
   assert.deepEqual(input.candidate.cadPlan.bodies[219],base.cadPlan.bodies[219]);
-  return completed({requiresInteraction:false,findings:[],checks:['intent','form','mechanism','control'].map(area=>({area,status:'pass',note:'Fixture accepted',partIndices:[0],bodyIndices:[0]})),physicalChecks:['Fixture only.']});
+  return completed({productDelivery:fixtureProductDelivery,requiresInteraction:false,findings:[],checks:['intent','form','mechanism','control'].map(area=>({area,status:'pass',note:'Fixture accepted',partIndices:[0],bodyIndices:[0]})),physicalChecks:['Fixture only.']});
  },{id:'revision-fixture',state,progress:async()=>{}});
  const body=await result.json();assert.equal(result.status,200,body.error);assert.deepEqual(calls,['hardware_design_revision','hardware_design_review']);
  assert.equal(state.compiled.bodies.length,220);assert.equal(body.design.generation.assemblyRevision.mode,'incremental');
@@ -98,7 +99,7 @@ test('a small saved design is incrementally repaired and stops at the requested 
    return completed(revision([op('replace','/cadPlan/bodies/1/positionMm',[16,0,0])]));
   }
   assert.equal(name,'hardware_design_review');
-  return completed({requiresInteraction:false,findings:[{priorId:'',check:'mount.spacing',subject:'片2',area:'form',disposition:'open',route:'design',capability:'',
+  return completed({productDelivery:fixtureProductDelivery,requiresInteraction:false,findings:[{priorId:'',check:'mount.spacing',subject:'片2',area:'form',disposition:'open',route:'design',capability:'',
    description:'第二片安装间距仍需调整。',evidence:'第二片中心为 16 mm。',acceptance:'安装间距达到图纸要求。',partIndices:[0],bodyIndices:[1],basis:'design'}],
    checks:['intent','form','mechanism','control'].map(area=>({area,status:area==='form'?'repair':'pass',
    note:area==='form'?'第二片安装间距仍需调整。':'Fixture accepted',partIndices:[0],bodyIndices:[1]})),physicalChecks:['Fixture only.']});

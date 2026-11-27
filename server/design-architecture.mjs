@@ -8,9 +8,11 @@ const kinds = ['purchase', 'custom', 'material', 'included', 'provided'];
 const roles = ['internal', 'external', 'panel', 'enclosure'];
 const placements = ['mounted', 'loose'];
 const fields = {kind: kinds, role: roles, placement: placements};
+const deviceUses = ['product-core','support','result-viewer','personal-device-core'];
 const member = object({
   model: string,
-  ...Object.fromEntries(Object.entries(fields).map(([key, values]) => [key, {type: 'string', enum: values}]))
+  ...Object.fromEntries(Object.entries(fields).map(([key, values]) => [key, {type: 'string', enum: values}])),
+  deviceUse:{type:'string',enum:deviceUses}
 });
 
 export const deviceMotionTypes = ['stationary','powered-linear','powered-rotary','powered-mixed','other'];
@@ -51,7 +53,43 @@ export const architectureRevisionSchema = {
   anyOf: [{type: 'null'}, object({reason: string, decisions: architectureSchema})]
 };
 
-export const architectureInstructions = 'architecture 用简短的子系统约定说明核心方案。subsystem 写功能，rationale 写成品复用或必要定制的依据，interfaces 写与其他模块的供电、数据或安装接口，motion 在存在运动时写明哪一件固定、哪一件带动谁，否则填 null。每组 members 引用初始 BOM 中承担这项约定的关键件，逐字沿用 model、kind、role、placement；每个 custom 件都要列入并写明为何不能直接采购。';
+export const architectureInstructions = 'architecture 用简短的子系统约定说明核心方案。subsystem 写功能，rationale 写成品复用或必要定制的依据，interfaces 写与其他模块的供电、数据或安装接口，motion 在存在运动时写明哪一件固定、哪一件带动谁，否则填 null。每组 members 引用初始 BOM 中承担这项约定的关键件，逐字沿用 model、kind、role、placement；每个 custom 件都要列入并写明为何不能直接采购。成员的 deviceUse 按实际分工填写：product-core 是完成用户所要功能的专用实物，support 是配套，result-viewer 是查看结果的已有通用终端。若已有通用终端承担核心感测、运算或执行，其实际类别为 personal-device-core，需要重选独立硬件。将所有承担功能或用于查看的通用终端列入约定。';
+
+// Old saved contracts predate deviceUse. Newly planned contracts must identify
+// a physical deliverable; purchasing a part and using it as the core are separate facts.
+export function productBoundaryIssues(decisions, parts, {required = false, interaction, cadPlan} = {}) {
+  const members = (decisions || []).flatMap(decision => decision.members);
+  if (!required && !members.some(member => member.deviceUse !== undefined)) return [];
+  if (!members.length || members.some(member => !deviceUses.includes(member.deviceUse))) {
+    return ['请标明各部件承担主体功能、配套或结果查看的实际用途。'];
+  }
+  const issues = [];
+  const core = new Set(members.filter(member => member.deviceUse === 'product-core').map(partIdentity));
+  const viewers = new Set(members.filter(member => member.deviceUse === 'result-viewer').map(partIdentity));
+  if (!core.size || (parts && !parts.some(part => core.has(partIdentity(part))))) {
+    issues.push('方案缺少实际承担核心功能的独立硬件。');
+  }
+  const hosts = new Set();
+  for (const member of members) {
+    if (member.deviceUse === 'personal-device-core' || (member.deviceUse === 'result-viewer' && core.has(partIdentity(member)))) {
+      hosts.add(member.model);
+    }
+  }
+  if (parts && viewers.size) {
+    const sampleEvents = new Set(interaction?.recorder?.sampleEvents || []);
+    const sampleSources = (interaction?.systemEvents || []).filter(event => sampleEvents.has(event.id)).map(event => event.partIndex);
+    const axes = [...(cadPlan?.motions || []), ...(cadPlan?.joints || [])];
+    const actuators = axes.map(axis => axis.actuatorPartIndex);
+    for (const index of [interaction?.controllerPartIndex, ...sampleSources, ...actuators]) {
+      const part = parts[index];
+      if (part && viewers.has(partIdentity(part))) hosts.add(part.model);
+    }
+  }
+  for (const model of hosts) {
+    issues.push('已有通用终端 '+model+' 承担了核心功能。请将其移到专用硬件，查看结果可继续使用该终端。');
+  }
+  return issues;
+}
 
 function hasText(value) {
   return typeof value === 'string' && value.trim().length > 0;
@@ -78,9 +116,9 @@ export function validateArchitecture(decisions) {
 
 // Check identity and product boundary mechanically. The reviewer gets the
 // declared interfaces and motion plus the current CAD, wiring and run evidence.
-export function inspectArchitecture(decisions, parts) {
+export function inspectArchitecture(decisions, parts, design) {
   if (!decisions) return undefined; // pre-contract job
-  const issues = [];
+  const issues = productBoundaryIssues(decisions,parts,design);
   const subsystems = decisions.map(decision => {
     const members = decision.members.map(expected => {
       const matches = [];
@@ -107,18 +145,20 @@ export function inspectArchitecture(decisions, parts) {
   return {subsystems, issues};
 }
 
-export function validateArchitectureRevision(revision) {
+export function validateArchitectureRevision(revision,requireDeviceUse=false) {
   if (!revision) return;
   if (!hasText(revision.reason)) throw Error('修改架构约定需要说明原因。');
   validateArchitecture(revision.decisions);
+  const issues=productBoundaryIssues(revision.decisions,null,{required:requireDeviceUse});
+  if(issues.length)throw Error(issues.join(' '));
 }
 
 export function applyArchitectureRevision(state, repair) {
   const revision = repair.architectureRevision;
   // Old jobs and retries retain the historical absence of this decision.
   if (!revision) return;
-  validateArchitectureRevision(revision);
   const previous = state.selection.architecture || null;
+  validateArchitectureRevision(revision,previous?.some(d=>d.members.some(m=>m.deviceUse!==undefined)));
   if (JSON.stringify(previous) === JSON.stringify(revision.decisions)) return;
   state.architectureRevisions ??= [];
   state.architectureRevisions.push({attempt: repair.attempt, reason: revision.reason, previous, next: revision.decisions});

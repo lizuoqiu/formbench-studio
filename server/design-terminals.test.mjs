@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {validateTerminalLocations,validateInteraction,connectedTerminalPins,revisedTerminalLocations} from '../interaction-model.js';
 import {design as generate} from './design.mjs';
 import {locateDesignTerminals,terminalReview} from './design-terminals.mjs';
-import {revisionFixture} from './test-fixtures/design-review.mjs';
+import {fixtureProductDelivery,revisionFixture} from './test-fixtures/design-review.mjs';
 
 const {design:prior}=JSON.parse(readFileSync(new URL('../samples/shared/reading-timer/v5.json',import.meta.url)));
 const completed=value=>Response.json({status:'completed',model:'fixture',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(value)}]}]});
@@ -121,7 +121,7 @@ test('both fresh and revised design requests submit actual terminal coverage and
     if(iteration)assert.ok(reviewedChange.checked.some(row=>row.bodyIndex===4&&row.status==='verified'));
     if(iteration)assert.ok(data.geometry.revisionDependencies.changedBodyIndices.includes(4));
     assert.match(request.instructions,/bothSupported/);
-    return completed({motionRequirements:{minRotaryAxes:0,minLinearAxes:0,minSerialRotaryDepth:0},requiresInteraction:true,checks:['intent','form','mechanism','control'].map(area=>({
+    return completed({motionRequirements:{minRotaryAxes:0,minLinearAxes:0,minSerialRotaryDepth:0},productDelivery:fixtureProductDelivery,requiresInteraction:true,checks:['intent','form','mechanism','control'].map(area=>({
      area,status:'pass',note:'测试中核对该项与端点记录。',partIndices:[0],bodyIndices:[0]})),physicalChecks:['实际核对端子丝印与焊接。']});
    });
   const body=await response.json();assert.equal(response.status,200,body.error);assert.equal(reviewCount,1);
@@ -148,7 +148,7 @@ test('review can inspect CAD terminals despite a bad timer event and a retained 
   assert.equal(stage,'hardware_design_review');reviews++;
   const data=JSON.parse(request.input);assert.match(data.definitionIssues.join(' '),/made\.up/);
   assert.equal(data.behavior.status,'unavailable');assert.equal(data.wiring.status,'partial');
-  return completed({motionRequirements:{minRotaryAxes:0,minLinearAxes:0,minSerialRotaryDepth:0},requiresInteraction:true,checks:['intent','form','mechanism','control'].map(area=>({
+  return completed({motionRequirements:{minRotaryAxes:0,minLinearAxes:0,minSerialRotaryDepth:0},productDelivery:fixtureProductDelivery,requiresInteraction:true,checks:['intent','form','mechanism','control'].map(area=>({
    area,status:'pass',note:'测试端点与状态规则独立评审。',partIndices:[0],bodyIndices:[0]})),physicalChecks:['实物复核。']});
  });
  const body=await response.json();assert.equal(response.status,502,body.error);assert.equal(reviews,2);

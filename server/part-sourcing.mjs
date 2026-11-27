@@ -1,10 +1,10 @@
 import {inspectProductDocument} from './part-visual-reference.mjs';
 import {verifyFactoryInterfaces} from './factory-interfaces.mjs';
 import {proposedOrderIdentity,selectedOrderIdentity} from './documented-part-identity.mjs';
-import {architectureInstructions, architectureSchema, inspectArchitecture, validateArchitecture, motionRequirementsInstructions, motionRequirementsSchema, validMotionRequirements} from './design-architecture.mjs';
+import {architectureInstructions, architectureSchema, inspectArchitecture, productBoundaryIssues, validateArchitecture, motionRequirementsInstructions, motionRequirementsSchema, validMotionRequirements} from './design-architecture.mjs';
 import {partIdentity,factoryKinds} from '../part-records.js';
 import {MAX_DESIGN_PARTS} from '../cad-plan.js';
-import {structuredCall,format,designObjectScope,responseProvenance} from './design-review.mjs';
+import {structuredCall,format,addModelData,ModelStageError,designObjectScope,responseProvenance} from './design-review.mjs';
 import {reasoningSettings} from './model-settings.mjs';
 import {officialStageGuide} from './official-skills.mjs';
 import {hardwarePolicyGuide} from './modeling-guide.mjs';
@@ -25,12 +25,23 @@ export const selectionSchema=object({name:string,summary:string,architecture:arc
 })}});
 export async function selectParts(ctx,env,send,signal){
   const [guide,policy]=await Promise.all([officialStageGuide('planning',env),hardwarePolicyGuide('planning',env)]);
-  const result=await structuredCall(send,env,signal,{instructions:guide.text+'\n'+architectureInstructions+'\n'+motionRequirementsInstructions+'\n'+designObjectScope+'\n'+policy.text+'\n当前只做 Intake：选择一个可行架构、初始 BOM 和功能验收要求；不要在此完成 LLD、孔距、精确扭矩、公差、接线端子坐标或 CAD 推导。后续逐件研究、建模与修复阶段负责这些问题，能够纠正初始选型。不要试图在没有资料时穷尽解决整个项目。根据用户的目标与讨论，规划完整产品及 BOM，随后系统会逐件联网查证并下载 CAD。选完整厂名和准确订货型号，不提供链接或猜测三轴尺寸。优先采用资料充分、控制链简明的成品驱动/通信模块；已有模块能完成时不堆叠裸芯片自制电路。数量可包含多份同型号。自制结构、需购买原料、整件已含附件分别写 custom、material、included，已含子件在 spec 写包含关系。尊重用户所有关键功能。核对接口的用途与供电要求，手机连接要区分数据与电机能源来源。确定主体必要的外壳、内部件、安装连接和线缆出口；先保留成品已有的壳体及配套，不为已有封装的产品重复设计外壳。外壳列 enclosure，内部安装件必须 mounted，独立外置配套列 external / loose。关键功能、轴数和主体完整性写入可检验的 requirements。由 AI 自主决定所有工程细节，不向用户要孔位或选型。总共不超过 '+MAX_DESIGN_PARTS+' 行，相同型号数量合并。返回精简方案、requirements 及完整零件表。',
+  const request={instructions:guide.text+'\n'+architectureInstructions+'\n'+motionRequirementsInstructions+'\n'+designObjectScope+'\n'+policy.text+'\n当前只做 Intake：选择一个可行架构、初始 BOM 和功能验收要求；不要在此完成 LLD、孔距、精确扭矩、公差、接线端子坐标或 CAD 推导。后续逐件研究、建模与修复阶段负责这些问题，能够纠正初始选型。不要试图在没有资料时穷尽解决整个项目。根据用户的目标与讨论，规划完整产品及 BOM，随后系统会逐件联网查证并下载 CAD。选完整厂名和准确订货型号，不提供链接或猜测三轴尺寸。优先采用资料充分、控制链简明的成品驱动/通信模块；已有模块能完成时不堆叠裸芯片自制电路。数量可包含多份同型号。自制结构、需购买原料、整件已含附件分别写 custom、material、included，已含子件在 spec 写包含关系。尊重用户所有关键功能。核对接口的用途与供电要求，手机连接要区分数据与电机能源来源。确定主体必要的外壳、内部件、安装连接和线缆出口；先保留成品已有的壳体及配套，不为已有封装的产品重复设计外壳。外壳列 enclosure，内部安装件必须 mounted，独立外置配套列 external / loose。关键功能、轴数和主体完整性写入可检验的 requirements。由 AI 自主决定所有工程细节，不向用户要孔位或选型。总共不超过 '+MAX_DESIGN_PARTS+' 行，相同型号数量合并。返回精简方案、requirements 及完整零件表。',
     tools:[{type:'web_search'}],tool_choice:'required',max_tool_calls:5,include:['web_search_call.action.sources'],
-    input:JSON.stringify({requirement:ctx.prompt,conversation:ctx.history,previousMotionRequirements:ctx.previousMotionRequirements,previous:ctx.baseDesign||ctx.repairCandidate?.design,planningMethod:'先查适用的现成产品、成套机构、成熟方案与关键模块，按真实功能和接口选取最少必要定制的架构。允许复用整个成品或总成；只有用户明确要求原创的部分才必须自行设计。用 summary 说明实际查到的参考方案、选择理由和仍需定制的差距，查询来源另存于 generation.sourceUrls。逐件商品、尺寸和 CAD 由下一阶段核对。'}),text:format('part_selection',selectionSchema)},'规划零件');
-  validateArchitecture(result.value.architecture);
-  if(!validMotionRequirements(result.value.motionRequirements))throw Error('选型方案缺少有效的运动约定。');
-  if(!Array.isArray(result.value.parts)||!result.value.parts.length||result.value.parts.length>MAX_DESIGN_PARTS)throw Error('零件规划数量无效。');
+    input:JSON.stringify({requirement:ctx.prompt,conversation:ctx.history,previousMotionRequirements:ctx.previousMotionRequirements,previous:ctx.baseDesign||ctx.repairCandidate?.design,planningMethod:'先查适用的现成产品、成套机构、成熟方案与关键模块，按真实功能和接口选取最少必要定制的架构。允许复用整个成品或总成；只有用户明确要求原创的部分才必须自行设计。用 summary 说明实际查到的参考方案、选择理由和仍需定制的差距，查询来源另存于 generation.sourceUrls。逐件商品、尺寸和 CAD 由下一阶段核对。'}),text:format('part_selection',selectionSchema)};
+  let result;
+  for(let attempt=0;attempt<2;attempt++){
+    result=await structuredCall(send,env,signal,request,'规划零件');
+    const {architecture,motionRequirements,parts}=result.value;
+    validateArchitecture(architecture);
+    if(!validMotionRequirements(motionRequirements))throw Error('选型方案缺少有效的运动约定。');
+    if(!Array.isArray(parts)||!parts.length||parts.length>MAX_DESIGN_PARTS)throw Error('零件规划数量无效。');
+    const issues=productBoundaryIssues(architecture,parts,{required:true});
+    if(!issues.length)break;
+    if(attempt===1)throw Object.assign(new ModelStageError('选型仍未找到承担所需功能的独立硬件。'),{actionRequired:'independent-hardware'});
+    track(env,'selection.recheck',{reason:'independent-hardware'});
+    request.input=addModelData(request.input,{previousSummary:result.value.summary,architecture,issues,
+      task:'依照用户已经回答的生活条件重新查找专用成品或模块。修正实际功能分工与 BOM，仅修改标签不能解决问题。'});
+  }
   const evidence=inspectArchitecture(result.value.architecture,result.value.parts);
   const parts=result.value.parts.map(({orderIdentity,...part})=>{
     const identity=selectedOrderIdentity(part.model,orderIdentity);

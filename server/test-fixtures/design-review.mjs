@@ -31,7 +31,11 @@ export function revisionFixture(input,target){
  return {summary:'Apply the fixture changes to the existing design',operations};
 }
 
+export const fixtureProductDelivery={status:'independent-hardware',partIndices:[0],evidence:'Fixture part 0 supplies the requested physical function.'};
+
 export function reviewedFixture(input){
+ if(input.text?.format?.name==='hardware_clarification_review')return Response.json({status:'completed',model:'fixture-interview-review',
+  output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({verdict:'pass',feedback:''})}]}]});
  if(input.text?.format?.name!=='hardware_design_review')return null;
  const content=typeof input.input==='string'?input.input:input.input.at(-1).content;
  const text=typeof content==='string'?content:content.findLast(item=>item.type==='input_text').text;
@@ -42,7 +46,8 @@ export function reviewedFixture(input){
   area,status:area==='control'||area==='mechanism'?'not-applicable':'pass',
   note:'本测试核对生成请求与装配记录，采用固定复核结果。',partIndices,bodyIndices
  }));
- const value={motionRequirements:{minRotaryAxes:0,minLinearAxes:0,minSerialRotaryDepth:0},requiresInteraction:false,checks,physicalChecks:['核对实物配合']};
+ const productDelivery=partIndices.length?fixtureProductDelivery:{status:'unidentified',partIndices:[],evidence:'No physical part in this fixture.'};
+ const value={productDelivery,motionRequirements:{minRotaryAxes:0,minLinearAxes:0,minSerialRotaryDepth:0},requiresInteraction:false,checks,physicalChecks:['核对实物配合']};
  return Response.json({status:'completed',model:'fixture-review-model',
   output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(value)}]}]});
 }
