@@ -14,7 +14,8 @@ const object=properties=>({type:'object',properties,required:Object.keys(propert
 export const designDeliverableScope='本轮交付范围是可追踪的数字硬件设计：BOM 与来源、完整装配 CAD、必要的电气连接，以及本系统可表达的交互预览。必须把使功能成立的供电、数据链、机构和控制规则设计完整。固件/手机端的接口、状态、时序和实现要求属于设计依据；不能仅因尚无编译固件、签名 APK、刷机或实物测试记录而拒绝数字设计，也不能声称这些已经执行。未实现的软件和实物试验列入后续制作与验证，不能在摘要或完成说明中冒充已交付。对先前草稿自行增加的范围，保留用户要求的功能与设计条件，纠正超出本阶段的交付承诺；不能借此略去已知干涉、错接线、缺部件或缺少必要控制逻辑。';
 export const designObjectScope='设计范围以用户点名的产品主体为准。主体的内部驱动、控制、传动、支承、走线和外壳必须完整；不能把使用该产品所需的整个环境扩成制造任务。外置成品电源、数据线等配套可列采购和连接说明，需展示时直接按所选成品的原厂 CAD 或尺寸建模放在主体外，不为它们新增专用托盘、护盒、停车架或收纳器；用户已有手机等列 provided 与接口条件，不必建立手机实体。用户要 demo、轻量原型或能用即可时，以最少复杂度完成核心能力，优先成熟模块和简明控制，暂不增加可选手势、收纳或复杂授权操作。requirements 是 AI 推导的验收要求，必须服从用户原始目标与最新反馈；已有草稿包含某种配套或承诺不等于用户要求它。修订过时实现假设时记录原因，不降低明确的功能要求，不略去必要承载、供电、停止与限位。优先把必要功能集成在主体内，移除冗余结构时同步检查其功能和连接，不能把主体内部必要件误删为附属品。';
 export const productDesignScope=designObjectScope+'先判断整机是否仍满足用户要使用的产品，再处理局部工程问题。以实际 CAD 多视角、BOM 用途和使用过程为据，核对主体、外接附件、用户已有设备的边界、整体占地、臂展或行程、接口可达性和日常操作步骤。不能只因每个新增支架、护罩、线仓分别有理由，就接受它们累计占据主体空间或让普通用户难以使用。对这种问题在 intent/form 写出具体部件、尺寸或操作证据，并要求简化相应子系统；零件数本身不是失败判据。先比较集成、合并功能或替换失败结构的办法，再增加新的补偿机构。保留原需求和安全、承载、供电、走线所必需的功能；不能靠隐藏模型、删除必要件、减少自由度、缩短所需行程或取消检查来让外观过关。保留正确选型、资料和模型，仅增量修改受影响的子系统及其装配/控制引用。';
-const deliveryStatuses=['independent-hardware','personal-device-core','viewer-required-to-operate','unidentified'];
+const deliveryStatuses=['independent-hardware','personal-device-core','unidentified'];
+const deliveryInstructions='核实 productDelivery：沿用户所需的功能追到 BOM 中实际完成感测、动作或其他实体功能的专用硬件，列其行号和证据，填 independent-hardware。手机或手表可以设置参数、校时、输入已知标定参考值、发送标定或开始命令、操作硬件、处理和显示硬件产生的读数。区分发出标定命令的一端和实际取样的一端。任何需要手机或手表自身的麦克风、加速度计等传感器输入的环节（包括标定），或只有配件而把所需核心功能留给个人终端，填 personal-device-core。找不到哪个实物承担所需功能时填 unidentified。按用户明确要求单独核对断开手机后仍要支持哪些操作。旧评审中的 viewer-required-to-operate 曾将依赖手机操作一概记作缺陷。按本轮真实信号来源和用户要求重新核对该项。';
 export const reviewSchema=object({productDelivery:object({status:{type:'string',enum:deliveryStatuses},partIndices:indices,evidence:str}),
  requiresInteraction:{type:'boolean'},checks:{type:'array',items:object({
  area:{type:'string',enum:areas},status:{type:'string',enum:['pass','repair','not-applicable']},note:str,partIndices:indices,bodyIndices:indices
@@ -173,6 +174,12 @@ function explicitlyRequestsProgrammableControls(ctx){
  return last.split(/[。；;\n]/).some(clause=>!/(?:不需要|不必|无需|禁止|不要).{0,12}(?:旋钮|编码器|按钮|按键|按压|按下)|without (?:a )?(?:button|knob)/i.test(clause)
   &&/(?:旋钮|编码器|转动|旋转|按钮|按键|按下|按压|knob|encoder|push.button).{0,55}(?:设定|调节|调整|暂停|倒计时|计时|启停|开始计时|亮灯|显示|调光|亮度|countdown|timer|brightness|display|pause)/i.test(clause));
 }
+// A screen gesture can dispatch a command over the existing hardware link.
+function isCompanionCommand(clause){
+ const namedControl=/(?:手机|手表|网页|页面|app)(?:端|界面|屏幕)?(?:上|中|内)?的?(?:虚拟)?(?:按钮|按键|旋钮)/i;
+ const onDevice=/(?:手机|手表|网页|页面|app)(?:端|界面|屏幕)?(?:上|中|内)(?:按下|按压|转动|旋转)/i;
+ return namedControl.test(clause)||onDevice.test(clause)||/(?:button|knob) (?:on|in) (?:the |my |a )?(?:phone|watch|app|web ?page)|(?:phone|watch|app) (?:button|knob)/i.test(clause);
+}
 export async function evaluateDraft({ctx,candidate,geometry,catalogGeometry,behavior,wiring,normalizations,definitionIssues,previousIssues,skill,env,send,signal,visuals=[],workflow=false,tracking}){
  const official=workflow?await officialStageGuide('review',env):{text:'',sources:[]};
  const localCodex=hasLocalCodex(env);
@@ -183,7 +190,7 @@ export async function evaluateDraft({ctx,candidate,geometry,catalogGeometry,beha
  const reportContext=tracking?{...tracking,reportedFindings:machine.map(({check,subject,description})=>({check,subject,description}))}:undefined;
  let input=reviewMessages(ctx,localCodex?candidateForModel(candidate):candidate,localCodex?geometryForModel(geometry):geometry,catalogGeometry,behavior,wiring,normalizations,definitionIssues,previousIssues,reportContext);
  if(visuals.length){input=typeof input==='string'?[{role:'user',content:input}]:input;input=[...input,{role:'user',content:[{type:'input_text',text:'以下为本轮实际 CAD 编译结果的 '+visuals.map(v=>v.name).join('、')+' 视图，请逐张检查。内部视图仅改变壳体透明度，实体没有被删除。导入件锚点若未替换原网格，按 catalogGeometry 的边界说明判断，不把它当空部件。'},...visuals.map(v=>({type:'input_image',image_url:v.dataUrl,detail:'high'}))]}];}
- const {value,...provenance}=await structuredCall(send,env,signal,{instructions:reviewInstructions+(ctx.recoverMotionRequirements?'\n本轮没有预选运动约定，请独立从原需求和最新反馈恢复。'+motionRequirementsInstructions:'')+(tracking?'\n'+findingInstructions:'')+'\n'+capabilityInstructions+' 当 catalogGeometry 明确列出某个 body 时，浏览器会将该定位盒替换为随项目发布的真实目录参考网格。依据其构件及世界坐标范围检查朝向和开口，不能把该盒当成最终可见外形。目录简模不等于已验证的线头插合；缺小公差或未验证特定线头通常作为实测项，除非当前设计实有矛盾。未匹配目录且用户要求内构件时须有合理 CAD 特征。\n'+skill.text+'\n'+official.text+'\n'+designDeliverableScope+'\n'+productDesignScope+(localCodex?'\n'+cadFeatureTupleInput+'\n'+reconstructedPartsInput:''),input,
+ const {value,...provenance}=await structuredCall(send,env,signal,{instructions:reviewInstructions+'\n'+deliveryInstructions+(ctx.recoverMotionRequirements?'\n本轮没有预选运动约定，请独立从原需求和最新反馈恢复。'+motionRequirementsInstructions:'')+(tracking?'\n'+findingInstructions:'')+'\n'+capabilityInstructions+' 当 catalogGeometry 明确列出某个 body 时，浏览器会将该定位盒替换为随项目发布的真实目录参考网格。依据其构件及世界坐标范围检查朝向和开口，不能把该盒当成最终可见外形。目录简模不等于已验证的线头插合；缺小公差或未验证特定线头通常作为实测项，除非当前设计实有矛盾。未匹配目录且用户要求内构件时须有合理 CAD 特征。\n'+skill.text+'\n'+official.text+'\n'+designDeliverableScope+'\n'+productDesignScope+(localCodex?'\n'+cadFeatureTupleInput+'\n'+reconstructedPartsInput:''),input,
   text:format('hardware_design_review',tracking?trackedReviewSchema:ctx.recoverMotionRequirements?motionReviewSchema:reviewSchema),max_output_tokens:4500},'设计评审',{hasImages:ctx.images.length>0||visuals.length>0});
  const review=readReview(value,candidate);
  if(ctx.recoverMotionRequirements){
@@ -204,9 +211,11 @@ export async function evaluateDraft({ctx,candidate,geometry,catalogGeometry,beha
   // describes a shape and does not require an electrically operative encoder.
   for(const [kind,label,action] of [['turn','旋转',/旋转|转动|turn(?:ing)?\s+(?:the\s+)?knob/i],['press','按压',/按下|按压|press(?:ing)?\s+(?:the\s+)?(?:button|knob)/i]]){
    const last=instruction.split(/[，,；;。\n]/).findLast(clause=>action.test(clause));
-   if(last&&!/不要|不必|不需要|取消|去掉|无需|能否|是否|\b(?:not|without)\b/i.test(last)&&
-      /设定|调节|调整|暂停|倒计时|计时|启动|开始|启停|增加|切换|改变|复位|亮度|brightness|timer|pause|start/i.test(last)&&
-      !controls.some(control=>control.kind===kind))issues.push('本轮明确要求'+label+'输入触发行为，但交互定义缺少这一类可操作输入。');
+   if(!last||/不要|不必|不需要|取消|去掉|无需|能否|是否|\b(?:not|without)\b/i.test(last))continue;
+   const remote=isCompanionCommand(last);
+   if(/设定|调节|调整|暂停|倒计时|计时|启动|开始|启停|增加|切换|改变|复位|亮度|brightness|timer|pause|start/i.test(last)&&
+      !controls.some(control=>control.kind===(remote?'command':kind)))
+    issues.push('本轮明确要求'+(remote?'页面命令':label)+'输入触发行为，但交互定义缺少这一类可操作输入。');
   }
  }
  if(!tracking)return {review,issues:[...new Set(issues)],...provenance};

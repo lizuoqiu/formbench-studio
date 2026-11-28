@@ -1,7 +1,7 @@
 ---
 name: interaction-hardware
 metadata:
-  revision: 2026.11.27.1
+  revision: 2026.11.27.2
 description: 把人与设备之间的物理互动变成有安装位置的零件、可制造的形体和可预览的动作。
 ---
 
@@ -103,7 +103,7 @@ cadPlan.joints 表示设备驱动的转轴，按从基座到末端的顺序定�
 
 ## 让操作触发可观察的状态变化
 
-当用户从已有手机或电脑通过本地网络使用设备，设备提供的网页使用 outputs.kind="web"，partIndex 为安装在装置内的主控，signalPin 引用该型号查证过的 builtin:<wifi 功能 id>，bodyIndices=[]、motion=null。网页按键用 kind="command"，partIndex 为该主控，signalPins 使用同一个无线接口引用，其余机械字段为空或零。网页连接/断开事件可用该无线接口，真实传感样本仍须来自传感器。说明网页如何建立连接、记录如何保存及再次访问；不为浏览器另买显示屏，不给无线通路画导线。
+当用户从已有手机或电脑通过本地网络使用设备，设备提供的网页使用 outputs.kind="web"，partIndex 为安装在装置内的主控，signalPin 引用该型号查证过的 builtin:<wifi 功能 id>，bodyIndices=[]、motion=null。网页按键用 kind="command"，partIndex 为该主控，signalPins 使用同一个无线接口引用，其余机械字段为空或零。网页连接/断开事件可用该无线接口，网页可发起校时、标定和启停。用专用硬件的传感事件表示标定或运行时的实际取样。说明网页如何建立连接、记录如何保存及再次访问；不为浏览器另买显示屏，不给无线通路画导线。
 
 有线调试台对专用装置发出的按钮指令用 controls.kind="command"，不虚构实体触屏或机械按钮。partIndex 指清单中的外部命令主机（role=external、placement=loose）；fixedBodyIndex=null、movingBodyIndices=[]、axis=[]、pivotMm=[]、step=0、range=null。signalPins 列真实通信总线端子并连接到实际控制器输入，各命令可共享 USB 数据对，由唯一 id/协议消息区分。网页在模型下方显示这些按钮，通过同一交互模型驱动 CAD；纯连续关节预览已有逐轴滑杆、±5°点动、停止当前按住操作和回到初始姿态。不要为这些网页操作额外制造实体按钮。实机回零轨迹和硬件通信需要分别验证。
 

@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {design} from './design.mjs';
+import {evaluateDraft,replayInteraction} from './design-review.mjs';
+import {validateInteraction} from '../interaction-model.js';
+import {machineFindings} from './design-defects.mjs';
+import {recorderFixture,wire} from './test-fixtures/timer-model.mjs';
 import {candidateForModel,geometryForModel} from './model-geometry-input.mjs';
 import {fixtureProductDelivery,revisionFixture} from './test-fixtures/design-review.mjs';
 
@@ -103,7 +108,8 @@ test('invalid non-null control model cannot override deterministic validation wi
 test('missing independent review, bad reference indices and failed service do not publish a candidate',async()=>{
  for(const broken of [new Response('',{status:503}),{...report(),checks:[]},{...report(),checks:report().checks.map(row=>({...row,bodyIndices:[55]}))},
    {...report(),productDelivery:{...fixtureProductDelivery,partIndices:[]}},
-   {...report(),productDelivery:{...fixtureProductDelivery,partIndices:[45]}}]){
+   {...report(),productDelivery:{...fixtureProductDelivery,partIndices:[45]}},
+   {...report(),productDelivery:{...fixtureProductDelivery,status:'viewer-required-to-operate'}}]){
   const out=await run({generate:()=>draft('ellipsoid'),review:()=>broken});
   assert.equal(out.status,502);assert.equal(out.result.design,undefined);assert.match(out.result.error,/评审/);
  }
@@ -121,15 +127,63 @@ test('direct delivery rejects an accessory around an existing terminal doing all
  assert.equal(result.status,502);assert.equal(result.result.design,undefined);
  assert.ok(result.result.review.issues.some(issue=>issue.includes(evidence)));
 });
-test('a dedicated recorder that requires its viewing terminal to begin recording goes back for repair',async()=>{
- const recorder=draft('ellipsoid');
- recorder.parts[0]={...recorder.parts[0],name:'到货记录器',purpose:'独立记录包裹放入的时刻'};
- recorder.steps=['接通电源。每次启动后必须用手机确认，记录器才开始工作。'];
- const evidence='记录器自身能够感测包裹，但使用者离开手机就无法启动记录。';
- const out=await run({requirements:{prompt:'放一个独立装置记录到货时间，我回家用手机查看即可。'},generate:()=>recorder,
-  review:()=>({...report(),productDelivery:{status:'viewer-required-to-operate',partIndices:[0],evidence}})});
- assert.equal(out.result.design,undefined);
- assert.ok(out.result.review?.issues.some(issue=>issue.includes(evidence)));
+// Reuse the wired timer board. Its encoder switch supplies the sample signal on D4;
+// the phone has one external USB command endpoint and no CAD body or sampling role.
+function phoneControlledRecorder(){
+ const {design:candidate}=JSON.parse(readFileSync(new URL('../samples/shared/reading-timer/v4.json',import.meta.url)));
+ const index=candidate.parts.length;
+ candidate.parts.push({...part,name:'用户手机',model:'USB Host phone',kind:'provided',spec:'USB CDC',role:'external',placement:'loose',
+  purpose:'配置与校时，发出开始和结束命令，显示结果'});
+ const model=recorderFixture();
+ model.controls=['begin','finish'].map(id=>({id,label:id,kind:'command',partIndex:index,fixedBodyIndex:null,movingBodyIndices:[],
+  axis:[],pivotMm:[],step:0,range:null,signalPins:['D+']}));
+ model.connections.push(wire('signal',index,'D+',4,'USB-D+'));
+ model.systemEvents=model.systemEvents.filter(e=>e.kind==='feedback');
+ candidate.interaction=validateInteraction(model,candidate);
+ return candidate;
+}
+test('a USB phone command can start a dedicated logger; a prior viewer-only rejection closes after a new review', async()=>{
+ const candidate=phoneControlledRecorder(),behavior=replayInteraction(candidate.interaction);
+ assert.equal(behavior.recordedHistory.status,'observed');
+ const oldDelivery={status:'viewer-required-to-operate',partIndices:[4],evidence:'每次启动必须在手机上确认。'};
+ const description='独立硬件的交付条件未满足。'+oldDelivery.evidence;
+ const [finding]=machineFindings([description],'requirements',candidate);
+ const prior={...finding,id:'ISSUE-001',status:'open',firstSeen:1,lastSeen:1,streak:1};
+ const current={status:'independent-hardware',partIndices:[4,5],evidence:'USB 端发送 begin 指令。第 5 行编码器开关接到第 4 行主控的 D4，读数和记录来自这台设备。'};
+ const argumentsForReview={
+  ctx:{prompt:'按下手机上的按钮启动计时，记录盒采集开关反馈。',history:[],images:[]},candidate,behavior,
+  geometry:{status:'not-applicable',issues:[],checks:[]},definitionIssues:[],previousIssues:[prior.id+' '+description],skill:{text:''},env,
+  signal:new AbortController().signal,workflow:true,tracking:{previous:[prior],history:[{attempt:1,review:{productDelivery:oldDelivery}}],attempt:2,physicalValid:true,interactiveValid:true}
+ };
+ const checked=await evaluateDraft({...argumentsForReview,send:async(_,opt)=>{
+  const request=JSON.parse(opt.body),data=JSON.parse(request.input);
+  assert.deepEqual(request.text.format.schema.properties.productDelivery.properties.status.enum,['independent-hardware','personal-device-core','unidentified']);
+  assert.match(request.instructions,/麦克风、加速度计.*包括标定/);
+  assert.equal(data.candidate.interaction.controls[0].kind,'command');
+  assert.ok(data.behavior.observations.some(o=>o.event==='begin'&&o.to==='capture'));
+  assert.deepEqual(data.previousIssues,[prior.id+' '+description]);
+  return completed({...report(),productDelivery:current,requiresInteraction:true,findings:[]});
+ }});
+ assert.deepEqual(checked.issues,[]);
+ assert.deepEqual(checked.issueDelta.closed,[prior.id]);
+ assert.deepEqual(checked.review.productDelivery,current);
+ assert.equal(prior.status,'open');
+ const revised=await evaluateDraft({...argumentsForReview,ctx:{...argumentsForReview.ctx,prompt:'按下设备实体按钮启动计时。',
+  history:[{role:'user',text:'改为按下手机上的按钮启动计时。'}]},send:async()=>completed({...report(),productDelivery:current,findings:[]})});
+ assert.deepEqual(revised.issues,[]);
+ const physical=await evaluateDraft({...argumentsForReview,ctx:{...argumentsForReview.ctx,
+  prompt:'按下设备实体按钮启动计时。用手机上的按钮也可以开始。'},send:async()=>completed({...report(),productDelivery:current,findings:[]})});
+ assert.ok(physical.issues.some(s=>s.includes('缺少这一类可操作输入')));
+});
+test('personal-device sensing used only during calibration still fails hardware delivery',async()=>{
+ const recorder=phoneControlledRecorder();
+ recorder.parts.at(-1).purpose='校准阶段通过手机麦克风采集声音参考量，再向记录器发送参数';
+ const evidence='专用记录器负责日常采样，但标定值需要手机的麦克风读数。';
+ const result=await evaluateDraft({ctx:{prompt:'做一个用手机触发标定的记录盒。',images:[],history:[]},candidate:recorder,
+  geometry:{status:'not-applicable',issues:[],checks:[]},definitionIssues:[],previousIssues:[],skill:{text:''},
+  env,signal:new AbortController().signal,send:async()=>completed({...report(),
+   productDelivery:{status:'personal-device-core',partIndices:[recorder.parts.length-1],evidence}})});
+ assert.ok(result.issues.some(s=>s.includes(evidence)));
 });
 test('bounded runtime evidence dispatches both encoder directions, button events, one second and timer expiry',async()=>{
  const {replayInteraction}=await import('./design-review.mjs');

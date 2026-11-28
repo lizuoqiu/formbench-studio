@@ -1,4 +1,4 @@
-import {partIdentity} from '../part-records.js';
+import {factoryInterfaces,partIdentity} from '../part-records.js';
 
 const object = properties => ({
   type: 'object', properties, required: Object.keys(properties), additionalProperties: false
@@ -8,7 +8,7 @@ const kinds = ['purchase', 'custom', 'material', 'included', 'provided'];
 const roles = ['internal', 'external', 'panel', 'enclosure'];
 const placements = ['mounted', 'loose'];
 const fields = {kind: kinds, role: roles, placement: placements};
-const deviceUses = ['product-core','support','result-viewer','personal-device-core'];
+const deviceUses = ['product-core','support','companion-interface','result-viewer','personal-device-core'];
 const member = object({
   model: string,
   ...Object.fromEntries(Object.entries(fields).map(([key, values]) => [key, {type: 'string', enum: values}])),
@@ -53,42 +53,74 @@ export const architectureRevisionSchema = {
   anyOf: [{type: 'null'}, object({reason: string, decisions: architectureSchema})]
 };
 
-export const architectureInstructions = 'architecture 用简短的子系统约定说明核心方案。subsystem 写功能，rationale 写成品复用或必要定制的依据，interfaces 写与其他模块的供电、数据或安装接口，motion 在存在运动时写明哪一件固定、哪一件带动谁，否则填 null。每组 members 引用初始 BOM 中承担这项约定的关键件，逐字沿用 model、kind、role、placement；每个 custom 件都要列入并写明为何不能直接采购。成员的 deviceUse 按实际分工填写：product-core 是完成用户所要功能的专用实物，support 是配套，result-viewer 是查看结果的已有通用终端。若已有通用终端承担核心感测、运算或执行，其实际类别为 personal-device-core，需要重选独立硬件。将所有承担功能或用于查看的通用终端列入约定。';
+export const deviceUseInstructions = 'deviceUse 按实际分工填写：product-core 是实现要求的实体感测、执行或其他物理作用的专用实物，support 是配套。已有手机等通用终端可作为 companion-interface，负责设置、校时、输入标定参考值或发送标定命令、操作控制、查看和转发专用硬件取得的结果；旧值 result-viewer 继续有效。手机自带传感器采集本设计的物理观测（即使只触发反馈、不记录），或手机代替专用硬件实现实体作用时，记 personal-device-core 并更换来源。所有参与的个人终端都列入约定；说明测量最初由哪件硬件取得。';
+export const architectureInstructions = 'architecture 用简短的子系统约定说明核心方案。subsystem 写功能，rationale 写成品复用或必要定制的依据，interfaces 写与其他模块的供电、数据或安装接口，motion 在存在运动时写明哪一件固定、哪一件带动谁，否则填 null。每组 members 引用初始 BOM 中承担这项约定的关键件，逐字沿用 model、kind、role、placement；每个 custom 件都要列入并写明为何不能直接采购。'+deviceUseInstructions;
 
-// Old saved contracts predate deviceUse. Newly planned contracts must identify
-// a physical deliverable; purchasing a part and using it as the core are separate facts.
-export function productBoundaryIssues(decisions, parts, {required = false, interaction, cadPlan} = {}) {
+const isCompanion = member => ['companion-interface','result-viewer'].includes(member.deviceUse);
+const pinKey = pin => typeof pin==='string'?pin.trim().toUpperCase():'';
+// Explicit measurement channels can identify an unrecorded observation. A
+// generic GPIO, serial bus or feedback label alone does not identify its origin.
+const sensorChannel = /^(?:SENSOR[:._-])?(?:(?:ACCEL(?:EROMETER)?|GYRO(?:SCOPE)?|MAGNETOMETER)(?:[._:-]?[XYZ])?|GPS[._:-](?:LATITUDE|LONGITUDE|LAT|LON|ALTITUDE)|(?:TEMPERATURE|PRESSURE|HUMIDITY|LUX|CAMERA[._:-]FRAME|MICROPHONE[._:-]SAMPLE))$/;
+
+function companionFeedback(interaction,parts,companions) {
+  const samples=new Set(interaction?.recorder?.sampleEvents||[]);
+  const measured=new Set(),unresolved=[];
+  for(const event of interaction?.systemEvents||[]){
+    const item=parts?.[event.partIndex];
+    if(!item||!companions.has(partIdentity(item))||(!samples.has(event.id)&&event.kind!=='feedback'))continue;
+    const pins=(event.sourcePins||[]).map(pinKey);
+    // A phone may consume or forward samples taken elsewhere. A declared
+    // inbound signal needs its upstream origin checked before assigning it.
+    const incoming=pins.filter(pin=>(interaction.connections||[]).some(wire=>wire.kind==='signal'&&
+      ((wire.toPartIndex===event.partIndex&&pinKey(wire.toPin)===pin)||
+       (wire.bidirectional&&wire.fromPartIndex===event.partIndex&&pinKey(wire.fromPin)===pin))));
+    const factory=factoryInterfaces(item);
+    const wirelessPins=pins.filter(pin=>factory.some(f=>f.kind==='wifi'&&pin==='BUILTIN:'+pinKey(f.id)));
+    if((samples.has(event.id)&&!incoming.length&&!wirelessPins.length)||pins.some(pin=>sensorChannel.test(pin)&&!incoming.includes(pin))){
+      measured.add(item.model);
+      continue;
+    }
+    if(!samples.has(event.id)&&pins.length&&pins.every(pin=>factory.some(f=>
+      ['button','touch','clock'].includes(f.kind)&&pin==='BUILTIN:'+pinKey(f.id))))continue;
+    // Command and measurement events may share a bus. Include the control
+    // mapping as evidence for semantic review without attributing its payload.
+    const sharedControls=(interaction.controls||[]).filter(c=>c.partIndex===event.partIndex&&
+      c.signalPins?.some(pin=>pins.includes(pinKey(pin)))).map(c=>c.id);
+    unresolved.push({eventId:event.id,partIndex:event.partIndex,sourcePins:event.sourcePins||[],
+      ...(sharedControls.length?{sharedControls}:{}),...(incoming.length?{inboundPins:incoming}:{}),
+      ...(wirelessPins.length?{wirelessPins}:{})});
+  }
+  return {measured,unresolved};
+}
+
+// A saved contract may predate deviceUse. New plans must identify the physical
+// product, irrespective of whether it is bought, supplied or designed here.
+function productBoundary(decisions, parts, {required = false, interaction, cadPlan} = {}) {
   const members = (decisions || []).flatMap(decision => decision.members);
-  if (!required && !members.some(member => member.deviceUse !== undefined)) return [];
+  if (!required && !members.some(member => member.deviceUse !== undefined)) return {issues:[]};
   if (!members.length || members.some(member => !deviceUses.includes(member.deviceUse))) {
-    return ['请标明各部件承担主体功能、配套或结果查看的实际用途。'];
+    return {issues:['请标明各部件承担实体功能、配套或辅助交互的实际用途。']};
   }
   const issues = [];
   const core = new Set(members.filter(member => member.deviceUse === 'product-core').map(partIdentity));
-  const viewers = new Set(members.filter(member => member.deviceUse === 'result-viewer').map(partIdentity));
+  const companions = new Set(members.filter(isCompanion).map(partIdentity));
   if (!core.size || (parts && !parts.some(part => core.has(partIdentity(part))))) {
     issues.push('方案缺少实际承担核心功能的独立硬件。');
   }
-  const hosts = new Set();
-  for (const member of members) {
-    if (member.deviceUse === 'personal-device-core' || (member.deviceUse === 'result-viewer' && core.has(partIdentity(member)))) {
-      hosts.add(member.model);
-    }
+  const {measured,unresolved}=companionFeedback(interaction,parts,companions);
+  const hosts=new Set(members.filter(m=>m.deviceUse==='personal-device-core'||(isCompanion(m)&&core.has(partIdentity(m)))).map(m=>m.model));
+  const axes=[...(cadPlan?.motions||[]),...(cadPlan?.joints||[])];
+  for(const axis of axes){
+    const actuator=parts?.[axis.actuatorPartIndex];
+    if(actuator&&companions.has(partIdentity(actuator)))hosts.add(actuator.model);
   }
-  if (parts && viewers.size) {
-    const sampleEvents = new Set(interaction?.recorder?.sampleEvents || []);
-    const sampleSources = (interaction?.systemEvents || []).filter(event => sampleEvents.has(event.id)).map(event => event.partIndex);
-    const axes = [...(cadPlan?.motions || []), ...(cadPlan?.joints || [])];
-    const actuators = axes.map(axis => axis.actuatorPartIndex);
-    for (const index of [interaction?.controllerPartIndex, ...sampleSources, ...actuators]) {
-      const part = parts[index];
-      if (part && viewers.has(partIdentity(part))) hosts.add(part.model);
-    }
-  }
-  for (const model of hosts) {
-    issues.push('已有通用终端 '+model+' 承担了核心功能。请将其移到专用硬件，查看结果可继续使用该终端。');
-  }
-  return issues;
+  for (const model of hosts) issues.push('已有通用终端 '+model+' 承担了核心功能。请选专用硬件实现实体作用，保留终端的辅助交互。');
+  for (const model of measured) issues.push('物理测量来自已有通用终端 '+model+'。请由专用硬件取得原始观测，终端可发命令、同步时间或查看结果。');
+  return {issues,...(unresolved.length?{companionFeedbackToReview:unresolved}:{})};
+}
+
+export function productBoundaryIssues(decisions,parts,design) {
+  return productBoundary(decisions,parts,design).issues;
 }
 
 function hasText(value) {
@@ -118,7 +150,8 @@ export function validateArchitecture(decisions) {
 // declared interfaces and motion plus the current CAD, wiring and run evidence.
 export function inspectArchitecture(decisions, parts, design) {
   if (!decisions) return undefined; // pre-contract job
-  const issues = productBoundaryIssues(decisions,parts,design);
+  const observation = productBoundary(decisions,parts,design);
+  const issues = observation.issues;
   const subsystems = decisions.map(decision => {
     const members = decision.members.map(expected => {
       const matches = [];
@@ -142,7 +175,7 @@ export function inspectArchitecture(decisions, parts, design) {
   });
   const contracted=new Set(decisions.flatMap(d=>d.members.map(partIdentity)));
   for(const p of parts)if(p?.kind==='custom'&&!contracted.has(partIdentity(p)))issues.push('新增定制件 '+p.model+' 未列入架构约定；应优先使用成品或记录必要功能与定制理由。');
-  return {subsystems, issues};
+  return {subsystems, ...observation};
 }
 
 export function validateArchitectureRevision(revision,requireDeviceUse=false) {

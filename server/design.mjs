@@ -399,7 +399,7 @@ export async function design(request,env,send=fetch,workflow=null){const reply=(
      ...(evidence.inherited?{inherited:evidence.inherited}:{})};
     const {model:reviewModel,...reviewProvenance}=responseProvenance(evaluation);
     provenance.designReview={status:'preview-reviewed',attempts:attempt,skill:reviewSkill.skill,modelId:reviewModel??null,...reviewProvenance,
-     checks:evaluation.review.checks,physicalChecks:evaluation.review.physicalChecks,geometry,behavior,wiring,...(ctx.motionEvidence?{motion:ctx.motionEvidence}:{}),...(ctx.architectureEvidence?{architecture:ctx.architectureEvidence}:{}),...(evaluation.recovery?{recovery:evaluation.recovery}:{}),
+     productDelivery:evaluation.review.productDelivery,checks:evaluation.review.checks,physicalChecks:evaluation.review.physicalChecks,geometry,behavior,wiring,...(ctx.motionEvidence?{motion:ctx.motionEvidence}:{}),...(ctx.architectureEvidence?{architecture:ctx.architectureEvidence}:{}),...(evaluation.recovery?{recovery:evaluation.recovery}:{}),
      ...(reuseThisDraft?{draftSource:'retained-candidate'}:{}),...(aliases.corrections.length?{normalizations:aliases.corrections}:{}),
      ...(attempt>1||reuseThisDraft?{correctedIssues:previousIssues}:{})};
     if(workflow){provenance.workflow={jobId:workflow.id,attempts:attempt,parts:candidate.parts.length,imported:candidate.parts.filter(p=>p.importedModel).length,rounds:state.rounds.map(r=>({attempt:r.attempt,issues:r.issues}))};provenance.cadUrl='/api/design-jobs/'+workflow.id+'/cad.json';}

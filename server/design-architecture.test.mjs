@@ -8,21 +8,75 @@ import {fixtureProductDelivery,reviewedFixture,revisionFixture} from './test-fix
 const supply={model:'Acme Supply A',kind:'purchase',role:'external',placement:'loose'};
 const decisions=[{subsystem:'Power',rationale:'Use a compatible external adapter',interfaces:'Barrel jack on rear panel',motion:null,members:[supply]}];
 
-test('a dedicated product can be turnkey or provided, while an existing viewer cannot perform its core tasks',()=>{
+for(const deviceUse of ['companion-interface','result-viewer'])test('personal terminals may command and display with role '+deviceUse,()=>{
   const device={model:'Shelf counter X4',kind:'provided',role:'enclosure',placement:'loose',deviceUse:'product-core'};
-  const viewer={model:'Personal screen Z',kind:'provided',role:'external',placement:'loose',deviceUse:'result-viewer'};
-  const architecture=[{...decisions[0],members:[device,viewer]}],parts=[viewer,device];
-  assert.deepEqual(inspectArchitecture(architecture,parts,{interaction:{controllerPartIndex:1}}).issues,[]);
-  const measurement={controllerPartIndex:1,recorder:{sampleEvents:['change']},systemEvents:[{id:'change',partIndex:0}]};
-  assert.match(inspectArchitecture(architecture,parts,{interaction:measurement}).issues.join(' '),/Personal screen Z/);
-  assert.match(inspectArchitecture(architecture,parts,{interaction:{controllerPartIndex:0}}).issues.join(' '),/Personal screen Z/);
-  assert.match(inspectArchitecture(architecture,parts,{cadPlan:{joints:[{actuatorPartIndex:0}]}}).issues.join(' '),/Personal screen Z/);
-  assert.deepEqual(inspectArchitecture(architecture,parts,{interaction:{controllerPartIndex:1,systemEvents:[{id:'report_open',partIndex:0}]}}).issues,[]);
+  const phone={model:'Personal screen Z',kind:'provided',role:'external',placement:'loose',deviceUse};
+  const architecture=[{...decisions[0],members:[device,phone]}],parts=[phone,device];
+  const inspect=(interaction,cadPlan)=>inspectArchitecture(architecture,parts,{interaction,cadPlan});
+  const controls=[{id:'calibrate',partIndex:0,kind:'command',signalPins:['CONTROL']}];
+  const digital={controllerPartIndex:0,controls,outputs:[{id:'review',partIndex:0,kind:'web'}],systemEvents:[
+    {id:'connected',partIndex:0,kind:'connection'}, {id:'clock_sync',partIndex:0,kind:'timeout'},
+    {id:'state',partIndex:0,kind:'feedback',sourcePins:['CONTROL']}]};
+  assert.deepEqual(inspect(digital,{joints:[{actuatorPartIndex:1,controllerPartIndex:0}]}).issues,[]);
+  assert.deepEqual(inspect(digital).companionFeedbackToReview,[{eventId:'state',partIndex:0,sourcePins:['CONTROL'],sharedControls:['calibrate']}]);
+  const hardwareFeedback={id:'threshold',partIndex:1,kind:'feedback',sourcePins:['PRESSURE']};
+  assert.deepEqual(inspect({...digital,systemEvents:[hardwareFeedback],recorder:{sampleEvents:['threshold']}}).issues,[]);
+  const phoneMeasurement={...hardwareFeedback,partIndex:0};
+  assert.match(inspect({...digital,systemEvents:[phoneMeasurement]}).issues.join(' '),/物理测量.*Personal screen Z/);
+  assert.match(inspect({...digital,systemEvents:[{id:'change',partIndex:0}],recorder:{sampleEvents:['change']}}).issues.join(' '),/Personal screen Z/);
+  assert.match(inspect(digital,{joints:[{actuatorPartIndex:0}]}).issues.join(' '),/Personal screen Z/);
+  const ambiguous={id:'packet',label:'温度检查通过',kind:'feedback',partIndex:0,sourcePins:['RX']};
+  const observation=inspect({...digital,systemEvents:[ambiguous]});
+  assert.deepEqual(observation.issues,[]);
+  assert.deepEqual(observation.companionFeedbackToReview,[{eventId:'packet',partIndex:0,sourcePins:['RX']}]);
+  const received=inspect({...digital,systemEvents:[phoneMeasurement],connections:[{kind:'signal',fromPartIndex:1,
+    fromPin:'OUT',toPartIndex:0,toPin:'PRESSURE'}]});
+  assert.deepEqual(received.issues,[]);
+  assert.deepEqual(received.companionFeedbackToReview[0].inboundPins,['PRESSURE']);
+  const relayedRecording=inspect({...digital,systemEvents:[phoneMeasurement],recorder:{sampleEvents:['threshold']},
+    connections:[{kind:'signal',fromPartIndex:1,fromPin:'OUT',toPartIndex:0,toPin:'PRESSURE'}]});
+  assert.deepEqual(relayedRecording.issues,[]);
+  assert.deepEqual(relayedRecording.companionFeedbackToReview[0].inboundPins,['PRESSURE']);
   const previous={selection:{architecture}};
   const revision=members=>({architectureRevision:{reason:'Change the product.',decisions:[{...decisions[0],members}]}});
-  assert.throws(()=>applyArchitectureRevision(previous,revision([viewer,supply])),/部件承担/);
-  assert.throws(()=>applyArchitectureRevision(previous,revision([{...viewer,deviceUse:'personal-device-core'}])),/独立硬件/);
+  assert.throws(()=>applyArchitectureRevision(previous,revision([phone,supply])),/部件承担/);
+  assert.throws(()=>applyArchitectureRevision(previous,revision([{...phone,deviceUse:'personal-device-core'}])),/独立硬件/);
   assert.deepEqual(previous.selection.architecture,architecture);
+});
+
+test('a documented clock reference on a companion may supply time for calibration',()=>{
+  const clock={id:'clock_source',kind:'clock',model:'Terminal V',sourceUrl:'https://vendor.example/terminal',
+    quote:'The module provides the factory time reference.',sourceSha256:'a'.repeat(64)};
+  const terminal={...supply,model:clock.model,deviceUse:'companion-interface',sourcing:{factoryInterfaces:[clock]}};
+  const reference={...supply,model:'Dedicated photo gate',deviceUse:'product-core'};
+  const plan=[{...decisions[0],members:[reference,terminal]}];
+  const interaction={controllerPartIndex:1,systemEvents:[{id:'sync',kind:'feedback',partIndex:1,
+    label:'校时',sourcePins:['builtin:clock_source']}]};
+  const observation=inspectArchitecture(plan,[reference,terminal],{interaction});
+  assert.deepEqual(observation.issues,[]);
+  assert.equal(observation.companionFeedbackToReview,undefined);
+  const unknown=inspectArchitecture(plan,[reference,{...terminal,sourcing:{factoryInterfaces:[]}}],{interaction});
+  assert.deepEqual(unknown.issues,[]);
+  assert.equal(unknown.companionFeedbackToReview[0].eventId,'sync');
+});
+
+test('a documented wireless port carries observations for source review, including recorded samples',()=>{
+  const wifi={id:'radio',kind:'wifi',model:'Link client',sourceUrl:'https://vendor.example/radio',
+    quote:'The terminal can receive packets over Wi-Fi.',sourceSha256:'b'.repeat(64)};
+  const terminal={...supply,model:wifi.model,deviceUse:'companion-interface',sourcing:{factoryInterfaces:[wifi]}};
+  const sensor={...supply,model:'Wireless light meter',deviceUse:'product-core'};
+  const design=[{...decisions[0],members:[sensor,terminal]}];
+  const event={id:'telemetry',kind:'feedback',partIndex:1,sourcePins:['builtin:radio']};
+  for(const recorder of [null,{sampleEvents:['telemetry']}]){
+    const inspect=e=>inspectArchitecture(design,[sensor,terminal],{interaction:{controllerPartIndex:1,
+      connections:[],systemEvents:[e],recorder}});
+    const forwarded=inspect(event);
+    assert.deepEqual(forwarded.issues,[]);
+    assert.deepEqual(forwarded.companionFeedbackToReview,[{eventId:'telemetry',partIndex:1,
+      sourcePins:['builtin:radio'],wirelessPins:['BUILTIN:RADIO']}]);
+    const local=inspect({...event,sourcePins:['ACCEL_X','builtin:radio']});
+    assert.match(local.issues.join(' '),/物理测量.*Link client/);
+  }
 });
 
 test('planning corrects a personal-device design before sourcing and still accepts zero custom parts',async()=>{
@@ -195,5 +249,6 @@ test('an explicit change to a static model can supersede an earlier serial motio
     });
   const result=await response.json();
   assert.equal(response.status,200,JSON.stringify(result));
+  assert.equal(result.design.generation.designReview.productDelivery.status,'independent-hardware');
   assert.deepEqual(result.design.generation.designReview.motion.required,fixed);
 });
