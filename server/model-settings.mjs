@@ -1,5 +1,6 @@
 const efforts=new Set(['low','medium','high','xhigh','max']);
 export const mainLocalModel='gpt-6.2-sol';
+export const lunaMaxPolicy='local-codex-luna-max';
 export const validLocalEffort=value=>value==='ultra'||efforts.has(value);
 export function reasoningSettings(env={}){
   const effort=env.OPENAI_REASONING_EFFORT||'max';

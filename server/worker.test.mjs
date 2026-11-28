@@ -7,6 +7,12 @@ test('only valid app tokens for this Access policy can dispatch same-origin requ
  const run=(token,origin='https://example.org',path='/api/design',config=env)=>worker.fetch(new Request('https://example.org'+path,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',...(token?{'Cf-Access-Jwt-Assertion':token}:{})}}),config).then(x=>x.status);
  assert.equal(await run(null),403);assert.equal(await run('forged'),403);assert.equal(await run(await sign('other')),403);assert.equal(await run(await sign('research','org')),403);assert.equal(await run(await sign('research','app',1)),403);
  const valid=await sign('research');assert.equal(await run(valid,'https://elsewhere.org'),403);assert.equal(await run(valid,undefined,'/api/cart'),400);assert.equal(await run(valid,undefined,undefined,{}),503);assert.equal(calls,0);assert.equal(await run(valid),200);assert.equal(calls,1);
+ for(const provider of ['local-codex','local-codex-luna-max']){
+  const request=new Request('https://example.org/api/design',{method:'POST',headers:{Origin:'https://example.org','Content-Type':'application/json','Cf-Access-Jwt-Assertion':valid,'X-Formbench-Provider':provider}});
+  const rejected=await worker.fetch(request,env);
+  assert.equal(rejected.status,409);assert.match((await rejected.json()).error,/本机/);
+ }
+ assert.equal(calls,1);
  const read=(path,token)=>worker.fetch(new Request('https://example.org'+path,{headers:token?{'Cf-Access-Jwt-Assertion':token}:{}}),env);
  assert.equal((await read('/api/capabilities')).status,403);assert.deepEqual(await (await read('/api/capabilities',valid)).json(),{ai:false,catalog:false,cart:'manual'});
  assert.equal((await read('/api/auth/status')).status,403);assert.deepEqual((await (await read('/api/auth/status',valid)).json()).authenticated,false);

@@ -1,3 +1,4 @@
+import {lunaMaxPolicy} from './model-settings.mjs';
 import {createRemoteJWKSet,jwtVerify} from 'jose';
 import {design} from './design.mjs';
 import {catalog} from './catalog.mjs';
@@ -23,7 +24,10 @@ export function makeWorker({keys=signingKeys,generate=design,search=catalog,cart
  if(request.headers.get('Origin')!==url.origin)return error('请从本站发起设计请求。',403);
  if(request.headers.get('content-type')?.split(';')[0].trim()!=='application/json')return error('需要 JSON 格式的设计说明。',415);
  const provider=request.headers.get('X-Formbench-Provider');
- if(url.pathname==='/api/design'&&provider&&provider!=='openai-api')return error(provider==='local-codex'?'本机 Codex 需要在本机工作台运行。':'未知的运行方式。',provider==='local-codex'?409:400);
+ if(url.pathname==='/api/design'&&provider&&provider!=='openai-api'){
+  const local=provider==='local-codex'||provider===lunaMaxPolicy;
+  return error(local?'本机 Codex 需要在本机工作台运行。':'未知的运行方式。',local?409:400);
+ }
  return handler(request,{...env,PUBLIC_WORKER:'1',ACCESS_PROTECTED:'1'});
 }};}
 export default makeWorker();

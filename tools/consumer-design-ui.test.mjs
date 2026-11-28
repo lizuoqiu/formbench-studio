@@ -250,3 +250,62 @@ test('grouped interview supports editable choices, typed answers and scoped dele
   assert.deepEqual(requests.at(-1).conversation.at(-1),{role:'user',text:'提前十分钟'});
  }finally{await browser?.close();await close()}
 });
+
+test('Luna stays project-scoped through Pages handoff, intake and durable job reload',async t=>{
+ const {url,close}=await serveWorkbench();t.after(close);
+ const browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||'chrome'});t.after(()=>browser.close());
+ const context=await browser.newContext(),pages='https://formwork-luna-test.github.io',local='http://127.0.0.1:4173';
+ const policy='local-codex-luna-max',id='01234567-89ab-cdef-0123-456789abcdef';
+ const requests=[];
+ let advertised=true,complete=false,reads=0;
+ await context.route('**/*',async route=>{
+   const u=new URL(route.request().url()),request=route.request();
+   if(![local,pages].includes(u.origin))return route.abort();
+   if(!u.pathname.startsWith('/api/')){
+     const res=await fetch(url+u.pathname);
+     return route.fulfill({status:res.status,contentType:res.headers.get('content-type'),body:Buffer.from(await res.arrayBuffer())});
+   }
+   assert.equal(u.origin,local);
+   if(u.pathname==='/api/capabilities')return route.fulfill({json:{ai:true,aiProvider:'local-codex',aiModel:'gpt-6.2-sol',designJobs:true,
+     designProviders:[{id:'local-codex',model:'gpt-6.2-sol',...(advertised?{lunaMax:true}:{})}]}});
+   if(['/api/design','/api/design-jobs'].includes(u.pathname))requests.push({path:u.pathname,policy:request.postDataJSON().provider,header:request.headers()['x-formbench-provider']});
+   const job={id,policy,provider:'local-codex'};
+   if(u.pathname==='/api/design')return route.fulfill({json:{decision:'ready'}});
+   if(u.pathname==='/api/design-jobs')return route.fulfill({status:202,json:{...job,status:'running',progress:{stage:'sourcing'}}});
+   if(u.pathname==='/api/design-jobs/'+id){reads++;return route.fulfill({json:complete?{...job,status:'complete',prompt:'会发光的钥匙扣',design:fixture}:{...job,status:'running',progress:{stage:'sourcing'}}})}
+   return route.fulfill({json:{}});
+ });
+ const publicPage=await context.newPage();
+ await publicPage.goto(pages+'/?new=1#provider='+policy);
+ await publicPage.getByRole('button',{name:'在本机生成'}).waitFor();
+ assert.equal(await publicPage.locator('#run-provider').inputValue(),policy);
+ assert.match(await publicPage.locator('#selected-model').innerText(),/Luna \/ max/);
+ const opened=context.waitForEvent('page');await publicPage.locator('#generate').click();const page=await opened;
+ await page.waitForURL(local+'/?new=1#provider='+policy);
+ await page.locator('#generate:enabled').waitFor();
+ assert.equal(await page.locator('#run-provider').inputValue(),policy);assert.equal(await page.locator('#wish').inputValue(),'');
+ assert.equal(requests.length,0);
+ await page.locator('#wish').fill('会发光的钥匙扣');await page.locator('#generate').click();
+ await page.locator('#entry-progress[data-phase=sourcing]').waitFor();
+ assert.deepEqual(requests,[{path:'/api/design',policy,header:policy},{path:'/api/design-jobs',policy,header:undefined}]);
+ assert.equal(page.url(),local+'/');assert.match(await page.locator('#selected-model').innerText(),/Luna \/ max/);
+ await page.reload();await page.locator('#entry-progress[data-phase=sourcing]').waitFor();
+ assert.ok(reads>0);assert.equal(await page.locator('#run-provider').inputValue(),policy);
+ assert.match(await page.locator('#selected-model').innerText(),/Luna \/ max/);assert.equal(requests.length,2);
+ complete=true;await page.locator('#project:not([hidden])').waitFor();
+ await page.waitForFunction(()=>JSON.parse(localStorage.getItem('formbench.consumer.guest.v1')||'[]')[0]?.iteration.policy==='local-codex-luna-max');
+ await page.locator('#back').click();assert.equal(await page.locator('#run-provider').inputValue(),'auto');
+ assert.match(await page.locator('#selected-model').innerText(),/gpt-6\.2-sol/);
+ await page.goto(local+'/?job='+id);await page.locator('#revision-prompt').fill('加一个挂绳孔');await Promise.all([
+   page.waitForResponse(response=>response.url()===local+'/api/design-jobs'),
+   page.locator('#revise-design').click()
+ ]);
+ assert.equal(requests.at(-1).policy,policy);
+ advertised=false;
+ const unavailable=await context.newPage();await unavailable.goto(local+'/?new=1#provider='+policy);
+ await unavailable.getByText('当前工作台未提供 GPT‑6‑Luna / max。请选择其他运行方式。').waitFor();
+ assert.equal(await unavailable.locator('#run-provider').inputValue(),policy);
+ assert.ok(await unavailable.locator('#generate').isDisabled());assert.ok(await unavailable.locator('option[value="'+policy+'"]').isDisabled());
+ await unavailable.locator('.run-options summary').click();await unavailable.locator('#run-provider').selectOption('auto');
+ assert.ok(await unavailable.locator('#generate').isEnabled());
+});

@@ -89,7 +89,7 @@ function start(job,env,run=design){
   active.set(job.id,{controller,job});
   const request=new Request('http://127.0.0.1/api/design',{method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,body:JSON.stringify(job.input)});
   Promise.resolve().then(()=>{
-    const scoped=observeRun(providerEnv(job.provider,env,job.id),sink);
+    const scoped=observeRun(providerEnv(job.provider,env,job.id,job.policy),sink);
     const runEnv=job.provider==='local-codex'?scoped:bindJobForgeTools(scoped,job,save);
     return run(request,runEnv,fetch,{id:job.id,state:job.state,progress,loadCompiled,
       checkBrowser:(candidate,compiled,signal)=>reviewDraftBrowser(candidate,compiled,env,signal),

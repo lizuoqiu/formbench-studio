@@ -6,8 +6,12 @@ const workflowTools=Symbol('scoped workflow tools');
 export const withWorkflowTools=(env,run)=>({...env,[workflowTools]:{run,baseEnv:env}});
 export const withLocalCodex=(env,config)=>({...env,[localCodex]:config});
 export const hasLocalCodex=env=>Boolean(env[localCodex]);
+// Keep the CLI path of the scoped local runner, including injected/test runners.
+export function pinLocalModel(env,model,effort){
+  return withLocalCodex(env,{...env[localCodex],model,effort,allStages:true});
+}
 export function routineLookupEnv(env){
-  if(!hasLocalCodex(env))return env;
+  if(!hasLocalCodex(env)||env[localCodex].allStages)return env;
   return withLocalCodex(env,{...env[localCodex],model:env.FORMBENCH_LOCAL_CODEX_LOOKUP_MODEL||mainLocalModel,
     effort:env.FORMBENCH_LOCAL_CODEX_LOOKUP_EFFORT||'medium'});
 }

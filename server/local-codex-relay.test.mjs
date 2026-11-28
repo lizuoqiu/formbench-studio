@@ -5,6 +5,8 @@ import {join} from 'node:path';
 import test from 'node:test';
 import {requestOpenAI,responseSourceUrls,withLocalCodex} from './openai-response.mjs';
 import {researchPart} from './part-sourcing.mjs';
+import {checkChoice,designProviders,providerEnv,routedDiscussion} from './design-provider.mjs';
+import {format,structuredCall} from './design-review.mjs';
 import {observeRun} from './run-events.mjs';
 
 const schema={type:'object',properties:{url:{type:'string'}},required:['url'],additionalProperties:false};
@@ -45,6 +47,49 @@ test('routine part research uses its selected local model and targeted engineeri
  assert.equal(retry.researchProvenance.model,focused.researchProvenance.model);
  assert.deepEqual(events.filter(row=>row.event==='ai.start').map(row=>[row.model,row.effort]),[
   ['gpt-6-luna','medium'],['gpt-6.2-sol','ultra'],['gpt-6.2-sol','ultra']]);
+});
+
+test('explicit Luna discussions, CAD stages and every sourcing call share the same scoped CLI profile',async t=>{
+ const relay=await fixture(t,`
+ const requestedModel=arg('--model'),requestedEffort=args.find(a=>a.startsWith('model_reasoning_effort='));
+ if(args.includes('web_search="live"'))emit({type:'item.completed',item:{type:'web_search',action:{type:'open_page',url:'https://maker.example/item'}}});
+ fs.writeFileSync(arg('--output-last-message'),JSON.stringify({model:'Vendor A1',detail:[requestedModel,requestedEffort].join(' ')}));
+ emit({type:'turn.completed',usage:{}});
+ `);
+ const base={...relay,FORMBENCH_LOCAL_CODEX_LOOKUP_MODEL:'gpt-6.2-sol',FORMBENCH_LOCAL_CODEX_LOOKUP_EFFORT:'low'};
+ const policy='local-codex-luna-max',signal=new AbortController().signal;
+ assert.deepEqual(designProviders(base).map(p=>[p.id,p.lunaMax]),[['local-codex',true]]);
+ assert.throws(()=>checkChoice(policy,{OPENAI_API_KEY:'fixture',OPENAI_MODEL:'fixture'}),{status:409});
+ const answer={type:'object',properties:{model:{type:'string'},detail:{type:'string'}},required:['model','detail'],additionalProperties:false};
+ const stage=(name,env)=>structuredCall(unexpectedApi,env,signal,{input:'fixture',text:format(name,answer)},name);
+ function verify(receipt){
+  assert.equal(receipt.provider,'local-codex');
+  assert.equal(receipt.model,'gpt-6-luna');
+  assert.equal(receipt.modelSource,'configured');
+  assert.equal(receipt.reasoning.effort,'max');
+ }
+ const request=new Request('http://localhost/api/design',{method:'POST',headers:{'X-Formbench-Provider':policy},body:'{}'});
+ const discussion=await routedDiscussion(request,base,{run:async(_request,env)=>{
+  for(const name of ['hardware_clarification','hardware_clarification_review']){
+   const response=await stage(name,env);verify(response);
+   assert.equal(response.value.detail,'gpt-6-luna model_reasoning_effort="max"');
+  }
+  return Response.json({decision:'ready'});
+ }});
+ assert.equal(discussion.status,200);
+ const scoped=providerEnv('local-codex',base,undefined,policy);
+ for(const name of ['hardware_design','hardware_design_revision','hardware_design_review']){
+  const result=await stage(name,scoped);verify(result);
+  assert.equal(result.value.detail,'gpt-6-luna model_reasoning_effort="max"');
+ }
+ const part={name:'connector',model:'Vendor A1',kind:'purchase'};
+ for(const lookup of [part,{...part,researchQuestion:'verify pinout'}]){
+  const record=await researchPart(lookup,scoped,unexpectedApi,signal);
+  verify(record.researchProvenance);
+  assert.equal(record.detail,'gpt-6-luna model_reasoning_effort="max"');
+ }
+ const ordinary=await researchPart(part,base,unexpectedApi,signal);
+ assert.equal(ordinary.detail,'gpt-6.2-sol model_reasoning_effort="low"');
 });
 
 test('local relay uses real native search URLs and keeps credentials, images and execution isolated',async t=>{

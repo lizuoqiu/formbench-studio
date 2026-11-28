@@ -10,6 +10,8 @@ import {photoPicker,versionImages} from './consumer-design-images.js';
 import {galleryAsset,loadSharedProject,mountGallery,shareLink,sharedProjectBar,showShareDialog} from './consumer-gallery.js';
 const $=s=>document.querySelector(s),entry=$('#entry'),project=$('#project');
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const providerSelect=$('#run-provider'),lunaPolicy='local-codex-luna-max';
+const knownPolicy=value=>Array.from(providerSelect.options).some(option=>option.value===value);
 const modelText=p=>[p.model,p.spec].filter(x=>typeof x==='string'&&x.trim()).filter((v,i,a)=>a.indexOf(v)===i).join(' · ');
 const sourceText=s=>({catalog:'参考模型',cad:'CAD 文件尺寸',datasheet:'型号资料尺寸',estimated:'设计估算',specified:'已指定尺寸'}[s]||'尚未指定');
 const safeUrl=v=>{try{const u=new URL(v);return u.protocol==='https:'||u.protocol==='http:'?u:null}catch{return null}};
@@ -45,7 +47,8 @@ function readIteration(record){
   const conversation=Array.isArray(value?.conversation)?value.conversation.filter(t=>['assistant','user'].includes(t?.role)&&typeof t.text==='string'&&t.text.trim()):[];
   return {version:Number.isSafeInteger(value?.version)&&value.version>0?value.version:1,conversation,
     ...(Number.isInteger(value?.imageCount)&&value.imageCount>0&&value.imageCount<=3?{imageCount:value.imageCount}:{}),
-    ...(typeof value?.previousId==='string'?{previousId:value.previousId}:{})};
+    ...(typeof value?.previousId==='string'?{previousId:value.previousId}:{}),
+    ...(knownPolicy(value?.policy)?{policy:value.policy}:{})};
 }
 function revisionHistory(){
   if(!projectPrompt&&!iteration.conversation.length)return '';
@@ -60,7 +63,20 @@ function remember(attachmentsReady){
   saveTail=saveTail.then(async()=>{if(attachmentsReady)await attachmentsReady;if(epoch!==accountEpoch)return;try{await saveConsumerProject(snap)}catch{if(seq===saveSerial&&snap.id===projectId){const note=$('#save-status');if(note)note.textContent='项目暂未保存。'}}});
 }
 function notice(id,msg='',href='',label=''){const el=$(id);if(el)el.innerHTML=msg?`<p class="notice">${esc(msg)} ${href?shopLink(href,label):''}</p>`:''}
-const localPrompt=()=>{try{if(!['127.0.0.1','localhost','[::1]'].includes(location.hostname))return;const incoming=new URLSearchParams(location.hash.slice(1)).get('wish');if(incoming){const mode=new URLSearchParams(location.hash.slice(1)).get('provider');if(['auto','openai-api','local-codex'].includes(mode))$('#run-provider').value=mode;$('#wish').value=incoming.slice(0,1800);history.replaceState(null,'',location.pathname+location.search)}}catch{}};
+const intakeFragment=new URLSearchParams(location.hash.slice(1));
+const freshIntake=new URLSearchParams(location.search).has('new')||intakeFragment.has('wish')||knownPolicy(intakeFragment.get('provider'));
+function clearIntakeRoute(){
+  const url=new URL(location.href),hash=new URLSearchParams(url.hash.slice(1));
+  if(!url.searchParams.has('new')&&!hash.has('provider')&&!hash.has('wish'))return;
+  url.searchParams.delete('new');
+  hash.delete('provider');hash.delete('wish');url.hash=hash.toString();
+  history.replaceState(history.state,'',url);
+}
+if(knownPolicy(intakeFragment.get('provider')))providerSelect.value=intakeFragment.get('provider');
+if(intakeFragment.has('wish')){
+  $('#wish').value=intakeFragment.get('wish').slice(0,1800);
+  const url=new URL(location.href);intakeFragment.delete('wish');url.hash=intakeFragment.toString();history.replaceState(history.state,'',url);
+}
 let incomingRevision='';
 if(['127.0.0.1','localhost','[::1]'].includes(location.hostname)
    &&['fist','status'].includes(new URLSearchParams(location.search).get('example'))){
@@ -70,15 +86,29 @@ if(['127.0.0.1','localhost','[::1]'].includes(location.hostname)
     history.replaceState(null,'',location.pathname+location.search);
   }
 }
-localPrompt();
-function capabilityHint(){if(!$('#entry-progress').hidden)return;const href=localUrl(caps.localUrl);if(caps.ai===false&&href){$('#generate').textContent='在本机生成';notice('#entry-notice','此页面可直接查看示例。生成新方案将在已启动的本机工作室继续。')}else if(caps.ai===false){notice('#entry-notice','此设备还没有接好设计服务，可以先查看示例。');$('#generate').disabled=true}}
-function generationLabel(provider=caps.aiProvider){
- const who={'local-codex':'本机 Codex','openai-api':'OpenAI API'}[provider]||'设计服务';
- if(provider!==caps.aiProvider)return who;
+function canHandOff(){return caps.ai===false&&!!localUrl(caps.localUrl)}
+function lunaUnavailable(policy){return policy===lunaPolicy&&!caps.lunaMax&&!canHandOff()}
+function generationLabel(policy,provider){
+ if(policy===lunaPolicy)return providerSelect.querySelector('[value="'+lunaPolicy+'"]').textContent;
+ const actual=provider||(policy==='auto'?caps.aiProvider:policy);
+ const who={'local-codex':'本机 Codex','openai-api':'OpenAI API'}[actual]||'设计服务';
+ if(actual!==caps.aiProvider)return who;
  return caps.aiModel?`${who} · 请求模型：${caps.aiModel}`:`${who} · 当前未公开模型名`;
 }
-const capabilitiesReady=serviceCapabilities().then(v=>{caps=v||{};entryPhotos.refresh();revisionPhotos?.refresh();const model=$('#selected-model');model.hidden=!caps.ai;model.textContent=caps.ai?generationLabel():'';if(!entry.hidden)capabilityHint();else if($('#buy')){rows.forEach((_,i)=>refreshRow(i));syncCart()}}).catch(()=>{});
-function showEntry(){stopDraft();if(caps.ai)$('#selected-model').textContent=generationLabel();entryPhotos.clear();revisionPhotos=null;syncExampleUrl();progress();projectId=null;projectPrompt='';design=null;sharedProject=null;savedCadUrl=null;copyOrigin=null;generation++;cartVersion++;cartBusy=false;cadDispose?.();cadDispose=null;entry.hidden=false;project.hidden=true;project.replaceChildren();$('#back').hidden=true;$('#generate').disabled=false;$('#generate').textContent='生成设计';$('#sample').disabled=false;notice('#entry-notice');capabilityHint();window.scrollTo(0,0);$('#wish').focus()}
+function capabilityHint(){
+ if(!$('#entry-progress').hidden||draft)return;
+ const policy=providerSelect.value,unavailable=lunaUnavailable(policy),local=canHandOff();
+ providerSelect.querySelector('[value="'+lunaPolicy+'"]').disabled=lunaUnavailable(lunaPolicy);
+ const model=$('#selected-model');model.hidden=!caps.ai&&policy!==lunaPolicy;
+ model.textContent=model.hidden?'':generationLabel(policy);
+ $('#generate').disabled=unavailable||(!caps.ai&&!local);
+ $('#generate').textContent=local?'在本机生成':'生成设计';
+ const message=unavailable?'当前工作台未提供 GPT‑6‑Luna / max。请选择其他运行方式。':local?'生成新方案将在本机工作台继续。':caps.ai===false?'此设备还没有接好设计服务，可以先查看示例。':'';
+ notice('#entry-notice',message);
+}
+providerSelect.addEventListener('change',capabilityHint);
+const capabilitiesReady=serviceCapabilities().then(v=>{caps=v||{};entryPhotos.refresh();revisionPhotos?.refresh();if(!entry.hidden)capabilityHint();else if($('#buy')){rows.forEach((_,i)=>refreshRow(i));syncCart()}}).catch(()=>{});
+function showEntry(){stopDraft();clearIntakeRoute();providerSelect.value='auto';entryPhotos.clear();revisionPhotos=null;syncExampleUrl();progress();projectId=null;projectPrompt='';design=null;sharedProject=null;savedCadUrl=null;copyOrigin=null;generation++;cartVersion++;cartBusy=false;cadDispose?.();cadDispose=null;entry.hidden=false;project.hidden=true;project.replaceChildren();$('#back').hidden=true;$('#generate').disabled=false;$('#generate').textContent='生成设计';$('#sample').disabled=false;notice('#entry-notice');capabilityHint();window.scrollTo(0,0);$('#wish').focus()}
 $('#back').onclick=()=>{showEntry();$('#wish').value=''};
 function progress(phase){
   const node=$('#entry-progress');node.hidden=!phase;$('#intent').setAttribute('aria-busy',String(!!phase));
@@ -106,7 +136,8 @@ function setDraftBusy(state,phase=''){
   if(field)field.readOnly=!!draft;
   if(submit)submit.disabled=!!draft;
   if(initial){
-    if(phase?.provider)$('#selected-model').textContent=generationLabel(phase.provider);
+    providerSelect.disabled=!!draft;
+    if(phase?.provider){clearIntakeRoute();$('#selected-model').textContent=generationLabel(phase.policy??state.policy,phase.provider)}
     progress(phase);
     if(phase==='discuss'){
       $('#build-title').textContent='正在读取需求';
@@ -184,7 +215,7 @@ async function requestDraft(state,action){
       d=await generateDesign(state.prompt,{context,signal,iterative:caps.designJobs,onProgress:phase=>{if(draft===state)setDraftBusy(state,phase)}});
     }
     if(draft!==state)return;
-    const next={version:state.version,conversation:state.conversation,...(state.images.length?{imageCount:state.images.length}:{}),...(state.previousId?{previousId:state.previousId}:{})};
+    const next={version:state.version,conversation:state.conversation,...(knownPolicy(state.policy)?{policy:state.policy}:{}),...(state.images.length?{imageCount:state.images.length}:{}),...(state.previousId?{previousId:state.previousId}:{})};
     if(state.previousId&&sample)remember();
     await showProject(d,false,{prompt:state.prompt,iteration:next,...(d.generation?.cadUrl?{savedCadUrl:new URL(d.generation.cadUrl,location.origin).href}:{})},state.images);
   }catch(error){
@@ -200,14 +231,24 @@ function startDraft(mode,prompt,feedback=''){
   const conversation=revision?structuredClone(iteration.conversation):[];
   const discussionStart=conversation.length;
   if(revision)conversation.push({role:'user',text:feedback});
-  const state={mode,prompt,policy:$('#run-provider')?.value||'auto',conversation,discussionStart,photoInput:revision?revisionPhotos:entryPhotos,version:revision?iteration.version+1:1,
+  const policy=revision?(iteration.policy||'auto'):providerSelect.value;
+  if(lunaUnavailable(policy)){
+    const message='当前工作台未提供此项目选用的 GPT‑6‑Luna / max。';
+    if(revision)$('#revision-status').textContent=message;else notice('#entry-notice',message);
+    return;
+  }
+  const state={mode,prompt,policy,conversation,discussionStart,photoInput:revision?revisionPhotos:entryPhotos,version:revision?iteration.version+1:1,
     baseDesign:revision?structuredClone({...design,summary:design.summary||design.name,steps:Array.isArray(design.steps)?design.steps:[]}):null,previousId:revision?projectId:null,
     controller:new AbortController(),panel:$(revision?'#revision-conversation':'#entry-conversation')};
   draft=state;requestDraft(state,'discuss');
 }
 $('#intent').onsubmit=e=>{
   e.preventDefault();const p=$('#wish').value.trim();const local=localUrl(caps.localUrl);
-  if(!caps.ai&&local){const u=new URL(local);if(p)u.hash=new URLSearchParams({wish:p,...($('#run-provider')?.value&&$('#run-provider').value!=='auto'?{provider:$('#run-provider').value}:{})}).toString();window.open(u.href,'_blank','noopener,noreferrer');return}
+  if(!caps.ai&&local){
+    const u=new URL(local);u.searchParams.set('new','1');
+    u.hash=new URLSearchParams({...(p?{wish:p}:{}),...(providerSelect.value!=='auto'?{provider:providerSelect.value}:{})}).toString();
+    window.open(u.href,'_blank','noopener,noreferrer');return;
+  }
   if(!p){$('#wish').focus();notice('#entry-notice','先写一句你想实现的功能。');return}
   notice('#entry-notice');startDraft('new',p);
 };
@@ -255,9 +296,9 @@ async function openCompletedJob(id){
   stopDraft();const run=++generation;
   notice('#entry-notice','正在打开设计…');
   try{
-    const {design:d,prompt}=await loadCompletedDesignJob(id);
+    const {design:d,prompt,policy}=await loadCompletedDesignJob(id);
     if(run!==generation)return;
-    await showProject(d,false,{id,prompt,...(d.generation?.cadUrl?{savedCadUrl:new URL(d.generation.cadUrl,location.origin).href}:{})});
+    await showProject(d,false,{id,prompt,iteration:{policy},...(d.generation?.cadUrl?{savedCadUrl:new URL(d.generation.cadUrl,location.origin).href}:{})});
     const url=new URL(location.href);url.searchParams.set('job',id);history.replaceState(history.state,'',url);
     remember();notice('#entry-notice');
   }catch(error){if(run===generation)notice('#entry-notice',error.message);}
@@ -402,7 +443,7 @@ function projectWorkspace(){
         <details class="project-origin"><summary>模型来源</summary>${provenance(design)}</details>
       </section>
       <section class="revision-panel" aria-label="修改设计">${sharedProject?'<p class="shared-edit-note">这是固定分享版本。创建个人副本后，可以继续修改。</p>':''}<form id="revision-form" ${sharedProject?'hidden':''}><label for="revision-prompt">修改设计</label>
-        <div class="revision-row"><textarea id="revision-prompt" maxlength="1800" rows="3" placeholder="想改哪里？比如把外壳做矮一点。"></textarea><button class="primary" type="submit" id="revise-design">生成新版</button></div>
+        <div class="revision-row"><textarea id="revision-prompt" maxlength="1800" rows="3" placeholder="想改哪里？比如把外壳做矮一点。"></textarea><button class="primary" type="submit" id="revise-design" disabled>生成新版</button></div>
         </form><p id="revision-status" role="status"></p><div id="revision-conversation" aria-live="polite"></div>
       </section>
       ${revisionHistory()}
@@ -461,7 +502,7 @@ window.matchMedia('(max-width: 760px)').addEventListener('change',()=>{
   if(!project.hidden&&$('#project-model'))selectProjectView(project.dataset.view);
 });
 
-async function showProject(d,isSample,record={},newImages=null){if(!d||!Array.isArray(d.parts)||!d.parts.length)throw Error('没有收到可用的零件方案，请换个描述再试。');stopDraft();iteration=readIteration(record);generation++;const run=generation;cartVersion++;cartBusy=false;design=structuredClone(d);exampleAsset=record.exampleAsset==='fist-bump'&&iteration.version===1?'fist-bump-v1':fistAsset(record.exampleAsset)||record.exampleAsset==='status-light'?record.exampleAsset:null;
+async function showProject(d,isSample,record={},newImages=null){if(!d||!Array.isArray(d.parts)||!d.parts.length)throw Error('没有收到可用的零件方案，请换个描述再试。');stopDraft();clearIntakeRoute();iteration=readIteration(record);generation++;const run=generation;cartVersion++;cartBusy=false;design=structuredClone(d);exampleAsset=record.exampleAsset==='fist-bump'&&iteration.version===1?'fist-bump-v1':fistAsset(record.exampleAsset)||record.exampleAsset==='status-light'?record.exampleAsset:null;
   sharedProject=record.shared||null;savedCadUrl=record.savedCadUrl||null;copyOrigin=record.copyOrigin||null;
   project.dataset.shared=String(!!sharedProject);
   if(sharedProject)history.replaceState(history.state,'',shareLink(sharedProject.entry.slug,sharedProject.selected.version));
@@ -483,6 +524,8 @@ async function showProject(d,isSample,record={},newImages=null){if(!d||!Array.is
   });
   const revisionField=$('#revision-prompt');
   if(incomingRevision){revisionField.value=incomingRevision;incomingRevision='';revisionField.focus({preventScroll:true})}
+  $('#revise-design').disabled=lunaUnavailable(iteration.policy);
+  if($('#revise-design').disabled)$('#revision-status').textContent='当前工作台未提供此项目选用的 GPT‑6‑Luna / max。';
   if(!caps.ai&&localUrl(caps.localUrl))$('#revise-design').textContent=exampleAsset?'在本机继续修改':'在本机新建设计';
   mount();renderList();syncCart();window.scrollTo(0,0);const queue=rows.flatMap((r,i)=>r.searching?[i]:[]);await Promise.all(Array.from({length:Math.min(3,queue.length)},async()=>{while(queue.length&&generation===run){await lookup(queue.shift(),run)}}))}
 async function lookup(i,run){const p=design.parts[i],r=rows[i],serial=++r.serial;r.searching=true;try{const x=await findProducts(p);if(run!==generation||serial!==r.serial)return;r.searchUrl=market(x?.searchUrl)?.href||defaultSearch(p);r.candidates=(x?.candidates||[]).filter(c=>productUrl(c?.url));r.choice=r.candidates.length===1?0:-1}catch{if(run!==generation||serial!==r.serial)return;r.searchUrl=defaultSearch(p)}finally{if(run===generation&&serial===r.serial){r.searching=false;refreshRow(i);syncCart()}}}
@@ -696,10 +739,12 @@ if(handoffToken&&/^[a-f0-9]{48}$/.test(handoffToken)){
 
 capabilitiesReady.then(()=>{
   const pending=pendingDesignJob();
-  if(!caps.designJobs||!pending||draft||!entry.hidden&&location.search)return;
+  if(!caps.designJobs||!pending||draft||freshIntake||location.search)return;
   if(!entry.hidden){
     const input=pending.input;
     $('#wish').value=input.prompt;
+    providerSelect.value=knownPolicy(input.provider)?input.provider:'auto';
+    $('#selected-model').textContent=generationLabel(providerSelect.value);
     const state={mode:'new',prompt:input.prompt,policy:input.provider,conversation:input.conversation||[],discussionStart:input.discussionStart||0,
       images:input.images||[],baseDesign:input.baseDesign||null,repairCandidate:input.repairCandidate||null,version:input.baseDesign?2:1,
       controller:new AbortController(),panel:$('#entry-conversation')};

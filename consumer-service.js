@@ -49,7 +49,8 @@ function helperPresent(){
 export async function serviceCapabilities(){
   const fallback=capabilityFallback();
   const [ext,d]=await Promise.all([helperPresent(),isPages()?null:call('capabilities').catch(()=>null)]);
-  return {...fallback,...(d?.designJobs===true?{designJobs:true}:{}),...(d?.cadEngine==='forgecad'?{cadEngine:'forgecad'}:{}),...(hereIsLocal()&&d?.shoppingWindow===true?{shoppingWindow:true}:{}),ai:d?.ai===true,...(d?.ai===true&&d.aiProvider==='openai-api'&&d.designImages===true?{designImages:true}:{}),...(d?.ai===true&&text(d.aiModel,180)?{aiModel:text(d.aiModel,180)}:{}),...(['local-codex','openai-api'].includes(d?.aiProvider)?{aiProvider:d.aiProvider}:{}),catalog:d?.catalog===true,cart:ext?'browser':d?.cart==='official'?'official':'manual'};
+  const lunaMax=Array.isArray(d?.designProviders)&&d.designProviders.some(p=>p?.id==='local-codex'&&p.lunaMax===true);
+  return {...fallback,...(lunaMax?{lunaMax:true}:{}),...(d?.designJobs===true?{designJobs:true}:{}),...(d?.cadEngine==='forgecad'?{cadEngine:'forgecad'}:{}),...(hereIsLocal()&&d?.shoppingWindow===true?{shoppingWindow:true}:{}),ai:d?.ai===true,...(d?.ai===true&&d.aiProvider==='openai-api'&&d.designImages===true?{designImages:true}:{}),...(d?.ai===true&&text(d.aiModel,180)?{aiModel:text(d.aiModel,180)}:{}),...(['local-codex','openai-api'].includes(d?.aiProvider)?{aiProvider:d.aiProvider}:{}),catalog:d?.catalog===true,cart:ext?'browser':d?.cart==='official'?'official':'manual'};
 }
 
 const sampleRows=[
@@ -148,7 +149,7 @@ export async function loadCompletedDesignJob(id){
   if(!/^[a-f0-9-]{36}$/.test(id))throw Error('设计任务地址无效。');
   const job=await call('design-jobs/'+id);
   if(job.status!=='complete')throw Error(job.error||job.progress?.message||'设计任务尚未完成。');
-  return {design:normalizeDesign(job.design),prompt:text(job.prompt,10000)};
+  return {design:normalizeDesign(job.design),prompt:text(job.prompt,10000),policy:job.policy};
 }
 function detail(raw){
   if(!raw||typeof raw!=='object')return null;
